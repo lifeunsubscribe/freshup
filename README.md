@@ -21,6 +21,16 @@ cp .env.example .env
 docker compose up -d
 ```
 
+### Homelab Runner (Dell/homelab)
+
+Cron job runs every 5 minutes — auto-deploys on new commits, restarts crashed containers, monitors disk space, and backs up the database daily. Run once on the server:
+
+```bash
+./deploy/install.sh
+```
+
+Logs: `tail -f /var/log/homelab.log` | Alerts only: `grep ALERT /var/log/homelab.log`
+
 ### Health Check
 
 ```
@@ -35,6 +45,15 @@ freshup/
 ├── Dockerfile            # API container build
 ├── requirements.txt      # Python dependencies
 ├── .env.example          # Environment config template
+├── deploy/
+│   ├── homelab.sh        # Main runner (cron entry point)
+│   ├── install.sh        # One-time server setup
+│   ├── lib.sh            # Shared logging utilities
+│   └── checks/
+│       ├── freshup.sh    # Git pull + smart rebuild
+│       ├── containers.sh # Restart crashed containers
+│       ├── disk-space.sh # Disk usage warnings
+│       └── backup.sh     # Daily SQLite backup (14-day retention)
 └── src/
     ├── main.py           # FastAPI entry point
     ├── config.py         # Environment-based settings
