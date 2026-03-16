@@ -6,3 +6,4 @@ pydantic==2.10.4
 pydantic-settings==2.7.1
 boto3==1.36.4
 python-multipart==0.0.20
+bcrypt==5.0.0
