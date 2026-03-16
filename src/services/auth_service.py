@@ -43,9 +43,11 @@ def hash_password(password: str) -> str:
         Hashed password string
 
     Raises:
-        ValueError: If password is empty or exceeds bcrypt's 72-byte limit
+        ValueError: If password is None, empty, or exceeds bcrypt's 72-byte limit
     """
-    if not password:
+    if password is None:
+        raise ValueError("Password cannot be None")
+    if not password or not password.strip():
         raise ValueError("Password cannot be empty")
     if len(password.encode('utf-8')) > 72:
         raise ValueError("Password exceeds maximum length (72 bytes)")
@@ -56,21 +58,25 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a plain text password against a hashed password.
 
+    Fails closed: returns False for any invalid input or malformed hashes.
+
     Args:
         plain_password: Plain text password to verify
         hashed_password: Hashed password to compare against
 
     Returns:
         True if password matches, False otherwise
-
-    Raises:
-        ValueError: If plain_password is empty or hashed_password is empty
     """
-    if not plain_password:
-        raise ValueError("Password cannot be empty")
-    if not hashed_password:
-        raise ValueError("Hashed password cannot be empty")
-    return pwd_context.verify(plain_password, hashed_password)
+    if plain_password is None or hashed_password is None:
+        return False
+    if not plain_password or not plain_password.strip():
+        return False
+    if not hashed_password or not hashed_password.strip():
+        return False
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 
 
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
