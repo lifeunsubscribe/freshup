@@ -81,6 +81,25 @@ class TestHashPassword:
         assert hashed.startswith("$2b$12$")
         assert verify_password(max_length_password, hashed)
 
+    def test_hash_password_rejects_unicode_exceeding_byte_limit(self):
+        """Test that passwords with unicode that exceed 72 bytes are rejected.
+
+        This tests the critical edge case where character count != byte count.
+        For example, emoji and multibyte unicode characters can cause a password
+        with <72 characters to exceed the 72-byte bcrypt limit.
+        """
+        # Use 4-byte emoji characters: each 🔒 is 4 bytes in UTF-8
+        # 18 emoji × 4 bytes = 72 bytes (at the limit)
+        at_limit_password = "🔒" * 18  # Exactly 72 bytes
+        hashed = hash_password(at_limit_password)
+        assert hashed.startswith("$2b$12$")
+        assert verify_password(at_limit_password, hashed)
+
+        # 19 emoji × 4 bytes = 76 bytes (exceeds limit)
+        over_limit_password = "🔒" * 19  # 76 bytes, only 19 characters
+        with pytest.raises(ValueError, match="Password exceeds maximum length"):
+            hash_password(over_limit_password)
+
 
 class TestVerifyPassword:
     """Tests for the verify_password function."""

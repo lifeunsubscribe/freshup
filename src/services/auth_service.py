@@ -34,11 +34,14 @@ def hash_password(password: str) -> str:
         raise ValueError("Password cannot be None")
     if not password or not password.strip():
         raise ValueError("Password cannot be empty")
-    if len(password) > 72:
+
+    # Encode password to bytes and validate byte length
+    # bcrypt truncates at 72 bytes, so we must check byte length, not character count
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > 72:
         raise ValueError("Password exceeds maximum length of 72 bytes")
 
-    # Encode password to bytes and generate hash with 12 rounds
-    password_bytes = password.encode('utf-8')
+    # Generate hash with 12 rounds
     salt = bcrypt.gensalt(rounds=12)
     hashed = bcrypt.hashpw(password_bytes, salt)
     # Return as string for database storage
