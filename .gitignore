@@ -33,3 +33,7 @@ docker-compose.override.yml
 
 # Claude Code
 CLAUDE.md
+.rite
+.claude
+node_modules
+backend/node_modules

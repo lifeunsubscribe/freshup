@@ -21,11 +21,22 @@ def hash_password(password: str) -> str:
     Returns:
         A bcrypt hash string suitable for database storage
 
+    Raises:
+        ValueError: If password is None, empty, or exceeds maximum length
+
     Example:
         >>> hashed = hash_password("my_secure_password")
         >>> print(hashed[:7])  # bcrypt hashes start with $2b$
         $2b$12$
     """
+    # Validate input
+    if password is None:
+        raise ValueError("Password cannot be None")
+    if not password or not password.strip():
+        raise ValueError("Password cannot be empty")
+    if len(password) > 72:
+        raise ValueError("Password exceeds maximum length of 72 bytes")
+
     # Encode password to bytes and generate hash with 12 rounds
     password_bytes = password.encode('utf-8')
     salt = bcrypt.gensalt(rounds=12)
@@ -39,6 +50,7 @@ def verify_password(password: str, hashed: str) -> bool:
     Verify a plaintext password against a bcrypt hash.
 
     This function uses timing-safe comparison to prevent timing attacks.
+    Fails closed: returns False for any invalid input or malformed hashes.
 
     Args:
         password: The plaintext password to verify
@@ -54,7 +66,19 @@ def verify_password(password: str, hashed: str) -> bool:
         >>> verify_password("wrong_password", hashed)
         False
     """
-    # Encode both password and hash to bytes for bcrypt
-    password_bytes = password.encode('utf-8')
-    hashed_bytes = hashed.encode('utf-8')
-    return bcrypt.checkpw(password_bytes, hashed_bytes)
+    # Validate input - fail closed on any invalid input
+    if password is None or hashed is None:
+        return False
+    if not password or not password.strip():
+        return False
+    if not hashed or not hashed.strip():
+        return False
+
+    try:
+        # Encode both password and hash to bytes for bcrypt
+        password_bytes = password.encode('utf-8')
+        hashed_bytes = hashed.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except (ValueError, AttributeError):
+        # Malformed hash or encoding error - fail closed
+        return False
