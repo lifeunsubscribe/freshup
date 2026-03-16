@@ -31,6 +31,12 @@ class User(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(255))
+    # Email is nullable to support migration of existing users without email addresses
+    # New users will be required to provide an email during registration
+    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True, nullable=True)
+    # Password is nullable to support migration of existing users without passwords
+    # and potential future OAuth/SSO authentication methods
+    hashed_password: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
     role: Mapped[str] = mapped_column(String(50), default=UserRole.member.value)
     dietary_profile: Mapped[list] = mapped_column(JSON, default=list)
     allergies: Mapped[list] = mapped_column(JSON, default=list)
