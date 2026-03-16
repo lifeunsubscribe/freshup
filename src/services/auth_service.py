@@ -7,9 +7,25 @@ across household devices (phones, iPad terminal).
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from jose import jwt, JWTError
+from jose import jwt, JWTError, ExpiredSignatureError
 from passlib.context import CryptContext
 from src.config import get_settings
+
+
+# Custom exceptions for better error handling
+class TokenError(Exception):
+    """Base exception for token-related errors."""
+    pass
+
+
+class TokenExpiredError(TokenError):
+    """Raised when a token has expired."""
+    pass
+
+
+class TokenInvalidError(TokenError):
+    """Raised when a token is invalid or malformed."""
+    pass
 
 
 # Password hashing context (from Phase 1C - password hashing utilities)
@@ -25,7 +41,14 @@ def hash_password(password: str) -> str:
 
     Returns:
         Hashed password string
+
+    Raises:
+        ValueError: If password is empty or exceeds bcrypt's 72-byte limit
     """
+    if not password:
+        raise ValueError("Password cannot be empty")
+    if len(password.encode('utf-8')) > 72:
+        raise ValueError("Password exceeds maximum length (72 bytes)")
     return pwd_context.hash(password)
 
 
@@ -39,7 +62,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
     Returns:
         True if password matches, False otherwise
+
+    Raises:
+        ValueError: If plain_password is empty or hashed_password is empty
     """
+    if not plain_password:
+        raise ValueError("Password cannot be empty")
+    if not hashed_password:
+        raise ValueError("Hashed password cannot be empty")
     return pwd_context.verify(plain_password, hashed_password)
 
 
@@ -93,7 +123,7 @@ def decode_token(token: str) -> dict[str, Any]:
     Decode and validate a JWT access token.
 
     Validates the token signature and expiration, then returns the payload.
-    Automatically raises JWTError for invalid or expired tokens.
+    Uses custom exceptions to distinguish between different failure modes.
 
     Args:
         token: JWT token string to decode
@@ -102,7 +132,8 @@ def decode_token(token: str) -> dict[str, Any]:
         Dictionary containing the token payload (claims)
 
     Raises:
-        JWTError: If token is invalid, expired, or signature verification fails
+        TokenExpiredError: If token has expired
+        TokenInvalidError: If token is invalid, malformed, or signature verification fails
 
     Example:
         >>> payload = decode_token("eyJhbGc...")
@@ -110,11 +141,15 @@ def decode_token(token: str) -> dict[str, Any]:
     """
     settings = get_settings()
 
-    # Decode and validate token (raises JWTError if invalid/expired)
-    payload = jwt.decode(
-        token,
-        settings.jwt_secret_key,
-        algorithms=[settings.jwt_algorithm]
-    )
-
-    return payload
+    try:
+        # Decode and validate token
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm]
+        )
+        return payload
+    except ExpiredSignatureError as e:
+        raise TokenExpiredError("Token has expired") from e
+    except JWTError as e:
+        raise TokenInvalidError("Token is invalid or malformed") from e

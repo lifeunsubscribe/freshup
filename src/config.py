@@ -25,4 +25,10 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if not settings.jwt_secret_key:
+        raise ValueError(
+            "JWT_SECRET_KEY must be set in environment. "
+            "Generate with: python3 -c \"import secrets; print(secrets.token_urlsafe(32))\""
+        )
+    return settings
