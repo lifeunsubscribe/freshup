@@ -11,8 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code and Alembic config
+# Copy source code, tests, and Alembic config
 COPY src/ ./src/
+COPY tests/ ./tests/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 
