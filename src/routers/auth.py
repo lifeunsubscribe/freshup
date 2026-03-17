@@ -14,6 +14,10 @@ from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenRespon
 from src.services.auth_service import hash_password, verify_password, create_access_token
 
 
+# Pre-computed valid bcrypt hash for timing attack mitigation
+# This is the hash of "dummy_password_for_timing_attack_protection"
+DUMMY_PASSWORD_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.VTtYMwJR1fGKHi"
+
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
@@ -24,7 +28,8 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
     First-user coordinator logic: The first user to register in a fresh household
     automatically receives the 'coordinator' role regardless of the role field in
-    the request. Subsequent registrations default to 'member' if role is not specified.
+    the request. Subsequent registrations always default to 'member' to prevent
+    unauthorized self-promotion to coordinator role.
 
     Args:
         user_data: User registration data (name, email, password, dietary_profile, allergies, role)
@@ -51,8 +56,8 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         # First user - force coordinator role
         assigned_role = UserRole.coordinator.value
     else:
-        # Subsequent users - use provided role or default to member
-        assigned_role = user_data.role if user_data.role else UserRole.member.value
+        # Subsequent users - always default to member (prevents self-promotion)
+        assigned_role = UserRole.member.value
 
     # Hash the password
     hashed_password = hash_password(user_data.password)
@@ -98,7 +103,7 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     # Perform dummy password verification for non-existent users to prevent timing attacks
     if not user or not user.hashed_password:
         # Run a dummy password verification to match timing of real verification
-        verify_password(login_data.password, "$2b$12$dummyhashtopreventtimingattack1234567890")
+        verify_password(login_data.password, DUMMY_PASSWORD_HASH)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
