@@ -157,6 +157,11 @@ def decode_token(token: str) -> dict[str, Any]:
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm]
         )
+
+        # Validate required claims
+        if "sub" not in payload:
+            raise TokenInvalidError("Token missing required 'sub' claim")
+
         return payload
     except ExpiredSignatureError as e:
         raise TokenExpiredError("Token has expired") from e
