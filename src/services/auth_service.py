@@ -102,16 +102,19 @@ def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = 
     settings = get_settings()
     to_encode = data.copy()
 
+    # Get current time for consistent timestamp across exp and iat
+    now = datetime.now(timezone.utc)
+
     # Set expiration time
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+        expire = now + timedelta(minutes=settings.access_token_expire_minutes)
 
     # Add standard JWT claims
     to_encode.update({
         "exp": expire,  # Expiration time
-        "iat": datetime.now(timezone.utc)  # Issued at time
+        "iat": now  # Issued at time
     })
 
     # Encode and sign the token
