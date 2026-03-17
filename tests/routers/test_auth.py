@@ -141,6 +141,18 @@ class TestGetProfile:
         assert response.status_code == 401
         assert "detail" in response.json()
 
+    def test_get_profile_nonexistent_user(self, client):
+        """GET /auth/me returns 401 when token references deleted/non-existent user."""
+        # Create a token for a user ID that doesn't exist in the database
+        nonexistent_user_id = uuid4()
+        token = create_access_token(data={"sub": str(nonexistent_user_id)})
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/auth/me", headers=headers)
+
+        assert response.status_code == 401
+        assert "detail" in response.json()
+
     def test_get_profile_success(self, client, test_user, auth_headers):
         """GET /auth/me returns profile with valid token."""
         response = client.get("/auth/me", headers=auth_headers)
@@ -328,33 +340,31 @@ class TestUpdateProfile:
         db_session.refresh(test_user)
         assert test_user.dietary_profile == valid_profiles
 
-    def test_update_profile_ignores_protected_fields(self, client, test_user, auth_headers, db_session):
-        """PUT /auth/me ignores attempts to modify email or role (protected fields)."""
+    def test_update_profile_rejects_protected_fields(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me returns 422 when attempting to modify email or role (protected fields)."""
         original_email = test_user.email
         original_role = test_user.role
+        original_name = test_user.name
 
         # Attempt to update protected fields along with allowed fields
         update_data = {
             "name": "Updated Name",
-            "email": "hacker@evil.com",  # Should be ignored
-            "role": "admin",  # Should be ignored
+            "email": "hacker@evil.com",  # Should be rejected
+            "role": "admin",  # Should be rejected
         }
 
         response = client.put("/auth/me", json=update_data, headers=auth_headers)
 
-        # Request should succeed but protected fields should be unchanged
-        assert response.status_code == 200
-        data = response.json()
+        # Request should fail with validation error
+        assert response.status_code == 422
+        error_data = response.json()
+        assert "detail" in error_data
+        # Verify error message mentions protected fields
+        error_msg = str(error_data["detail"])
+        assert "protected" in error_msg.lower() or "email" in error_msg.lower() or "role" in error_msg.lower()
 
-        # Verify allowed field was updated
-        assert data["name"] == "Updated Name"
-
-        # Verify protected fields remain unchanged in response
-        assert data["email"] == original_email
-        assert data["role"] == original_role
-
-        # Verify database state - protected fields remain unchanged
+        # Verify database state - nothing should have changed (including the name field)
         db_session.refresh(test_user)
         assert test_user.email == original_email
         assert test_user.role == original_role
-        assert test_user.name == "Updated Name"
+        assert test_user.name == original_name  # Name should also be unchanged since the request was rejected

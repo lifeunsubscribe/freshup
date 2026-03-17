@@ -5,8 +5,8 @@ Defines request/response models for user registration and login.
 """
 
 from uuid import UUID
-from typing import Optional
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import Optional, Any
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from src.db.models.user import UserRole, DietaryProfile
 
 
@@ -109,6 +109,26 @@ class UserUpdate(BaseModel):
                 if profile not in valid_profiles:
                     raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
         return v
+
+    @model_validator(mode='before')
+    @classmethod
+    def reject_protected_fields(cls, data: Any) -> Any:
+        """
+        Explicitly reject attempts to modify protected fields.
+
+        Protected fields (email, role) can only be modified through dedicated
+        administrative endpoints, not through the user profile update endpoint.
+        This provides defense-in-depth and clear error messages for API consumers.
+        """
+        if isinstance(data, dict):
+            protected_fields = {'email', 'role'}
+            submitted_protected = protected_fields.intersection(data.keys())
+            if submitted_protected:
+                raise ValueError(
+                    f"Cannot modify protected fields: {', '.join(sorted(submitted_protected))}. "
+                    f"These fields cannot be updated through this endpoint."
+                )
+        return data
 
 
 class TokenResponse(BaseModel):
