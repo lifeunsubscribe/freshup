@@ -4,6 +4,7 @@ Authentication endpoints for FreshUp.
 Provides user registration and login endpoints with JWT token generation.
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -13,6 +14,8 @@ from src.db.models.user import User, UserRole
 from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate
 from src.services.auth_service import hash_password, verify_password, create_access_token
 from src.middleware.auth import get_current_user
+
+logger = logging.getLogger(__name__)
 
 
 # Pre-computed valid bcrypt hash for timing attack mitigation
@@ -179,11 +182,22 @@ def update_current_user_profile(
         "favorite_ingredients"
     }
 
+    PROTECTED_FIELDS = {"email", "role"}
+
     # Update only the fields that were provided (partial updates)
     update_dict = update_data.model_dump(exclude_unset=True)
 
     for field, value in update_dict.items():
         if field not in ALLOWED_UPDATE_FIELDS:
+            # Log attempts to modify protected fields for security monitoring
+            if field in PROTECTED_FIELDS:
+                logger.warning(
+                    "Attempted modification of protected field '%s' by user %s (email: %s). "
+                    "This may indicate a privilege escalation attempt.",
+                    field,
+                    current_user.id,
+                    current_user.email
+                )
             # Silently skip disallowed fields for defense-in-depth
             continue
         setattr(current_user, field, value)

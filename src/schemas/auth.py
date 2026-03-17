@@ -102,12 +102,23 @@ class UserUpdate(BaseModel):
     @field_validator('dietary_profile')
     @classmethod
     def validate_dietary_profile(cls, v: Optional[list[str]]) -> Optional[list[str]]:
-        """Ensure dietary_profile contains valid DietaryProfile enum values."""
+        """Ensure dietary_profile contains valid DietaryProfile enum values and strip whitespace."""
         if v is not None:
+            # Strip whitespace from each item
+            v = [item.strip() for item in v if item.strip()]
             valid_profiles = [profile.value for profile in DietaryProfile]
             for profile in v:
                 if profile not in valid_profiles:
                     raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
+        return v
+
+    @field_validator('allergies', 'disliked_ingredients', 'favorite_ingredients')
+    @classmethod
+    def strip_whitespace_from_list_items(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        """Strip whitespace from list items to ensure data consistency."""
+        if v is not None:
+            # Strip whitespace from each item and filter out empty strings
+            v = [item.strip() for item in v if item.strip()]
         return v
 
     @model_validator(mode='before')
