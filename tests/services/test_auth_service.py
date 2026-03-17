@@ -1,17 +1,21 @@
 """
-Unit tests for authentication service password hashing utilities.
+Unit tests for authentication service.
 
 Tests cover:
-- Happy path: hash and verify correct password
-- Negative cases: verify incorrect password returns False
-- Edge cases: empty string, unicode passwords, very long passwords
-- Hash format validation
-- Input validation
-- Exception handling for malformed hashes
+- Password hashing: hash and verify, edge cases, input validation
+- JWT: create_access_token, decode_token, expiration, invalid tokens
 """
 
 import pytest
-from src.services.auth_service import hash_password, verify_password
+from datetime import timedelta
+from src.services.auth_service import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    decode_token,
+    TokenExpiredError,
+    TokenInvalidError,
+)
 
 
 class TestHashPassword:
@@ -227,3 +231,85 @@ class TestPasswordHashingIntegration:
         assert verify_password("password12", hashed) is False
         assert verify_password("password123x", hashed) is False
         assert verify_password(password, hashed) is True
+
+
+class TestCreateAccessToken:
+    """Tests for the create_access_token function."""
+
+    def test_create_access_token_returns_string(self):
+        """Token should be a non-empty string."""
+        token = create_access_token({"sub": "user-123"})
+        assert isinstance(token, str)
+        assert len(token) > 0
+
+    def test_create_access_token_is_valid_jwt(self):
+        """Token should be decodable and contain the original claims."""
+        payload = create_access_token({"sub": "user-abc"})
+        decoded = decode_token(payload)
+        assert decoded["sub"] == "user-abc"
+
+    def test_create_access_token_includes_exp_and_iat(self):
+        """Token payload must include exp and iat claims."""
+        token = create_access_token({"sub": "user-123"})
+        decoded = decode_token(token)
+        assert "exp" in decoded
+        assert "iat" in decoded
+
+    def test_create_access_token_custom_expiry(self):
+        """Custom expires_delta should be respected."""
+        token = create_access_token({"sub": "user-123"}, expires_delta=timedelta(minutes=5))
+        decoded = decode_token(token)
+        # exp - iat should be ~300 seconds (5 minutes)
+        delta = decoded["exp"] - decoded["iat"]
+        assert 290 <= delta <= 310
+
+    def test_create_access_token_different_tokens_per_call(self):
+        """Two tokens created from the same data should differ (iat differs)."""
+        import time
+        token1 = create_access_token({"sub": "user-123"})
+        time.sleep(1)
+        token2 = create_access_token({"sub": "user-123"})
+        assert token1 != token2
+
+    def test_create_access_token_does_not_mutate_input(self):
+        """The data dict passed in should not be modified."""
+        data = {"sub": "user-123"}
+        original = dict(data)
+        create_access_token(data)
+        assert data == original
+
+
+class TestDecodeToken:
+    """Tests for the decode_token function."""
+
+    def test_decode_token_returns_payload(self):
+        """Should return the claims dict for a valid token."""
+        token = create_access_token({"sub": "user-xyz"})
+        payload = decode_token(token)
+        assert payload["sub"] == "user-xyz"
+
+    def test_decode_token_raises_token_expired_error(self):
+        """Should raise TokenExpiredError for an expired token."""
+        token = create_access_token({"sub": "user-123"}, expires_delta=timedelta(seconds=-1))
+        with pytest.raises(TokenExpiredError):
+            decode_token(token)
+
+    def test_decode_token_raises_token_invalid_for_garbage(self):
+        """Should raise TokenInvalidError for a non-token string."""
+        with pytest.raises(TokenInvalidError):
+            decode_token("this.is.not.a.jwt")
+
+    def test_decode_token_raises_token_invalid_for_wrong_signature(self):
+        """Should raise TokenInvalidError if the signature doesn't verify."""
+        token = create_access_token({"sub": "user-123"})
+        # Tamper with the signature (last segment)
+        parts = token.split(".")
+        parts[-1] = parts[-1][:-4] + "XXXX"
+        tampered = ".".join(parts)
+        with pytest.raises(TokenInvalidError):
+            decode_token(tampered)
+
+    def test_decode_token_raises_token_invalid_for_empty_string(self):
+        """Should raise TokenInvalidError for an empty string."""
+        with pytest.raises(TokenInvalidError):
+            decode_token("")
