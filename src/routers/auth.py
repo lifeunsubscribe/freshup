@@ -10,8 +10,9 @@ from sqlalchemy import func
 
 from src.db.database import get_db
 from src.db.models.user import User, UserRole
-from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse
+from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate
 from src.services.auth_service import hash_password, verify_password, create_access_token
+from src.middleware.auth import get_current_user
 
 
 # Pre-computed valid bcrypt hash for timing attack mitigation
@@ -121,3 +122,60 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     access_token = create_access_token(data={"sub": str(user.id)})
 
     return TokenResponse(access_token=access_token, token_type="bearer")
+
+
+@router.get("/me", response_model=UserResponse)
+def get_current_user_profile(current_user: User = Depends(get_current_user)):
+    """
+    Get the authenticated user's profile.
+
+    Returns the full user profile for the authenticated user. Requires a valid
+    JWT token in the Authorization header.
+
+    Args:
+        current_user: Authenticated user (injected by get_current_user dependency)
+
+    Returns:
+        UserResponse: User profile data (excluding password)
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+    """
+    return current_user
+
+
+@router.put("/me", response_model=UserResponse)
+def update_current_user_profile(
+    update_data: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the authenticated user's profile.
+
+    Allows users to update their own profile information including name, dietary
+    preferences, allergies, and ingredient preferences. Email and role updates
+    are not permitted through this endpoint.
+
+    Args:
+        update_data: Profile fields to update (all fields optional)
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        UserResponse: Updated user profile data (excluding password)
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(422): If validation fails (invalid dietary profile, empty name, etc.)
+    """
+    # Update only the fields that were provided (partial updates)
+    update_dict = update_data.model_dump(exclude_unset=True)
+
+    for field, value in update_dict.items():
+        setattr(current_user, field, value)
+
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user

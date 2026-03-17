@@ -7,7 +7,7 @@ Defines request/response models for user registration and login.
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from src.db.models.user import UserRole
+from src.db.models.user import UserRole, DietaryProfile
 
 
 class UserCreate(BaseModel):
@@ -80,6 +80,35 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    """Request schema for updating user profile via PUT /auth/me."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255, description="User's display name")
+    dietary_profile: Optional[list[str]] = Field(default=None, description="Dietary preferences")
+    allergies: Optional[list[str]] = Field(default=None, description="Food allergies")
+    disliked_ingredients: Optional[list[str]] = Field(default=None, description="Disliked ingredients (stored as JSON array)")
+    favorite_ingredients: Optional[list[str]] = Field(default=None, description="Favorite ingredients (stored as JSON array)")
+
+    @field_validator('name')
+    @classmethod
+    def validate_name_not_empty(cls, v: Optional[str]) -> Optional[str]:
+        """Ensure name is not empty or whitespace only if provided."""
+        if v is not None and (not v or not v.strip()):
+            raise ValueError('Name cannot be empty')
+        return v.strip() if v else None
+
+    @field_validator('dietary_profile')
+    @classmethod
+    def validate_dietary_profile(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        """Ensure dietary_profile contains valid DietaryProfile enum values."""
+        if v is not None:
+            valid_profiles = [profile.value for profile in DietaryProfile]
+            for profile in v:
+                if profile not in valid_profiles:
+                    raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
+        return v
 
 
 class TokenResponse(BaseModel):
