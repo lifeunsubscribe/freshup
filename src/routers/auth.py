@@ -169,10 +169,23 @@ def update_current_user_profile(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(422): If validation fails (invalid dietary profile, empty name, etc.)
     """
+    # Explicit allowlist of fields that can be updated via this endpoint
+    # Security: role and email can NEVER be updated here to prevent privilege escalation
+    ALLOWED_UPDATE_FIELDS = {
+        "name",
+        "dietary_profile",
+        "allergies",
+        "disliked_ingredients",
+        "favorite_ingredients"
+    }
+
     # Update only the fields that were provided (partial updates)
     update_dict = update_data.model_dump(exclude_unset=True)
 
     for field, value in update_dict.items():
+        if field not in ALLOWED_UPDATE_FIELDS:
+            # Silently skip disallowed fields for defense-in-depth
+            continue
         setattr(current_user, field, value)
 
     db.commit()

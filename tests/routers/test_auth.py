@@ -308,3 +308,34 @@ class TestUpdateProfile:
         # Verify database state
         db_session.refresh(test_user)
         assert test_user.dietary_profile == valid_profiles
+
+    def test_update_profile_ignores_protected_fields(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me ignores attempts to modify email or role (protected fields)."""
+        original_email = test_user.email
+        original_role = test_user.role
+
+        # Attempt to update protected fields along with allowed fields
+        update_data = {
+            "name": "Updated Name",
+            "email": "hacker@evil.com",  # Should be ignored
+            "role": "admin",  # Should be ignored
+        }
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+        # Request should succeed but protected fields should be unchanged
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify allowed field was updated
+        assert data["name"] == "Updated Name"
+
+        # Verify protected fields remain unchanged in response
+        assert data["email"] == original_email
+        assert data["role"] == original_role
+
+        # Verify database state - protected fields remain unchanged
+        db_session.refresh(test_user)
+        assert test_user.email == original_email
+        assert test_user.role == original_role
+        assert test_user.name == "Updated Name"
