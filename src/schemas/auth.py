@@ -5,9 +5,9 @@ Defines request/response models for user registration and login.
 """
 
 from uuid import UUID
-from typing import Optional
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from src.db.models.user import UserRole
+from typing import Optional, Any
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from src.db.models.user import UserRole, DietaryProfile
 
 
 class UserCreate(BaseModel):
@@ -80,6 +80,66 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    """Request schema for updating user profile via PUT /auth/me."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255, description="User's display name")
+    dietary_profile: Optional[list[str]] = Field(default=None, description="Dietary preferences")
+    allergies: Optional[list[str]] = Field(default=None, description="Food allergies")
+    disliked_ingredients: Optional[list[str]] = Field(default=None, description="Disliked ingredients (stored as JSON array)")
+    favorite_ingredients: Optional[list[str]] = Field(default=None, description="Favorite ingredients (stored as JSON array)")
+
+    @field_validator('name')
+    @classmethod
+    def validate_name_not_empty(cls, v: Optional[str]) -> Optional[str]:
+        """Ensure name is not empty or whitespace only if provided."""
+        if v is not None and (not v or not v.strip()):
+            raise ValueError('Name cannot be empty')
+        return v.strip() if v else None
+
+    @field_validator('dietary_profile')
+    @classmethod
+    def validate_dietary_profile(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        """Ensure dietary_profile contains valid DietaryProfile enum values and strip whitespace."""
+        if v is not None:
+            # Strip whitespace from each item
+            v = [item.strip() for item in v if item.strip()]
+            valid_profiles = [profile.value for profile in DietaryProfile]
+            for profile in v:
+                if profile not in valid_profiles:
+                    raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
+        return v
+
+    @field_validator('allergies', 'disliked_ingredients', 'favorite_ingredients')
+    @classmethod
+    def strip_whitespace_from_list_items(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        """Strip whitespace from list items to ensure data consistency."""
+        if v is not None:
+            # Strip whitespace from each item and filter out empty strings
+            v = [item.strip() for item in v if item.strip()]
+        return v
+
+    @model_validator(mode='before')
+    @classmethod
+    def reject_protected_fields(cls, data: Any) -> Any:
+        """
+        Explicitly reject attempts to modify protected fields.
+
+        Protected fields (email, role) can only be modified through dedicated
+        administrative endpoints, not through the user profile update endpoint.
+        This provides defense-in-depth and clear error messages for API consumers.
+        """
+        if isinstance(data, dict):
+            protected_fields = {'email', 'role'}
+            submitted_protected = protected_fields.intersection(data.keys())
+            if submitted_protected:
+                raise ValueError(
+                    f"Cannot modify protected fields: {', '.join(sorted(submitted_protected))}. "
+                    f"These fields cannot be updated through this endpoint."
+                )
+        return data
 
 
 class TokenResponse(BaseModel):

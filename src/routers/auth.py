@@ -4,14 +4,18 @@ Authentication endpoints for FreshUp.
 Provides user registration and login endpoints with JWT token generation.
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from src.db.database import get_db
 from src.db.models.user import User, UserRole
-from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse
+from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate
 from src.services.auth_service import hash_password, verify_password, create_access_token
+from src.middleware.auth import get_current_user
+
+logger = logging.getLogger(__name__)
 
 
 # Pre-computed valid bcrypt hash for timing attack mitigation
@@ -121,3 +125,84 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     access_token = create_access_token(data={"sub": str(user.id)})
 
     return TokenResponse(access_token=access_token, token_type="bearer")
+
+
+@router.get("/me", response_model=UserResponse)
+def get_current_user_profile(current_user: User = Depends(get_current_user)):
+    """
+    Get the authenticated user's profile.
+
+    Returns the full user profile for the authenticated user. Requires a valid
+    JWT token in the Authorization header.
+
+    Args:
+        current_user: Authenticated user (injected by get_current_user dependency)
+
+    Returns:
+        UserResponse: User profile data (excluding password)
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+    """
+    return current_user
+
+
+@router.put("/me", response_model=UserResponse)
+def update_current_user_profile(
+    update_data: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the authenticated user's profile.
+
+    Allows users to update their own profile information including name, dietary
+    preferences, allergies, and ingredient preferences. Email and role updates
+    are not permitted through this endpoint.
+
+    Args:
+        update_data: Profile fields to update (all fields optional)
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        UserResponse: Updated user profile data (excluding password)
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(422): If validation fails (invalid dietary profile, empty name, etc.)
+    """
+    # Explicit allowlist of fields that can be updated via this endpoint
+    # Security: role and email can NEVER be updated here to prevent privilege escalation
+    ALLOWED_UPDATE_FIELDS = {
+        "name",
+        "dietary_profile",
+        "allergies",
+        "disliked_ingredients",
+        "favorite_ingredients"
+    }
+
+    PROTECTED_FIELDS = {"email", "role"}
+
+    # Update only the fields that were provided (partial updates)
+    update_dict = update_data.model_dump(exclude_unset=True)
+
+    for field, value in update_dict.items():
+        if field not in ALLOWED_UPDATE_FIELDS:
+            # Log attempts to modify protected fields for security monitoring
+            if field in PROTECTED_FIELDS:
+                logger.warning(
+                    "Attempted modification of protected field '%s' by user %s (email: %s). "
+                    "This may indicate a privilege escalation attempt.",
+                    field,
+                    current_user.id,
+                    current_user.email
+                )
+            # Silently skip disallowed fields for defense-in-depth
+            continue
+        setattr(current_user, field, value)
+
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
