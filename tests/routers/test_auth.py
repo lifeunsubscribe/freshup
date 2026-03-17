@@ -132,6 +132,15 @@ class TestGetProfile:
         assert response.status_code == 401
         assert response.json()["detail"] == "Not authenticated"
 
+    def test_get_profile_invalid_token(self, client):
+        """GET /auth/me returns 401 with invalid/malformed JWT token."""
+        # Test with malformed token
+        invalid_headers = {"Authorization": "Bearer invalid.token.here"}
+        response = client.get("/auth/me", headers=invalid_headers)
+
+        assert response.status_code == 401
+        assert "detail" in response.json()
+
     def test_get_profile_success(self, client, test_user, auth_headers):
         """GET /auth/me returns profile with valid token."""
         response = client.get("/auth/me", headers=auth_headers)
@@ -255,6 +264,16 @@ class TestUpdateProfile:
 
         assert response.status_code == 401
         assert response.json()["detail"] == "Not authenticated"
+
+    def test_update_profile_invalid_token(self, client):
+        """PUT /auth/me returns 401 with invalid/malformed JWT token."""
+        update_data = {"name": "Should Fail"}
+        invalid_headers = {"Authorization": "Bearer invalid.token.here"}
+
+        response = client.put("/auth/me", json=update_data, headers=invalid_headers)
+
+        assert response.status_code == 401
+        assert "detail" in response.json()
 
     def test_update_profile_empty_lists(self, client, test_user, auth_headers, db_session):
         """PUT /auth/me allows clearing lists with empty arrays."""
