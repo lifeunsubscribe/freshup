@@ -37,7 +37,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         HTTPException(400): If email already exists
         HTTPException(422): If validation fails (invalid email format, password too short, etc.)
     """
-    # Check if email already exists
+    # Check if email already exists (email is normalized by schema validator)
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(
@@ -90,12 +90,15 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
         HTTPException(401): If credentials are invalid (generic message to avoid
                            leaking whether email exists)
     """
-    # Query user by email
+    # Query user by email (email is normalized by schema validator)
     user = db.query(User).filter(User.email == login_data.email).first()
 
     # Verify user exists and password is correct
     # Use generic error message to avoid leaking whether email exists
+    # Perform dummy password verification for non-existent users to prevent timing attacks
     if not user or not user.hashed_password:
+        # Run a dummy password verification to match timing of real verification
+        verify_password(login_data.password, "$2b$12$dummyhashtopreventtimingattack1234567890")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",

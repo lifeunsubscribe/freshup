@@ -7,6 +7,7 @@ Defines request/response models for user registration and login.
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from src.db.models.user import UserRole
 
 
 class UserCreate(BaseModel):
@@ -35,12 +36,34 @@ class UserCreate(BaseModel):
             raise ValueError('Name cannot be empty')
         return v.strip()
 
+    @field_validator('role')
+    @classmethod
+    def validate_role(cls, v: Optional[str]) -> Optional[str]:
+        """Ensure role is a valid UserRole enum value."""
+        if v is not None:
+            valid_roles = [role.value for role in UserRole]
+            if v not in valid_roles:
+                raise ValueError(f'Role must be one of: {", ".join(valid_roles)}')
+        return v
+
+    @field_validator('email')
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        """Normalize email to lowercase for case-insensitive comparison."""
+        return v.lower()
+
 
 class LoginRequest(BaseModel):
     """Request schema for user login."""
 
     email: EmailStr = Field(..., description="User's email address")
     password: str = Field(..., description="User's password")
+
+    @field_validator('email')
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        """Normalize email to lowercase for case-insensitive comparison."""
+        return v.lower()
 
 
 class UserResponse(BaseModel):
