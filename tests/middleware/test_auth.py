@@ -27,7 +27,7 @@ def setup_test_env(monkeypatch):
     autouse=True means this fixture runs automatically for all tests in this module.
     """
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-for-testing-only-min-32-chars")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
 
 
 class TestGetCurrentUser:
