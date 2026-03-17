@@ -7,20 +7,27 @@ Tests cover:
 """
 
 import pytest
-import os
 from datetime import timedelta
 from uuid import uuid4, UUID
 from unittest.mock import Mock
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
-# Set required environment variables for testing
-os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only-min-32-chars")
-os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
-
 from src.middleware.auth import get_current_user, get_current_user_optional
 from src.services.auth_service import create_access_token
 from src.db.models.user import User, UserRole
+
+
+@pytest.fixture(autouse=True)
+def setup_test_env(monkeypatch):
+    """
+    Pytest fixture to set up test environment variables.
+
+    Uses monkeypatch to ensure clean setup/teardown and prevent test pollution.
+    autouse=True means this fixture runs automatically for all tests in this module.
+    """
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-for-testing-only-min-32-chars")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
 
 
 class TestGetCurrentUser:

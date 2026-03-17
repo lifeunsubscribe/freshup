@@ -59,7 +59,7 @@ def get_current_user(
     try:
         # Decode and validate the JWT token
         payload = decode_token(token)
-        user_id_str: str = payload.get("sub")
+        user_id_str: Optional[str] = payload.get("sub")
 
         if user_id_str is None:
             raise HTTPException(
@@ -134,7 +134,7 @@ def get_current_user_optional(
     try:
         # Decode and validate the JWT token
         payload = decode_token(token)
-        user_id_str: str = payload.get("sub")
+        user_id_str: Optional[str] = payload.get("sub")
 
         if user_id_str is None:
             return None
