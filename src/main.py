@@ -6,6 +6,7 @@ from sqlalchemy import inspect, text
 
 from src.config import get_settings
 from src.db.database import Base, init_engine, get_engine, get_session_factory
+from src.routers import auth_router
 
 settings = get_settings()
 
@@ -61,6 +62,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Register routers
+app.include_router(auth_router)
 
 
 @app.get("/health")
