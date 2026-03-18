@@ -82,10 +82,10 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: str
-    dietary_profile: list
-    allergies: list
-    disliked_ingredients: list
-    favorite_ingredients: list
+    dietary_profile: list[str]
+    allergies: list[str]
+    disliked_ingredients: list[str]
+    favorite_ingredients: list[str]
 
     class Config:
         from_attributes = True
@@ -152,6 +152,21 @@ class UserUpdate(BaseModel):
                     f"These fields cannot be updated through this endpoint."
                 )
         return data
+
+
+class UserListResponse(BaseModel):
+    """Response schema for user list (excludes email and password for privacy)."""
+
+    id: UUID
+    name: str
+    role: str
+    dietary_profile: list[str]
+    allergies: list[str]
+    disliked_ingredients: list[str]
+    favorite_ingredients: list[str]
+
+    class Config:
+        from_attributes = True
 
 
 class TokenResponse(BaseModel):
