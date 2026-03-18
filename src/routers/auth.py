@@ -6,7 +6,7 @@ Provides user registration and login endpoints with JWT token generation.
 
 import logging
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -15,6 +15,7 @@ from src.db.database import get_db
 from src.db.models.user import User, UserRole
 from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate, SwitchUserRequest
 from src.services.auth_service import hash_password, verify_password, create_access_token
+from src.services.audit_service import log_registration, log_login_attempt, log_profile_update
 from src.middleware.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
+def register(user_data: UserCreate, request: Request, db: Session = Depends(get_db)):
     """
     Register a new user.
 
@@ -43,6 +44,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
     Args:
         user_data: User registration data (name, email, password, dietary_profile, allergies, role)
+        request: FastAPI request object (for audit logging)
         db: Database session
 
     Returns:
@@ -55,6 +57,15 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     # Check if email already exists (email is normalized by schema validator)
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
+        # Log failed registration attempt (email already exists)
+        log_registration(
+            db=db,
+            user_id=None,
+            email=user_data.email,
+            request=request,
+            success=False,
+            failure_reason="email_already_exists"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
@@ -106,11 +117,21 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
             detail="An error occurred while creating the user account"
         )
 
+    # Log successful registration
+    log_registration(
+        db=db,
+        user_id=new_user.id,
+        email=new_user.email,
+        request=request,
+        success=True,
+        metadata={"role": assigned_role}
+    )
+
     return new_user
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(login_data: LoginRequest, db: Session = Depends(get_db)):
+def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_db)):
     """
     Authenticate a user and return a JWT access token.
 
@@ -121,6 +142,7 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
 
     Args:
         login_data: Login credentials (email, password)
+        request: FastAPI request object (for audit logging)
         db: Database session
 
     Returns:
@@ -138,6 +160,16 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     if not user or not user.hashed_password:
         # Run a dummy password verification to match timing of real verification
         verify_password(login_data.password, DUMMY_PASSWORD_HASH)
+
+        # Log failed login attempt (user not found)
+        log_login_attempt(
+            db=db,
+            email=login_data.email,
+            request=request,
+            success=False,
+            failure_reason="invalid_credentials"
+        )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -159,12 +191,19 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     if lockout_until and lockout_until <= now:
         user.failed_login_attempts = 0
         user.lockout_until = None
-        # Update lockout_until for subsequent checks since we cleared it
         lockout_until = None
 
     # Check if account is still locked after expiry check
     if lockout_until and lockout_until > now:
         # Account is locked - return generic error to avoid leaking account status
+        log_login_attempt(
+            db=db,
+            email=login_data.email,
+            request=request,
+            success=False,
+            user_id=user.id,
+            failure_reason="account_locked"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -189,6 +228,16 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
         # Commit failed login attempt state
         db.commit()
 
+        # Log failed login attempt (invalid password)
+        log_login_attempt(
+            db=db,
+            email=login_data.email,
+            request=request,
+            success=False,
+            user_id=user.id,
+            failure_reason="invalid_credentials"
+        )
+
         # Return generic error message
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -205,6 +254,15 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
 
     # Create JWT token with user ID in the 'sub' claim
     access_token = create_access_token(data={"sub": str(user.id)})
+
+    # Log successful login
+    log_login_attempt(
+        db=db,
+        email=login_data.email,
+        request=request,
+        success=True,
+        user_id=user.id
+    )
 
     return TokenResponse(access_token=access_token, token_type="bearer")
 
@@ -232,6 +290,7 @@ def get_current_user_profile(current_user: User = Depends(get_current_user)):
 @router.put("/me", response_model=UserResponse)
 def update_current_user_profile(
     update_data: UserUpdate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -244,6 +303,7 @@ def update_current_user_profile(
 
     Args:
         update_data: Profile fields to update (all fields optional)
+        request: FastAPI request object (for audit logging)
         current_user: Authenticated user (injected by get_current_user dependency)
         db: Database session
 
@@ -277,8 +337,8 @@ def update_current_user_profile(
         list(update_dict.keys())
     )
 
-    # Track which fields are actually applied (for success logging)
-    applied_fields = []
+    # Track which fields were actually updated for audit log
+    fields_updated = []
 
     for field, value in update_dict.items():
         if field not in ALLOWED_UPDATE_FIELDS:
@@ -294,7 +354,7 @@ def update_current_user_profile(
             # Silently skip disallowed fields for defense-in-depth
             continue
         setattr(current_user, field, value)
-        applied_fields.append(field)
+        fields_updated.append(field)
 
     try:
         db.commit()
@@ -323,8 +383,18 @@ def update_current_user_profile(
         "Profile updated successfully for user %s (email: %s). Updated fields: %s",
         current_user.id,
         current_user.email,
-        applied_fields
+        fields_updated
     )
+
+    # Log profile update to audit log
+    if fields_updated:
+        log_profile_update(
+            db=db,
+            user_id=current_user.id,
+            email=current_user.email,
+            request=request,
+            fields_updated=fields_updated
+        )
 
     return current_user
 

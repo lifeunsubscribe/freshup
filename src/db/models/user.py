@@ -57,3 +57,4 @@ class User(Base):
     )
     substitution_preferences: Mapped[list["SubstitutionPreference"]] = relationship(back_populates="user_rel")
     recipe_ratings: Mapped[list["UserRecipeRating"]] = relationship(back_populates="user_rel")
+    audit_logs: Mapped[list["AuthAuditLog"]] = relationship(back_populates="user")
