@@ -73,10 +73,10 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: str
-    dietary_profile: list
-    allergies: list
-    disliked_ingredients: list
-    favorite_ingredients: list
+    dietary_profile: list[str]
+    allergies: list[str]
+    disliked_ingredients: list[str]
+    favorite_ingredients: list[str]
 
     class Config:
         from_attributes = True
@@ -148,10 +148,10 @@ class UserListResponse(BaseModel):
     id: UUID
     name: str
     role: str
-    dietary_profile: list
-    allergies: list
-    disliked_ingredients: list
-    favorite_ingredients: list
+    dietary_profile: list[str]
+    allergies: list[str]
+    disliked_ingredients: list[str]
+    favorite_ingredients: list[str]
 
     class Config:
         from_attributes = True
