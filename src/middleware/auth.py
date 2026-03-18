@@ -20,6 +20,42 @@ from src.services.auth_service import decode_token, TokenError
 security = HTTPBearer(auto_error=False)
 
 
+def _decode_token_and_get_user(token: str, db: Session) -> Optional[User]:
+    """
+    Private helper to decode JWT token and retrieve user from database.
+
+    This function contains the shared logic between get_current_user and
+    get_current_user_optional. It fails gracefully by returning None on any error.
+
+    Args:
+        token: JWT token string to decode
+        db: Database session for user lookup
+
+    Returns:
+        User object if token is valid and user exists, None otherwise
+    """
+    try:
+        # Decode and validate the JWT token
+        payload = decode_token(token)
+        user_id_str: Optional[str] = payload.get("sub")
+
+        if user_id_str is None:
+            return None
+
+        # Convert string user ID to UUID
+        try:
+            user_id = UUID(user_id_str)
+        except (ValueError, AttributeError):
+            return None
+
+    except TokenError:
+        # TokenExpiredError or TokenInvalidError from decode_token
+        return None
+
+    # Query database for user and return (None if not found)
+    return db.query(User).filter(User.id == user_id).first()
+
+
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
@@ -56,41 +92,11 @@ def get_current_user(
 
     token = credentials.credentials
 
-    try:
-        # Decode and validate the JWT token
-        payload = decode_token(token)
-        user_id_str: Optional[str] = payload.get("sub")
-
-        if user_id_str is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not authenticated",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # Convert string user ID to UUID
-        try:
-            user_id = UUID(user_id_str)
-        except (ValueError, AttributeError):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not authenticated",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-    except TokenError:
-        # TokenExpiredError or TokenInvalidError from decode_token
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Query database for user
-    user = db.query(User).filter(User.id == user_id).first()
+    # Use shared helper to decode token and retrieve user
+    user = _decode_token_and_get_user(token, db)
 
     if user is None:
-        # User ID in token is valid but user doesn't exist in database
+        # Token is invalid, expired, or user doesn't exist in database
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
@@ -131,29 +137,8 @@ def get_current_user_optional(
 
     token = credentials.credentials
 
-    try:
-        # Decode and validate the JWT token
-        payload = decode_token(token)
-        user_id_str: Optional[str] = payload.get("sub")
-
-        if user_id_str is None:
-            return None
-
-        # Convert string user ID to UUID
-        try:
-            user_id = UUID(user_id_str)
-        except (ValueError, AttributeError):
-            return None
-
-    except TokenError:
-        # TokenExpiredError or TokenInvalidError from decode_token
-        return None
-
-    # Query database for user
-    user = db.query(User).filter(User.id == user_id).first()
-
-    # Return user if found, None otherwise
-    return user
+    # Use shared helper to decode token and retrieve user (returns None on failure)
+    return _decode_token_and_get_user(token, db)
 
 
 def require_coordinator(
