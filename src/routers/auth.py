@@ -159,7 +159,8 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     if lockout_until and lockout_until <= now:
         user.failed_login_attempts = 0
         user.lockout_until = None
-        db.commit()
+        # Update lockout_until for subsequent checks since we cleared it
+        lockout_until = None
 
     # Check if account is still locked after expiry check
     if lockout_until and lockout_until > now:
@@ -185,6 +186,7 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
                 user.failed_login_attempts
             )
 
+        # Commit failed login attempt state
         db.commit()
 
         # Return generic error message
@@ -197,6 +199,8 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     # Successful login - reset lockout fields
     user.failed_login_attempts = 0
     user.lockout_until = None
+
+    # Commit successful login state
     db.commit()
 
     # Create JWT token with user ID in the 'sub' claim
