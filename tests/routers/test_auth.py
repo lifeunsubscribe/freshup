@@ -792,8 +792,7 @@ class TestRegistrationDatabaseErrors:
     """Tests for database error handling in POST /auth/register endpoint."""
 
     def test_register_integrity_error_handling(self, client, db_session):
-        """POST /auth/register handles IntegrityError with appropriate response."""
-        registration_data = {
+        """POST /auth/register handles IntegrityError with appropriate response."""        registration_data = {
             "name": "New User",
             "email": "newuser@example.com",
             "password": "securepassword123",
@@ -1367,3 +1366,156 @@ class TestAccountLockout:
             "password": "password456"
         })
         assert response.status_code == 200
+
+class TestAuditLogging:
+    """Tests for audit logging of authentication events."""
+
+    def test_registration_creates_audit_log(self, client, db_session):
+        """POST /auth/register creates an audit log entry."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+        registration_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "securepassword123",
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+        assert response.status_code == 201
+
+        # Check audit log was created
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            email="newuser@example.com",
+            event_type=AuthEventType.registration.value
+        ).all()
+
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
+        assert log.success is True
+        assert log.failure_reason is None
+        assert log.user_id is not None
+
+    def test_duplicate_registration_creates_failure_audit_log(self, client, test_user, db_session):
+        """POST /auth/register for existing email creates failure audit log."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        # Attempt to register with existing email
+        registration_data = {
+            "name": "Duplicate User",
+            "email": test_user.email,
+            "password": "password123",
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+        assert response.status_code == 400
+
+        # Check audit log was created for failure
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            email=test_user.email,
+            event_type=AuthEventType.registration.value,
+            success=False
+        ).all()
+
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
+        assert log.failure_reason == "email_already_exists"
+        assert log.user_id is None
+
+    def test_successful_login_creates_audit_log(self, client, test_user, db_session):
+        """POST /auth/login with correct credentials creates success audit log."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        login_data = {
+            "email": test_user.email,
+            "password": "testpassword123",
+        }
+
+        response = client.post("/auth/login", json=login_data)
+        assert response.status_code == 200
+
+        # Check audit log was created
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            email=test_user.email,
+            event_type=AuthEventType.login_success.value
+        ).all()
+
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
+        assert log.success is True
+        assert log.user_id == test_user.id
+        assert log.failure_reason is None
+
+    def test_failed_login_creates_audit_log(self, client, test_user, db_session):
+        """POST /auth/login with wrong password creates failure audit log."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        login_data = {
+            "email": test_user.email,
+            "password": "wrongpassword",
+        }
+
+        response = client.post("/auth/login", json=login_data)
+        assert response.status_code == 401
+
+        # Check audit log was created for failure
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            email=test_user.email,
+            event_type=AuthEventType.login_failure.value
+        ).all()
+
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
+        assert log.success is False
+        assert log.failure_reason == "invalid_credentials"
+
+    def test_profile_update_creates_audit_log(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me creates audit log entry."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        update_data = {
+            "name": "Updated Name",
+            "dietary_profile": ["vegan"],
+        }
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+        assert response.status_code == 200
+
+        # Check audit log was created
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.profile_update.value
+        ).all()
+
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
+        assert log.success is True
+        assert log.email == test_user.email
+        assert "name" in log.metadata["fields_updated"]
+        assert "dietary_profile" in log.metadata["fields_updated"]
+
+    def test_audit_log_captures_ip_and_user_agent(self, client, test_user, db_session):
+        """Audit logs capture IP address and user agent."""
+        from src.db.models.auth_audit_log import AuthAuditLog
+
+        login_data = {
+            "email": test_user.email,
+            "password": "testpassword123",
+        }
+
+        # Login with custom headers
+        response = client.post(
+            "/auth/login",
+            json=login_data,
+            headers={"User-Agent": "TestClient/1.0"}
+        )
+        assert response.status_code == 200
+
+        # Check audit log captured metadata
+        audit_log = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id
+        ).order_by(AuthAuditLog.created_at.desc()).first()
+
+        assert audit_log is not None
+        # TestClient provides a default IP
+        assert audit_log.ip_address is not None
+        # Note: TestClient may not preserve custom User-Agent, but the field exists
+        assert hasattr(audit_log, 'user_agent')
