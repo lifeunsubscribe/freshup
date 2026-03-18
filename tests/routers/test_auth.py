@@ -141,6 +141,18 @@ class TestGetProfile:
         assert response.status_code == 401
         assert "detail" in response.json()
 
+    def test_get_profile_expired_token(self, client):
+        """GET /auth/me returns 401 with expired JWT token."""
+        from datetime import timedelta
+        user_id = uuid4()
+        token = create_access_token({"sub": str(user_id)}, expires_delta=timedelta(seconds=-1))
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/auth/me", headers=headers)
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Not authenticated"
+
     def test_get_profile_nonexistent_user(self, client):
         """GET /auth/me returns 401 when token references deleted/non-existent user."""
         # Create a token for a user ID that doesn't exist in the database
@@ -273,6 +285,19 @@ class TestUpdateProfile:
         update_data = {"name": "Should Fail"}
 
         response = client.put("/auth/me", json=update_data)
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Not authenticated"
+
+    def test_update_profile_expired_token(self, client):
+        """PUT /auth/me returns 401 with expired JWT token."""
+        from datetime import timedelta
+        user_id = uuid4()
+        token = create_access_token({"sub": str(user_id)}, expires_delta=timedelta(seconds=-1))
+        headers = {"Authorization": f"Bearer {token}"}
+        update_data = {"name": "Should Fail"}
+
+        response = client.put("/auth/me", json=update_data, headers=headers)
 
         assert response.status_code == 401
         assert response.json()["detail"] == "Not authenticated"
