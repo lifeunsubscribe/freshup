@@ -835,3 +835,237 @@ class TestUpdateProfileDatabaseErrors:
                 # Verify rollback was called
                 assert mock_rollback.called
                 assert response.status_code == 500
+
+class TestRegister:
+    """Tests for POST /auth/register endpoint."""
+
+    def test_register_success_with_valid_password(self, client, db_session):
+        """POST /auth/register succeeds with password meeting all complexity requirements."""
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "ValidPass123!",
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify response contains expected fields
+        assert "id" in data
+        assert data["name"] == "New User"
+        assert data["email"] == "newuser@example.com"
+        assert data["role"] == "coordinator"  # First user gets coordinator role
+
+        # Verify password is not in response
+        assert "password" not in data
+        assert "hashed_password" not in data
+
+        # Verify user was created in database
+        user = db_session.query(User).filter(User.email == "newuser@example.com").first()
+        assert user is not None
+        assert user.name == "New User"
+        assert user.hashed_password is not None
+        assert user.hashed_password != "ValidPass123!"  # Password should be hashed
+
+    def test_register_password_missing_uppercase(self, client):
+        """POST /auth/register fails when password lacks uppercase letter."""
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "nouppercasehere123!",
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        error_msg = str(error_detail).lower()
+        assert "uppercase" in error_msg
+
+    def test_register_password_missing_lowercase(self, client):
+        """POST /auth/register fails when password lacks lowercase letter."""
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "NOLOWERCASEHERE123!",
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        error_msg = str(error_detail).lower()
+        assert "lowercase" in error_msg
+
+    def test_register_password_missing_digit(self, client):
+        """POST /auth/register fails when password lacks digit."""
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "NoDigitsHere!",
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        error_msg = str(error_detail).lower()
+        assert "digit" in error_msg
+
+    def test_register_password_missing_special_character(self, client):
+        """POST /auth/register fails when password lacks special character."""
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "NoSpecialChar123",
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        error_msg = str(error_detail).lower()
+        assert "special character" in error_msg
+
+    def test_register_password_too_short(self, client):
+        """POST /auth/register fails when password is less than 8 characters."""
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "Short1!",
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        error_msg = str(error_detail).lower()
+        assert "8 characters" in error_msg
+
+    def test_register_password_missing_multiple_requirements(self, client):
+        """POST /auth/register fails with clear message when multiple requirements are missing."""
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "simple",  # Missing: length, uppercase, digit, special
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        error_msg = str(error_detail).lower()
+
+        # Should mention all missing requirements
+        assert "8 characters" in error_msg
+        assert "uppercase" in error_msg
+        assert "digit" in error_msg
+        assert "special character" in error_msg
+
+    def test_register_with_all_special_characters(self, client, db_session):
+        """POST /auth/register accepts passwords with various special characters."""
+        special_chars_tests = [
+            "Password1!",
+            "Password1@",
+            "Password1#",
+            "Password1$",
+            "Password1%",
+            "Password1^",
+            "Password1&",
+            "Password1*",
+            "Password1(",
+            "Password1)",
+        ]
+
+        for idx, password in enumerate(special_chars_tests):
+            register_data = {
+                "name": f"User {idx}",
+                "email": f"user{idx}@example.com",
+                "password": password,
+            }
+
+            response = client.post("/auth/register", json=register_data)
+
+            assert response.status_code == 201, f"Failed for password: {password}"
+
+            # Clean up for next iteration
+            user = db_session.query(User).filter(User.email == f"user{idx}@example.com").first()
+            if user:
+                db_session.delete(user)
+                db_session.commit()
+
+    def test_register_duplicate_email(self, client, test_user):
+        """POST /auth/register fails when email already exists."""
+        register_data = {
+            "name": "Duplicate User",
+            "email": "test@example.com",  # Already exists from test_user fixture
+            "password": "ValidPass123!",
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 400
+        assert "already registered" in response.json()["detail"].lower()
+
+    def test_register_exactly_8_characters(self, client, db_session):
+        """POST /auth/register accepts password with exactly 8 characters if valid."""
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "Pass123!",  # Exactly 8 characters
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["email"] == "newuser@example.com"
+
+    def test_register_long_valid_password(self, client, db_session):
+        """POST /auth/register accepts long passwords meeting requirements."""
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "ThisIsAVeryLongPasswordThatMeetsAllRequirements123!@#",
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["email"] == "newuser@example.com"
+
+    def test_register_password_exceeds_128_characters(self, client):
+        """POST /auth/register fails when password exceeds 128 characters."""
+        # Create a password with 129 characters that meets all complexity requirements except max length
+        password = "A1!" + "a" * 125 + "!"  # 129 chars total
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": password,
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        error_msg = str(error_detail).lower()
+        assert "128 characters" in error_msg
+
+    def test_register_password_exactly_128_characters(self, client, db_session):
+        """POST /auth/register accepts password with exactly 128 characters if valid."""
+        # Create a password with exactly 128 characters that meets all requirements
+        password = "A1!" + "a" * 124 + "!"  # 128 chars total
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": password,
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["email"] == "newuser@example.com"
