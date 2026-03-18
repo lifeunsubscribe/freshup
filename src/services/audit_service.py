@@ -97,7 +97,7 @@ def log_registration(
         failure_reason=failure_reason,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        metadata=metadata
+        event_metadata=metadata
     )
     db.add(audit_log)
     db.commit()
@@ -137,7 +137,7 @@ def log_login_attempt(
         failure_reason=failure_reason,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        metadata=metadata
+        event_metadata=metadata
     )
     db.add(audit_log)
     db.commit()
@@ -172,7 +172,7 @@ def log_logout(
         success=True,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        metadata=metadata
+        event_metadata=metadata
     )
     db.add(audit_log)
     db.commit()
@@ -212,7 +212,7 @@ def log_profile_update(
         success=True,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        metadata=audit_metadata
+        event_metadata=audit_metadata
     )
     db.add(audit_log)
     db.commit()

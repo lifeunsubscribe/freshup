@@ -792,7 +792,8 @@ class TestRegistrationDatabaseErrors:
     """Tests for database error handling in POST /auth/register endpoint."""
 
     def test_register_integrity_error_handling(self, client, db_session):
-        """POST /auth/register handles IntegrityError with appropriate response."""        registration_data = {
+        """POST /auth/register handles IntegrityError with appropriate response."""
+        registration_data = {
             "name": "New User",
             "email": "newuser@example.com",
             "password": "securepassword123",
@@ -1489,8 +1490,8 @@ class TestAuditLogging:
         log = audit_logs[0]
         assert log.success is True
         assert log.email == test_user.email
-        assert "name" in log.metadata["fields_updated"]
-        assert "dietary_profile" in log.metadata["fields_updated"]
+        assert "name" in log.event_metadata["fields_updated"]
+        assert "dietary_profile" in log.event_metadata["fields_updated"]
 
     def test_audit_log_captures_ip_and_user_agent(self, client, test_user, db_session):
         """Audit logs capture IP address and user agent."""
