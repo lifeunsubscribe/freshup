@@ -1195,6 +1195,74 @@ class TestRegistrationValidation:
         assert data["dietary_profile"] == ["vegan", "keto"]
         assert data["allergies"] == ["tree nuts", "shellfish", "low-fat milk"]
 
+    def test_registration_accepts_unicode_ingredients(self, client, db_session):
+        """POST /auth/register accepts Unicode characters in ingredient names."""
+        registration_data = {
+            "name": "Test User",
+            "email": "unicodeuser@example.com",
+            "password": "SecurePass123!",
+            "allergies": ["jalapeño", "crème fraîche"],
+            "disliked_ingredients": ["café au lait", "mañana peppers"],
+            "favorite_ingredients": ["豆腐", "naïve radish"],
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify Unicode is preserved
+        assert "jalapeño" in data["allergies"]
+        assert "crème fraîche" in data["allergies"]
+        assert "café au lait" in data["disliked_ingredients"]
+        assert "豆腐" in data["favorite_ingredients"]
+
+    def test_registration_rejects_control_characters_in_ingredients(self, client):
+        """POST /auth/register rejects control characters in ingredient names."""
+        registration_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "SecurePass123!",
+            "allergies": ["milk\x00with\x00nulls"],  # Null bytes
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        assert any("allergies" in str(err).lower() and "control" in str(err).lower() for err in error_detail)
+
+    def test_registration_rejects_zero_width_characters_in_ingredients(self, client):
+        """POST /auth/register rejects zero-width characters in ingredient names."""
+        registration_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "SecurePass123!",
+            "allergies": ["milk\u200bwith\u200bzero-width"],  # Zero-width space
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        assert any("allergies" in str(err).lower() and ("control" in str(err).lower() or "format" in str(err).lower()) for err in error_detail)
+
+    def test_registration_normalizes_unicode(self, client, db_session):
+        """POST /auth/register normalizes Unicode to NFC form."""
+        # é can be represented as single char (U+00E9) or combining (e + U+0301)
+        registration_data = {
+            "name": "Test User",
+            "email": "normalizeuser@example.com",
+            "password": "SecurePass123!",
+            "allergies": ["cafe\u0301"],  # café with combining accent
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+        assert response.status_code == 201
+        data = response.json()
+
+        # Should be normalized to NFC (single character é)
+        assert "café" in data["allergies"]
+
 class TestAccountLockout:
     """Tests for account lockout mechanism on login endpoint."""
 

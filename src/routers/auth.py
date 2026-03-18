@@ -91,6 +91,8 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
         role=assigned_role,
         dietary_profile=user_data.dietary_profile or [],
         allergies=user_data.allergies or [],
+        disliked_ingredients=user_data.disliked_ingredients or [],
+        favorite_ingredients=user_data.favorite_ingredients or [],
     )
 
     db.add(new_user)

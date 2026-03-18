@@ -7,9 +7,57 @@ user-defined ingredient substitution preferences.
 
 from uuid import UUID
 from typing import Optional
+import unicodedata
 from pydantic import BaseModel, Field, field_validator
 
 from src.db.models.substitution import SubstitutionContext
+
+
+# Unicode control and format characters to block (security)
+# Cc=Control, Cf=Format, Co=Private Use, Cn=Unassigned, Cs=Surrogate
+BLOCKED_UNICODE_CATEGORIES = {'Cc', 'Cf', 'Co', 'Cn', 'Cs'}
+
+# Common punctuation and symbols used in food names
+ALLOWED_PUNCTUATION = set(" -'(),./")
+
+
+def contains_blocked_characters(text: str) -> bool:
+    """
+    Check if text contains blocked Unicode characters.
+
+    Blocks control characters, format characters, and other potentially
+    dangerous Unicode that could cause security or display issues.
+    """
+    for char in text:
+        if unicodedata.category(char) in BLOCKED_UNICODE_CATEGORIES:
+            return True
+    return False
+
+
+def is_valid_ingredient_character(char: str) -> bool:
+    """
+    Check if a character is valid for ingredient names.
+
+    Allows:
+    - Unicode letters from any language (category L*)
+    - Digits (category N*)
+    - Common punctuation used in food names
+    """
+    category = unicodedata.category(char)
+
+    # Allow letters (Lu, Ll, Lt, Lm, Lo)
+    if category.startswith('L'):
+        return True
+
+    # Allow numbers (Nd, Nl, No)
+    if category.startswith('N'):
+        return True
+
+    # Allow specific punctuation
+    if char in ALLOWED_PUNCTUATION:
+        return True
+
+    return False
 
 
 class ReplacementItem(BaseModel):
@@ -21,10 +69,35 @@ class ReplacementItem(BaseModel):
     @field_validator('ingredient')
     @classmethod
     def validate_ingredient_name(cls, v: str) -> str:
-        """Ensure ingredient name is not empty or whitespace only."""
+        """
+        Validate ingredient name with Unicode support.
+
+        Ensures ingredient name is not empty, normalizes Unicode (NFC),
+        and blocks dangerous control/format characters.
+        """
         if not v or not v.strip():
             raise ValueError('Ingredient name cannot be empty')
-        return v.strip()
+
+        # Normalize to NFC form
+        normalized = unicodedata.normalize('NFC', v.strip())
+
+        # Check for blocked Unicode characters (security)
+        if contains_blocked_characters(normalized):
+            raise ValueError(
+                'Ingredient name cannot contain control or format characters'
+            )
+
+        # Validate each character
+        for char in normalized:
+            if not is_valid_ingredient_character(char):
+                char_name = unicodedata.name(char, f'U+{ord(char):04X}')
+                raise ValueError(
+                    f'Ingredient name can only contain letters, numbers, spaces, '
+                    f'and common punctuation (- \' ( ) , . /). '
+                    f'Invalid character: "{char}" ({char_name})'
+                )
+
+        return normalized
 
 
 class SubstitutionPreferenceCreate(BaseModel):
@@ -50,10 +123,35 @@ class SubstitutionPreferenceCreate(BaseModel):
     @field_validator('original_ingredient')
     @classmethod
     def validate_original_ingredient(cls, v: str) -> str:
-        """Ensure original ingredient is not empty or whitespace only."""
+        """
+        Validate original ingredient name with Unicode support.
+
+        Ensures ingredient name is not empty, normalizes Unicode (NFC),
+        and blocks dangerous control/format characters.
+        """
         if not v or not v.strip():
             raise ValueError('Original ingredient cannot be empty')
-        return v.strip()
+
+        # Normalize to NFC form
+        normalized = unicodedata.normalize('NFC', v.strip())
+
+        # Check for blocked Unicode characters (security)
+        if contains_blocked_characters(normalized):
+            raise ValueError(
+                'Original ingredient cannot contain control or format characters'
+            )
+
+        # Validate each character
+        for char in normalized:
+            if not is_valid_ingredient_character(char):
+                char_name = unicodedata.name(char, f'U+{ord(char):04X}')
+                raise ValueError(
+                    f'Original ingredient can only contain letters, numbers, spaces, '
+                    f'and common punctuation (- \' ( ) , . /). '
+                    f'Invalid character: "{char}" ({char_name})'
+                )
+
+        return normalized
 
     @field_validator('context')
     @classmethod

@@ -279,6 +279,68 @@ class TestCreateSubstitutionPreference:
 
         assert response.status_code == 422
 
+    def test_create_preference_accepts_unicode_ingredients(self, client, auth_headers):
+        """Successfully create preference with Unicode ingredient names."""
+        payload = {
+            "original_ingredient": "jalapeño",
+            "replacements": [
+                {"ingredient": "crème fraîche", "rank": 1},
+                {"ingredient": "café beans", "rank": 2}
+            ],
+            "context": "any"
+        }
+
+        response = client.post("/users/me/substitutions", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["original_ingredient"] == "jalapeño"
+        assert any(r["ingredient"] == "crème fraîche" for r in data["replacements"])
+        assert any(r["ingredient"] == "café beans" for r in data["replacements"])
+
+    def test_create_preference_rejects_control_characters(self, client, auth_headers):
+        """Reject ingredients with control characters."""
+        payload = {
+            "original_ingredient": "broccoli",
+            "replacements": [
+                {"ingredient": "asparagus\x00with\x00nulls", "rank": 1}
+            ],
+        }
+
+        response = client.post("/users/me/substitutions", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+
+    def test_create_preference_rejects_zero_width_characters(self, client, auth_headers):
+        """Reject ingredients with zero-width characters."""
+        payload = {
+            "original_ingredient": "broccoli",
+            "replacements": [
+                {"ingredient": "asparagus\u200bwith\u200bzwsp", "rank": 1}
+            ],
+        }
+
+        response = client.post("/users/me/substitutions", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+
+    def test_create_preference_normalizes_unicode(self, client, auth_headers):
+        """Unicode is normalized to NFC form."""
+        payload = {
+            "original_ingredient": "cafe\u0301",  # café with combining accent (e + acute)
+            "replacements": [
+                {"ingredient": "cre\u0300me", "rank": 1}  # crème with combining accent (e + grave + m + e)
+            ],
+        }
+
+        response = client.post("/users/me/substitutions", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        # Should be normalized to NFC
+        assert data["original_ingredient"] == "café"
+        assert data["replacements"][0]["ingredient"] == "crème"
+
 
 class TestListSubstitutionPreferences:
     """Tests for GET /users/me/substitutions endpoint."""
