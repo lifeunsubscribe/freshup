@@ -1436,6 +1436,166 @@ class TestAccountLockout:
         })
         assert response.status_code == 200
 
+    def test_progressive_lockout_first_lockout_15_minutes(self, client, test_user, db_session):
+        """First lockout uses 15-minute duration (baseline OWASP)."""
+        # Verify initial state
+        assert test_user.lockout_count == 0
+
+        # Trigger first lockout (5 failed attempts)
+        for _ in range(5):
+            client.post("/auth/login", json={
+                "email": "test@example.com",
+                "password": "wrongpassword"
+            })
+
+        # Verify lockout was applied
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 5
+        assert test_user.lockout_until is not None
+        assert test_user.lockout_count == 1
+
+        # Verify lockout duration is approximately 15 minutes
+        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        # Allow 1-second tolerance for test execution time
+        assert timedelta(minutes=14, seconds=59) <= lockout_duration <= timedelta(minutes=15, seconds=1)
+
+    def test_progressive_lockout_second_lockout_30_minutes(self, client, test_user, db_session):
+        """Second lockout uses 30-minute duration (exponential backoff)."""
+        # Set up: user has been locked out once before
+        test_user.lockout_count = 1
+        db_session.commit()
+
+        # Trigger second lockout (5 failed attempts)
+        for _ in range(5):
+            client.post("/auth/login", json={
+                "email": "test@example.com",
+                "password": "wrongpassword"
+            })
+
+        # Verify lockout was applied with increased duration
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 5
+        assert test_user.lockout_until is not None
+        assert test_user.lockout_count == 2
+
+        # Verify lockout duration is approximately 30 minutes
+        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        assert timedelta(minutes=29, seconds=59) <= lockout_duration <= timedelta(minutes=30, seconds=1)
+
+    def test_progressive_lockout_caps_at_240_minutes(self, client, test_user, db_session):
+        """Lockout duration caps at 240 minutes (4 hours) after 5th lockout."""
+        # Set up: user has been locked out 4 times before (index 4 in the schedule)
+        test_user.lockout_count = 4
+        db_session.commit()
+
+        # Trigger 5th lockout (should use cap)
+        for _ in range(5):
+            client.post("/auth/login", json={
+                "email": "test@example.com",
+                "password": "wrongpassword"
+            })
+
+        # Verify lockout uses maximum duration (cap)
+        db_session.refresh(test_user)
+        assert test_user.lockout_count == 5
+        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        assert timedelta(minutes=239, seconds=59) <= lockout_duration <= timedelta(minutes=240, seconds=1)
+
+        # Trigger another lockout - should still use cap
+        test_user.lockout_until = None  # Reset for next test
+        test_user.failed_login_attempts = 0
+        db_session.commit()
+
+        for _ in range(5):
+            client.post("/auth/login", json={
+                "email": "test@example.com",
+                "password": "wrongpassword"
+            })
+
+        db_session.refresh(test_user)
+        assert test_user.lockout_count == 6  # Still incrementing
+        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        assert timedelta(minutes=239, seconds=59) <= lockout_duration <= timedelta(minutes=240, seconds=1)
+
+    def test_progressive_lockout_schedule_follows_exponential_pattern(self, client, db_session):
+        """Verify all lockout durations follow the exponential backoff schedule."""
+        from uuid import uuid4
+        expected_durations = [15, 30, 60, 120, 240]  # Minutes
+
+        for lockout_num, expected_minutes in enumerate(expected_durations):
+            # Create a new user for each test to avoid interference
+            user = User(
+                id=uuid4(),
+                name=f"Test User {lockout_num}",
+                email=f"lockout{lockout_num}@example.com",
+                hashed_password=hash_password("testpassword123"),
+                role=UserRole.member.value,
+                lockout_count=lockout_num,  # Set previous lockout count
+            )
+            db_session.add(user)
+            db_session.commit()
+
+            # Trigger lockout
+            for _ in range(5):
+                client.post("/auth/login", json={
+                    "email": user.email,
+                    "password": "wrongpassword"
+                })
+
+            # Verify lockout duration
+            db_session.refresh(user)
+            assert user.lockout_count == lockout_num + 1
+            lockout_duration = user.lockout_until - datetime.now(timezone.utc)
+
+            # Allow 1-second tolerance
+            min_duration = timedelta(minutes=expected_minutes, seconds=-1)
+            max_duration = timedelta(minutes=expected_minutes, seconds=1)
+            assert min_duration <= lockout_duration <= max_duration, \
+                f"Lockout {lockout_num + 1} expected {expected_minutes}min, got {lockout_duration.total_seconds() / 60:.2f}min"
+
+    def test_successful_login_resets_lockout_count(self, client, test_user, db_session):
+        """Successful login resets lockout_count to 0, allowing forgiveness."""
+        # Set up: user has been locked out twice before
+        test_user.lockout_count = 2
+        test_user.failed_login_attempts = 3  # Some failed attempts (but not locked)
+        db_session.commit()
+
+        # Successful login
+        response = client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "testpassword123"
+        })
+
+        assert response.status_code == 200
+
+        # Verify all lockout fields were reset, including lockout_count
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 0
+        assert test_user.lockout_until is None
+        assert test_user.lockout_count == 0  # Progressive counter reset
+
+    def test_lockout_expiry_does_not_reset_lockout_count(self, client, test_user, db_session):
+        """Lockout expiry allows login but does NOT reset lockout_count."""
+        # Set up: user was locked out twice before, and lockout just expired
+        test_user.lockout_count = 2
+        test_user.failed_login_attempts = 5
+        test_user.lockout_until = datetime.now(timezone.utc) - timedelta(minutes=1)  # Expired
+        db_session.commit()
+
+        # Login with correct password after expiry
+        response = client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "testpassword123"
+        })
+
+        assert response.status_code == 200
+
+        # Verify lockout_count was reset on successful login
+        db_session.refresh(test_user)
+        assert test_user.lockout_count == 0  # Reset on successful login
+        assert test_user.failed_login_attempts == 0
+        assert test_user.lockout_until is None
+
 class TestAuditLogging:
     """Tests for audit logging of authentication events."""
 

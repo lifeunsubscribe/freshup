@@ -47,6 +47,7 @@ class User(Base):
     # Account lockout fields for brute force protection
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     lockout_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
+    lockout_count: Mapped[int] = mapped_column(Integer, default=0)  # Tracks number of lockout events for progressive duration
 
     # Relationships
     inventory_items: Mapped[list["InventoryItem"]] = relationship(back_populates="added_by_user")
