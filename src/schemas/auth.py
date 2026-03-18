@@ -6,8 +6,69 @@ Defines request/response models for user registration and login.
 
 from uuid import UUID
 from typing import Optional, Any
+import re
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator, ConfigDict
 from src.db.models.user import UserRole, DietaryProfile
+
+
+# Validation constants for ingredient/allergy lists
+MAX_LIST_ITEM_LENGTH = 100
+MAX_LIST_SIZE = 100
+# Allow letters (any language), numbers, spaces, and common punctuation used in food names
+ALLOWED_CHARS_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-\'\(\),./]+$')
+
+
+def validate_string_list(
+    field_name: str,
+    values: Optional[list[str]],
+    max_item_length: int = MAX_LIST_ITEM_LENGTH,
+    max_list_size: int = MAX_LIST_SIZE,
+) -> Optional[list[str]]:
+    """
+    Validate a list of strings for ingredient/allergy fields.
+
+    Ensures items meet length constraints and contain only allowed characters.
+    Strips whitespace and filters out empty strings.
+
+    Args:
+        field_name: Name of the field being validated (for error messages)
+        values: List of strings to validate
+        max_item_length: Maximum allowed length per item
+        max_list_size: Maximum number of items in the list
+
+    Returns:
+        Validated and cleaned list of strings, or None if input was None
+
+    Raises:
+        ValueError: If validation fails
+    """
+    if values is None:
+        return None
+
+    # Strip whitespace and filter empty strings
+    cleaned = [item.strip() for item in values if item.strip()]
+
+    # Check list size
+    if len(cleaned) > max_list_size:
+        raise ValueError(f'{field_name} cannot contain more than {max_list_size} items')
+
+    # Validate each item
+    for item in cleaned:
+        # Check item length
+        if len(item) > max_item_length:
+            raise ValueError(
+                f'{field_name} items cannot exceed {max_item_length} characters. '
+                f'Item "{item[:20]}..." is {len(item)} characters long'
+            )
+
+        # Check allowed characters
+        if not ALLOWED_CHARS_PATTERN.match(item):
+            raise ValueError(
+                f'{field_name} items can only contain letters, numbers, spaces, '
+                f'and common punctuation (- \' ( ) , . /). Invalid item: "{item}"'
+            )
+
+    return cleaned
 
 
 class UserCreate(BaseModel):
@@ -90,14 +151,25 @@ class UserCreate(BaseModel):
         """Normalize email to lowercase for case-insensitive comparison."""
         return v.lower()
 
-    @field_validator('dietary_profile', 'allergies')
+    @field_validator('dietary_profile')
     @classmethod
-    def strip_whitespace_from_list_items(cls, v: Optional[list[str]]) -> Optional[list[str]]:
-        """Strip whitespace from list items to ensure data consistency."""
+    def validate_dietary_profile(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        """Ensure dietary_profile contains valid DietaryProfile enum values and strip whitespace."""
         if v is not None:
-            # Strip whitespace from each item and filter out empty strings
+            # Strip whitespace from each item
             v = [item.strip() for item in v if item.strip()]
+            valid_profiles = [profile.value for profile in DietaryProfile]
+            for profile in v:
+                if profile not in valid_profiles:
+                    raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
         return v
+
+    @field_validator('allergies')
+    @classmethod
+    def validate_allergies(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        """Validate allergies list for length and character constraints."""
+        return validate_string_list('allergies', v)
+
 
 
 class LoginRequest(BaseModel):
@@ -164,12 +236,15 @@ class UserUpdate(BaseModel):
 
     @field_validator('allergies', 'disliked_ingredients', 'favorite_ingredients')
     @classmethod
-    def strip_whitespace_from_list_items(cls, v: Optional[list[str]]) -> Optional[list[str]]:
-        """Strip whitespace from list items to ensure data consistency."""
-        if v is not None:
-            # Strip whitespace from each item and filter out empty strings
-            v = [item.strip() for item in v if item.strip()]
-        return v
+    def validate_ingredient_lists(cls, v: Optional[list[str]], info) -> Optional[list[str]]:
+        """
+        Validate ingredient/allergy lists for length and character constraints.
+
+        Ensures data quality by enforcing maximum item length, maximum list size,
+        and allowed character constraints.
+        """
+        field_name = info.field_name
+        return validate_string_list(field_name, v)
 
     @model_validator(mode='before')
     @classmethod
