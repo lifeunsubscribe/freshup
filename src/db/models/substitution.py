@@ -22,7 +22,7 @@ class SubstitutionPreference(Base):
     __tablename__ = "substitution_preferences"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
     original_ingredient: Mapped[str] = mapped_column(String(255))
     replacements: Mapped[list] = mapped_column(JSON, default=list)
     context: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
