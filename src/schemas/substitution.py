@@ -11,53 +11,10 @@ import unicodedata
 from pydantic import BaseModel, Field, field_validator
 
 from src.db.models.substitution import SubstitutionContext
-
-
-# Unicode control and format characters to block (security)
-# Cc=Control, Cf=Format, Co=Private Use, Cn=Unassigned, Cs=Surrogate
-BLOCKED_UNICODE_CATEGORIES = {'Cc', 'Cf', 'Co', 'Cn', 'Cs'}
-
-# Common punctuation and symbols used in food names
-ALLOWED_PUNCTUATION = set(" -'(),./")
-
-
-def contains_blocked_characters(text: str) -> bool:
-    """
-    Check if text contains blocked Unicode characters.
-
-    Blocks control characters, format characters, and other potentially
-    dangerous Unicode that could cause security or display issues.
-    """
-    for char in text:
-        if unicodedata.category(char) in BLOCKED_UNICODE_CATEGORIES:
-            return True
-    return False
-
-
-def is_valid_ingredient_character(char: str) -> bool:
-    """
-    Check if a character is valid for ingredient names.
-
-    Allows:
-    - Unicode letters from any language (category L*)
-    - Digits (category N*)
-    - Common punctuation used in food names
-    """
-    category = unicodedata.category(char)
-
-    # Allow letters (Lu, Ll, Lt, Lm, Lo)
-    if category.startswith('L'):
-        return True
-
-    # Allow numbers (Nd, Nl, No)
-    if category.startswith('N'):
-        return True
-
-    # Allow specific punctuation
-    if char in ALLOWED_PUNCTUATION:
-        return True
-
-    return False
+from src.schemas.validators import (
+    contains_blocked_characters,
+    is_valid_ingredient_character,
+)
 
 
 class ReplacementItem(BaseModel):

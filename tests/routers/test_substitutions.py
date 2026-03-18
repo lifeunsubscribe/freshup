@@ -298,12 +298,25 @@ class TestCreateSubstitutionPreference:
         assert any(r["ingredient"] == "crème fraîche" for r in data["replacements"])
         assert any(r["ingredient"] == "café beans" for r in data["replacements"])
 
-    def test_create_preference_rejects_control_characters(self, client, auth_headers):
-        """Reject ingredients with control characters."""
+    def test_create_preference_rejects_control_characters_in_replacement(self, client, auth_headers):
+        """Reject ingredients with control characters in replacement."""
         payload = {
             "original_ingredient": "broccoli",
             "replacements": [
                 {"ingredient": "asparagus\x00with\x00nulls", "rank": 1}
+            ],
+        }
+
+        response = client.post("/users/me/substitutions", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+
+    def test_create_preference_rejects_control_characters_in_original(self, client, auth_headers):
+        """Reject ingredients with control characters in original_ingredient."""
+        payload = {
+            "original_ingredient": "broccoli\x00with\x00nulls",
+            "replacements": [
+                {"ingredient": "asparagus", "rank": 1}
             ],
         }
 
