@@ -15,7 +15,7 @@ class UserCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255, description="User's display name")
     email: EmailStr = Field(..., description="User's email address (must be unique)")
-    password: str = Field(..., min_length=8, max_length=128, description="Password (minimum 8 characters, maximum 128 characters)")
+    password: str = Field(..., description="Password (minimum 8 characters, maximum 128 characters)")
     dietary_profile: Optional[list[str]] = Field(default=None, description="Dietary preferences")
     allergies: Optional[list[str]] = Field(default=None, description="Food allergies")
     role: Optional[str] = Field(default=None, description="User role (coordinator or member)")

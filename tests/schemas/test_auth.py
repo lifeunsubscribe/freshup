@@ -176,6 +176,19 @@ class TestPasswordComplexityValidation:
         user = UserCreate(**user_data)
         assert user.password == "Pass123!"
 
+    def test_password_exactly_128_characters_valid(self):
+        """Test that password with exactly 128 characters is accepted if it meets all requirements."""
+        # Create a password with exactly 128 characters that meets all complexity requirements
+        password = "A1!" + "a" * 124 + "!"  # 128 chars: uppercase, digit, special chars, lowercase
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        user = UserCreate(**user_data)
+        assert user.password == password
+        assert len(user.password) == 128
+
     def test_password_with_spaces(self):
         """Test that passwords with spaces are accepted if they meet requirements."""
         user_data = {
