@@ -393,3 +393,121 @@ class TestUpdateProfile:
         assert test_user.email == original_email
         assert test_user.role == original_role
         assert test_user.name == original_name  # Name should also be unchanged since the request was rejected
+
+    def test_update_profile_ignores_unknown_fields(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me silently ignores unknown fields (extra='ignore')."""
+        update_data = {
+            "name": "Updated Name",
+            "unknown_field": "should be ignored",
+            "another_unknown": 12345,
+            "nested_unknown": {"key": "value"},
+        }
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+        # Request should succeed despite unknown fields
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify known field was updated
+        assert data["name"] == "Updated Name"
+
+        # Verify unknown fields are not in response
+        assert "unknown_field" not in data
+        assert "another_unknown" not in data
+        assert "nested_unknown" not in data
+
+        # Verify database state - only known field was updated
+        db_session.refresh(test_user)
+        assert test_user.name == "Updated Name"
+        assert not hasattr(test_user, "unknown_field")
+
+    def test_update_profile_unknown_fields_with_valid_fields(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me ignores unknown fields while processing valid fields."""
+        update_data = {
+            "name": "New Name",
+            "dietary_profile": ["vegan"],
+            "allergies": ["soy"],
+            "invalid_field_1": "ignored",
+            "disliked_ingredients": ["cilantro"],
+            "invalid_field_2": 999,
+            "favorite_ingredients": ["mango"],
+        }
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all valid fields were updated correctly
+        assert data["name"] == "New Name"
+        assert data["dietary_profile"] == ["vegan"]
+        assert data["allergies"] == ["soy"]
+        assert data["disliked_ingredients"] == ["cilantro"]
+        assert data["favorite_ingredients"] == ["mango"]
+
+        # Verify invalid fields are not in response
+        assert "invalid_field_1" not in data
+        assert "invalid_field_2" not in data
+
+        # Verify database state matches
+        db_session.refresh(test_user)
+        assert test_user.name == "New Name"
+        assert test_user.dietary_profile == ["vegan"]
+        assert test_user.allergies == ["soy"]
+        assert test_user.disliked_ingredients == ["cilantro"]
+        assert test_user.favorite_ingredients == ["mango"]
+
+    def test_update_profile_only_unknown_fields(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me with only unknown fields succeeds but changes nothing."""
+        original_name = test_user.name
+        original_dietary = test_user.dietary_profile
+
+        update_data = {
+            "completely_unknown": "value",
+            "another_unknown": 123,
+        }
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+        # Request should succeed (unknown fields are silently ignored)
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify no fields were changed
+        assert data["name"] == original_name
+        assert data["dietary_profile"] == original_dietary
+
+        # Verify database state unchanged
+        db_session.refresh(test_user)
+        assert test_user.name == original_name
+        assert test_user.dietary_profile == original_dietary
+
+    def test_update_profile_protected_fields_still_rejected_with_unknown_fields(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me still rejects protected fields even when unknown fields are present."""
+        original_email = test_user.email
+        original_role = test_user.role
+        original_name = test_user.name
+
+        update_data = {
+            "name": "Updated Name",
+            "email": "hacker@evil.com",  # Protected - should be rejected
+            "unknown_field": "ignored",
+            "role": "admin",  # Protected - should be rejected
+        }
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+        # Request should fail due to protected fields
+        assert response.status_code == 422
+        error_data = response.json()
+        assert "detail" in error_data
+        # Verify error message mentions protected fields
+        error_msg = str(error_data["detail"])
+        assert "protected" in error_msg.lower() or "email" in error_msg.lower() or "role" in error_msg.lower()
+
+        # Verify database state - nothing changed
+        db_session.refresh(test_user)
+        assert test_user.email == original_email
+        assert test_user.role == original_role
+        assert test_user.name == original_name  # Name should be unchanged since request was rejected

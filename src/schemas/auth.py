@@ -6,7 +6,7 @@ Defines request/response models for user registration and login.
 
 from uuid import UUID
 from typing import Optional, Any
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator, ConfigDict
 from src.db.models.user import UserRole, DietaryProfile
 
 
@@ -52,6 +52,15 @@ class UserCreate(BaseModel):
         """Normalize email to lowercase for case-insensitive comparison."""
         return v.lower()
 
+    @field_validator('dietary_profile', 'allergies')
+    @classmethod
+    def strip_whitespace_from_list_items(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        """Strip whitespace from list items to ensure data consistency."""
+        if v is not None:
+            # Strip whitespace from each item and filter out empty strings
+            v = [item.strip() for item in v if item.strip()]
+        return v
+
 
 class LoginRequest(BaseModel):
     """Request schema for user login."""
@@ -84,6 +93,9 @@ class UserResponse(BaseModel):
 
 class UserUpdate(BaseModel):
     """Request schema for updating user profile via PUT /auth/me."""
+
+    # Silently ignore unknown fields for forward compatibility and robustness
+    model_config = ConfigDict(extra="ignore")
 
     name: Optional[str] = Field(default=None, min_length=1, max_length=255, description="User's display name")
     dietary_profile: Optional[list[str]] = Field(default=None, description="Dietary preferences")
