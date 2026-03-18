@@ -144,12 +144,24 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Verify password FIRST (before lockout check) to prevent timing attacks
+    # This ensures constant-time operation regardless of lockout status
+    password_valid = verify_password(login_data.password, user.hashed_password)
+
     # Check if account is currently locked
     now = datetime.now(timezone.utc)
     # Convert lockout_until to timezone-aware if it's naive (SQLite stores without tz)
     lockout_until = user.lockout_until
     if lockout_until and lockout_until.tzinfo is None:
         lockout_until = lockout_until.replace(tzinfo=timezone.utc)
+
+    # If lockout has expired, reset the failed attempts counter
+    if lockout_until and lockout_until <= now:
+        user.failed_login_attempts = 0
+        user.lockout_until = None
+        db.commit()
+
+    # Check if account is still locked after expiry check
     if lockout_until and lockout_until > now:
         # Account is locked - return generic error to avoid leaking account status
         raise HTTPException(
@@ -158,8 +170,8 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Verify password
-    if not verify_password(login_data.password, user.hashed_password):
+    # Check password validity (already verified above to prevent timing attacks)
+    if not password_valid:
         # Increment failed login attempts
         user.failed_login_attempts += 1
 
