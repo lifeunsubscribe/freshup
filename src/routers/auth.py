@@ -290,17 +290,24 @@ def switch_user(
     # The assertion below will fail if household_id is added but this security check is not updated.
     # This prevents accidentally deploying multi-household support without fixing this vulnerability.
 
-    # Assert we're in single-household mode (no household_id field exists yet)
-    assert not hasattr(current_user, 'household_id'), (
-        "SECURITY: household_id field detected on User model. "
-        "Multi-household support requires explicit household membership verification. "
-        "Uncomment and implement the household_id check below before deploying."
-    )
-    assert not hasattr(target_user, 'household_id'), (
-        "SECURITY: household_id field detected on User model. "
-        "Multi-household support requires explicit household membership verification. "
-        "Uncomment and implement the household_id check below before deploying."
-    )
+    # Verify we're in single-household mode (no household_id field exists yet)
+    if hasattr(current_user, 'household_id'):
+        error_msg = (
+            "SECURITY: household_id field detected on User model. "
+            "Multi-household support requires explicit household membership verification. "
+            "Uncomment and implement the household_id check below before deploying."
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    if hasattr(target_user, 'household_id'):
+        error_msg = (
+            "SECURITY: household_id field detected on User model. "
+            "Multi-household support requires explicit household membership verification. "
+            "Uncomment and implement the household_id check below before deploying."
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
     # When multi-household support is added, UNCOMMENT AND IMPLEMENT this check:
     # if current_user.household_id != target_user.household_id:
