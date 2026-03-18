@@ -280,12 +280,13 @@ class TestCreateSubstitutionPreference:
         assert response.status_code == 422
 
     def test_create_preference_accepts_unicode_ingredients(self, client, auth_headers):
-        """Successfully create preference with Unicode ingredient names."""
+        """Successfully create preference with Unicode ingredient names including CJK."""
         payload = {
             "original_ingredient": "jalapeño",
             "replacements": [
                 {"ingredient": "crème fraîche", "rank": 1},
-                {"ingredient": "café beans", "rank": 2}
+                {"ingredient": "café beans", "rank": 2},
+                {"ingredient": "豆腐", "rank": 3}  # tofu in Japanese (CJK)
             ],
             "context": "any"
         }
@@ -297,6 +298,7 @@ class TestCreateSubstitutionPreference:
         assert data["original_ingredient"] == "jalapeño"
         assert any(r["ingredient"] == "crème fraîche" for r in data["replacements"])
         assert any(r["ingredient"] == "café beans" for r in data["replacements"])
+        assert any(r["ingredient"] == "豆腐" for r in data["replacements"])
 
     def test_create_preference_rejects_control_characters_in_replacement(self, client, auth_headers):
         """Reject ingredients with control characters in replacement."""
