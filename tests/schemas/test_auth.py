@@ -189,6 +189,23 @@ class TestPasswordComplexityValidation:
         assert user.password == password
         assert len(user.password) == 128
 
+    def test_password_exceeds_128_characters_rejected(self):
+        """Test that password with 129+ characters is rejected."""
+        # Create a password with 129 characters that meets all complexity requirements except length
+        password = "A1!" + "a" * 125 + "!"  # 129 chars: uppercase, digit, special chars, lowercase
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserCreate(**user_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("password",)
+        assert "128 characters" in errors[0]["msg"]
+
     def test_password_with_spaces(self):
         """Test that passwords with spaces are accepted if they meet requirements."""
         user_data = {

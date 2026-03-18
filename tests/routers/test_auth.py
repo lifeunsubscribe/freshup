@@ -1036,3 +1036,36 @@ class TestRegister:
         assert response.status_code == 201
         data = response.json()
         assert data["email"] == "newuser@example.com"
+
+    def test_register_password_exceeds_128_characters(self, client):
+        """POST /auth/register fails when password exceeds 128 characters."""
+        # Create a password with 129 characters that meets all complexity requirements except max length
+        password = "A1!" + "a" * 125 + "!"  # 129 chars total
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": password,
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        error_msg = str(error_detail).lower()
+        assert "128 characters" in error_msg
+
+    def test_register_password_exactly_128_characters(self, client, db_session):
+        """POST /auth/register accepts password with exactly 128 characters if valid."""
+        # Create a password with exactly 128 characters that meets all requirements
+        password = "A1!" + "a" * 124 + "!"  # 128 chars total
+        register_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": password,
+        }
+
+        response = client.post("/auth/register", json=register_data)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["email"] == "newuser@example.com"
