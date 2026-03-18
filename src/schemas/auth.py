@@ -14,7 +14,7 @@ from src.db.models.user import UserRole, DietaryProfile
 # Validation constants for ingredient/allergy lists
 MAX_LIST_ITEM_LENGTH = 100
 MAX_LIST_SIZE = 100
-# Allow letters (any language), numbers, spaces, and common punctuation used in food names
+# Allow ASCII letters, numbers, spaces, and common punctuation used in food names
 ALLOWED_CHARS_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-\'\(\),./]+$')
 
 
@@ -79,6 +79,8 @@ class UserCreate(BaseModel):
     password: str = Field(..., description="Password (minimum 8 characters, maximum 128 characters)")
     dietary_profile: Optional[list[str]] = Field(default=None, description="Dietary preferences")
     allergies: Optional[list[str]] = Field(default=None, description="Food allergies")
+    disliked_ingredients: Optional[list[str]] = Field(default=None, description="Disliked ingredients (stored as JSON array)")
+    favorite_ingredients: Optional[list[str]] = Field(default=None, description="Favorite ingredients (stored as JSON array)")
     role: Optional[str] = Field(default=None, description="User role (coordinator or member)")
 
     @field_validator('password')
@@ -164,11 +166,17 @@ class UserCreate(BaseModel):
                     raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
         return v
 
-    @field_validator('allergies')
+    @field_validator('allergies', 'disliked_ingredients', 'favorite_ingredients')
     @classmethod
-    def validate_allergies(cls, v: Optional[list[str]]) -> Optional[list[str]]:
-        """Validate allergies list for length and character constraints."""
-        return validate_string_list('allergies', v)
+    def validate_ingredient_lists(cls, v: Optional[list[str]], info) -> Optional[list[str]]:
+        """
+        Validate ingredient/allergy lists for length and character constraints.
+
+        Ensures data quality by enforcing maximum item length, maximum list size,
+        and allowed character constraints.
+        """
+        field_name = info.field_name
+        return validate_string_list(field_name, v)
 
 
 
