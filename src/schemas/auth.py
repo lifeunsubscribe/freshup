@@ -142,6 +142,21 @@ class UserUpdate(BaseModel):
         return data
 
 
+class UserListResponse(BaseModel):
+    """Response schema for user list (excludes email and password for privacy)."""
+
+    id: UUID
+    name: str
+    role: str
+    dietary_profile: list
+    allergies: list
+    disliked_ingredients: list
+    favorite_ingredients: list
+
+    class Config:
+        from_attributes = True
+
+
 class TokenResponse(BaseModel):
     """Response schema for JWT token."""
 
