@@ -21,6 +21,16 @@ def _extract_client_ip(request: Request) -> Optional[str]:
     Checks X-Forwarded-For header first (for reverse proxy setups),
     then falls back to direct client host.
 
+    SECURITY WARNING: X-Forwarded-For can be spoofed by malicious clients.
+    This function should ONLY be used behind a trusted reverse proxy (e.g., nginx,
+    Apache, AWS ALB) that is configured to:
+    1. Strip/replace X-Forwarded-For from incoming client requests
+    2. Set X-Forwarded-For to the actual client IP
+
+    If deployed without a properly configured proxy, clients can forge IP addresses
+    in audit logs. For production deployments, ensure your reverse proxy is configured
+    to sanitize these headers, or modify this function to only trust request.client.host.
+
     Args:
         request: FastAPI request object
 
@@ -28,6 +38,7 @@ def _extract_client_ip(request: Request) -> Optional[str]:
         Client IP address as string, or None if unavailable
     """
     # Check for proxy headers (X-Forwarded-For takes precedence)
+    # SECURITY: Only safe when behind a trusted proxy that sanitizes this header
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
         # X-Forwarded-For can contain multiple IPs (client, proxy1, proxy2)
@@ -56,7 +67,7 @@ def _extract_user_agent(request: Request) -> Optional[str]:
 
 def log_registration(
     db: Session,
-    user_id: UUID,
+    user_id: Optional[UUID],
     email: str,
     request: Request,
     success: bool = True,
