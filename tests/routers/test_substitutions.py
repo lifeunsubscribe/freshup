@@ -21,7 +21,7 @@ from uuid import uuid4
 from src.db.database import Base, get_db
 from src.db import models
 from src.db.models.user import User, UserRole
-from src.db.models.substitution import SubstitutionPreference, SubstitutionContext
+from src.db.models.substitution import SubstitutionPreference
 from src.services.auth_service import hash_password, create_access_token
 
 from fastapi import FastAPI
@@ -62,6 +62,8 @@ def db_session():
     """Create a fresh database session for each test."""
     from sqlalchemy.pool import StaticPool
 
+    # Import models to ensure all SQLAlchemy model classes are registered
+    # with Base.metadata before create_all() is called
     _ = models
 
     engine = create_engine(
@@ -194,6 +196,27 @@ class TestCreateSubstitutionPreference:
 
         assert response.status_code == 401
         assert response.json()["detail"] == "Not authenticated"
+
+    @pytest.mark.parametrize("context_value", [
+        "side_dish",
+        "in_recipe",
+        "protein",
+        "sauce",
+        "any"
+    ])
+    def test_create_preference_all_valid_contexts(self, client, auth_headers, context_value):
+        """All SubstitutionContext enum values are accepted."""
+        payload = {
+            "original_ingredient": "broccoli",
+            "replacements": [{"ingredient": "asparagus", "rank": 1}],
+            "context": context_value
+        }
+
+        response = client.post("/users/me/substitutions", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["context"] == context_value
 
     def test_create_preference_invalid_context(self, client, auth_headers):
         """Invalid context enum value returns 422."""
