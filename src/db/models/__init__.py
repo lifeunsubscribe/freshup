@@ -1,6 +1,7 @@
 """All SQLAlchemy models — single import point for Alembic and app code."""
 
 from src.db.models.user import User, UserRole, DietaryProfile
+from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
 from src.db.models.store import Store
 from src.db.models.inventory_item import (
     InventoryItem,
@@ -30,6 +31,8 @@ __all__ = [
     "User",
     "UserRole",
     "DietaryProfile",
+    "AuthAuditLog",
+    "AuthEventType",
     "Store",
     "InventoryItem",
     "Category",
