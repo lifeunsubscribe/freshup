@@ -165,6 +165,18 @@ class TestListUsers:
         assert response.status_code == 401
         assert "detail" in response.json()
 
+    def test_list_users_expired_token(self, client, test_users):
+        """GET /users returns 401 with expired JWT token."""
+        from datetime import timedelta
+        user_id = uuid4()
+        token = create_access_token({"sub": str(user_id)}, expires_delta=timedelta(seconds=-1))
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/users", headers=headers)
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Not authenticated"
+
     def test_list_users_success(self, client, test_users, auth_headers):
         """GET /users returns list of all household members with valid token."""
         response = client.get("/users", headers=auth_headers)
