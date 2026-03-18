@@ -339,6 +339,32 @@ class TestCreateSubstitutionPreference:
 
         assert response.status_code == 422
 
+    def test_create_preference_rejects_whitespace_with_zero_width_characters(self, client, auth_headers):
+        """Reject ingredients that are effectively empty after stripping (whitespace + zero-width chars)."""
+        payload = {
+            "original_ingredient": "broccoli",
+            "replacements": [
+                {"ingredient": "   \u200b\u200c\u200d\ufeff   ", "rank": 1}  # spaces + ZWSP + ZWNJ + ZWJ + ZWNBSP + spaces
+            ],
+        }
+
+        response = client.post("/users/me/substitutions", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+
+    def test_create_preference_rejects_whitespace_with_zero_width_characters_in_original(self, client, auth_headers):
+        """Reject original_ingredient that is effectively empty after stripping (whitespace + zero-width chars)."""
+        payload = {
+            "original_ingredient": "   \u200b\u200c\u200d\ufeff   ",  # spaces + ZWSP + ZWNJ + ZWJ + ZWNBSP + spaces
+            "replacements": [
+                {"ingredient": "asparagus", "rank": 1}
+            ],
+        }
+
+        response = client.post("/users/me/substitutions", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+
     def test_create_preference_normalizes_unicode(self, client, auth_headers):
         """Unicode is normalized to NFC form."""
         payload = {
