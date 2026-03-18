@@ -12,7 +12,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
-from src.db.models.user import User
+from src.db.models.user import User, UserRole
 from src.services.auth_service import decode_token, TokenError
 
 
@@ -154,3 +154,48 @@ def get_current_user_optional(
 
     # Return user if found, None otherwise
     return user
+
+
+def require_coordinator(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    FastAPI dependency that requires the authenticated user to have coordinator role.
+
+    This dependency is used by coordinator-only endpoints to enforce role-based
+    authorization. It chains with get_current_user, so authentication is verified
+    first, then role authorization is checked. Returns 403 if authenticated user
+    is not a coordinator.
+
+    Args:
+        current_user: Authenticated user (injected by get_current_user dependency)
+
+    Returns:
+        User object if user is a coordinator
+
+    Raises:
+        HTTPException(403): If authenticated user does not have coordinator role
+
+    Example:
+        @app.post("/meal-plans/approve")
+        def approve_meal_plan(
+            plan_id: UUID,
+            coordinator: User = Depends(require_coordinator)
+        ):
+            # Only coordinators can access this endpoint
+            return approve_plan(plan_id, coordinator)
+
+        # Can also be combined with route dependencies:
+        @app.post("/admin/settings", dependencies=[Depends(require_coordinator)])
+        def update_settings(settings: Settings):
+            # Coordinator check happens before handler is called
+            return update(settings)
+    """
+    # Check if user has coordinator role
+    if current_user.role != UserRole.coordinator.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions. Coordinator role required.",
+        )
+
+    return current_user
