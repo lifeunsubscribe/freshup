@@ -234,7 +234,6 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             email=login_data.email,
             request=request,
             success=False,
-            user_id=user.id,
             failure_reason="invalid_credentials"
         )
 
