@@ -11,7 +11,7 @@ from sqlalchemy import func
 
 from src.db.database import get_db
 from src.db.models.user import User, UserRole
-from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate
+from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate, SwitchUserRequest
 from src.services.auth_service import hash_password, verify_password, create_access_token
 from src.middleware.auth import get_current_user
 
@@ -226,3 +226,118 @@ def update_current_user_profile(
     )
 
     return current_user
+
+
+@router.post("/switch-user", response_model=TokenResponse)
+def switch_user(
+    switch_data: SwitchUserRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Switch active user session on a shared device.
+
+    This endpoint enables the household trust model for shared device sessions
+    (e.g., iPad kitchen terminal). Any authenticated user can switch to another
+    household member's session without re-entering passwords. This is designed
+    for the "who are you?" selector flow on shared devices.
+
+    Args:
+        switch_data: Target user ID to switch to
+        current_user: Currently authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        TokenResponse: New JWT access token for the target user
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(403): If target user is not in the same household
+        HTTPException(404): If target user does not exist
+
+    Security Note:
+        This endpoint intentionally does not require password authentication,
+        following the household trust model described in FreshUp-ADR.md Section 1C.
+        It assumes physical device access implies household membership trust.
+        IMPORTANT: Only allows switching to users within the same household.
+    """
+    # Query target user by ID
+    target_user = db.query(User).filter(User.id == switch_data.user_id).first()
+
+    # Return 404 if target user doesn't exist
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # Prevent switching to self (unnecessary token generation)
+    if target_user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot switch to current user"
+        )
+
+    # SECURITY: Household Membership Verification
+    # This endpoint implements the "household trust model" where any authenticated user
+    # can switch to another user's session WITHOUT a password - but ONLY if both users
+    # belong to the same household.
+    #
+    # Current Architecture (Phase 1): Single-household deployment
+    # - No household_id field exists in the User model
+    # - All users in the database implicitly belong to the same household
+    # - Household boundary is enforced at deployment level (one database per household)
+    # - Therefore, if target_user exists in the database, they're in current_user's household
+    #
+    # CRITICAL: When multi-household support is added (see ADR Section 11 "Multi-household support"):
+    # - Add household_id field to User model
+    # - UNCOMMENT the verification code below
+    # - This check prevents horizontal privilege escalation across household boundaries
+    #
+    # The assertion below will fail if household_id is added but this security check is not updated.
+    # This prevents accidentally deploying multi-household support without fixing this vulnerability.
+
+    # Verify we're in single-household mode (no household_id field exists yet)
+    if hasattr(current_user, 'household_id'):
+        error_msg = (
+            "SECURITY: household_id field detected on User model. "
+            "Multi-household support requires explicit household membership verification. "
+            "Uncomment and implement the household_id check below before deploying."
+        )
+        logger.error(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Service configuration error"
+        )
+
+    if hasattr(target_user, 'household_id'):
+        error_msg = (
+            "SECURITY: household_id field detected on User model. "
+            "Multi-household support requires explicit household membership verification. "
+            "Uncomment and implement the household_id check below before deploying."
+        )
+        logger.error(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Service configuration error"
+        )
+
+    # When multi-household support is added, UNCOMMENT AND IMPLEMENT this check:
+    # if current_user.household_id != target_user.household_id:
+    #     logger.warning(
+    #         "SECURITY: Attempted cross-household user switch blocked. "
+    #         "User %s (household %s) tried to switch to user %s (household %s)",
+    #         current_user.id,
+    #         current_user.household_id,
+    #         target_user.id,
+    #         target_user.household_id
+    #     )
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail="Cannot switch to user in different household"
+    #     )
+
+    # Create JWT token for the target user
+    access_token = create_access_token(data={"sub": str(target_user.id)})
+
+    return TokenResponse(access_token=access_token, token_type="bearer")
