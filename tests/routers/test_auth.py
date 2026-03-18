@@ -796,7 +796,7 @@ class TestRegistrationDatabaseErrors:
         registration_data = {
             "name": "New User",
             "email": "newuser@example.com",
-            "password": "securepassword123",
+            "password": "SecurePass123!",
         }
 
         # Mock db.commit to raise IntegrityError
@@ -811,7 +811,7 @@ class TestRegistrationDatabaseErrors:
         registration_data = {
             "name": "New User",
             "email": "newuser@example.com",
-            "password": "securepassword123",
+            "password": "SecurePass123!",
         }
 
         # Mock db.commit to raise SQLAlchemyError
@@ -826,7 +826,7 @@ class TestRegistrationDatabaseErrors:
         registration_data = {
             "name": "New User",
             "email": "newuser@example.com",
-            "password": "securepassword123",
+            "password": "SecurePass123!",
         }
 
         with patch.object(db_session, 'commit', side_effect=IntegrityError("mock", "mock", "mock")):
@@ -1133,7 +1133,7 @@ class TestRegistrationValidation:
         registration_data = {
             "name": "Test User",
             "email": "test@example.com",
-            "password": "testpassword123",
+            "password": "SecurePass123!",
             "dietary_profile": ["invalid_diet"],
         }
 
@@ -1150,7 +1150,7 @@ class TestRegistrationValidation:
         registration_data = {
             "name": "Test User",
             "email": "test@example.com",
-            "password": "testpassword123",
+            "password": "SecurePass123!",
             "allergies": [too_long_allergy],
         }
 
@@ -1165,7 +1165,7 @@ class TestRegistrationValidation:
         registration_data = {
             "name": "Test User",
             "email": "test@example.com",
-            "password": "testpassword123",
+            "password": "SecurePass123!",
             "allergies": ["invalid@allergy#here"],
         }
 
@@ -1180,7 +1180,7 @@ class TestRegistrationValidation:
         registration_data = {
             "name": "Test User",
             "email": "newuser@example.com",
-            "password": "testpassword123",
+            "password": "SecurePass123!",
             "dietary_profile": ["vegan", "keto"],
             "allergies": ["tree nuts", "shellfish", "low-fat milk"],
         }
@@ -1377,7 +1377,7 @@ class TestAuditLogging:
         registration_data = {
             "name": "New User",
             "email": "newuser@example.com",
-            "password": "securepassword123",
+            "password": "SecurePass123!",
         }
 
         response = client.post("/auth/register", json=registration_data)
