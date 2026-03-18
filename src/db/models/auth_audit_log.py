@@ -60,8 +60,9 @@ class AuthAuditLog(Base):
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True, index=True)
     user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Additional metadata (flexible JSON field for future extensibility)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Additional event_metadata (flexible JSON field for future extensibility)
+    # Note: renamed from 'metadata' to avoid conflict with SQLAlchemy reserved attribute
+    event_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     # Timestamp
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False, index=True)
