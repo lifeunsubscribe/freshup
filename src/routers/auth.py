@@ -271,6 +271,13 @@ def switch_user(
             detail="User not found"
         )
 
+    # Prevent switching to self (unnecessary token generation)
+    if target_user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot switch to current user"
+        )
+
     # SECURITY: Household Membership Verification
     # This endpoint implements the "household trust model" where any authenticated user
     # can switch to another user's session WITHOUT a password - but ONLY if both users
@@ -298,7 +305,10 @@ def switch_user(
             "Uncomment and implement the household_id check below before deploying."
         )
         logger.error(error_msg)
-        raise RuntimeError(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Service configuration error"
+        )
 
     if hasattr(target_user, 'household_id'):
         error_msg = (
@@ -307,7 +317,10 @@ def switch_user(
             "Uncomment and implement the household_id check below before deploying."
         )
         logger.error(error_msg)
-        raise RuntimeError(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Service configuration error"
+        )
 
     # When multi-household support is added, UNCOMMENT AND IMPLEMENT this check:
     # if current_user.household_id != target_user.household_id:

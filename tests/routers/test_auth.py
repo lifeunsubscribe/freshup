@@ -642,6 +642,15 @@ class TestSwitchUser:
         assert response.status_code == 404
         assert response.json()["detail"] == "User not found"
 
+    def test_switch_user_to_self(self, client, test_user, auth_headers):
+        """POST /auth/switch-user returns 400 when attempting to switch to self."""
+        switch_data = {"user_id": str(test_user.id)}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Cannot switch to current user"
+
     def test_switch_user_no_password_required(self, client, test_user, member_user, auth_headers):
         """POST /auth/switch-user works without password (household trust model)."""
         switch_data = {"user_id": str(member_user.id)}
