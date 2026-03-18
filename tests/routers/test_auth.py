@@ -1574,8 +1574,8 @@ class TestAccountLockout:
         assert test_user.lockout_until is None
         assert test_user.lockout_count == 0  # Progressive counter reset
 
-    def test_lockout_expiry_does_not_reset_lockout_count(self, client, test_user, db_session):
-        """Lockout expiry allows login but does NOT reset lockout_count."""
+    def test_successful_login_after_lockout_expiry_resets_lockout_count(self, client, test_user, db_session):
+        """Successful login after lockout expiry resets lockout_count to 0."""
         # Set up: user was locked out twice before, and lockout just expired
         test_user.lockout_count = 2
         test_user.failed_login_attempts = 5
