@@ -523,6 +523,62 @@ class TestUpdateProfile:
         assert test_user.email == original_email
         assert test_user.role == original_role
         assert test_user.name == original_name  # Name should be unchanged since request was rejected
+    def test_update_profile_rejects_too_long_allergy_items(self, client, test_user, auth_headers):
+        """PUT /auth/me rejects allergy items exceeding max length."""
+        # Create an item that's 101 characters (exceeds the 100 char limit)
+        too_long_item = "a" * 101
+
+        update_data = {"allergies": [too_long_item]}
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        assert any("allergies" in str(err).lower() and "100 characters" in str(err).lower() for err in error_detail)
+
+    def test_update_profile_rejects_too_many_items(self, client, test_user, auth_headers):
+        """PUT /auth/me rejects lists with more than max items."""
+        # Create 101 items (exceeds the 100 item limit)
+        too_many_items = [f"ingredient{i}" for i in range(101)]
+
+        update_data = {"disliked_ingredients": too_many_items}
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        assert any("disliked_ingredients" in str(err).lower() and "100 items" in str(err).lower() for err in error_detail)
+
+    def test_update_profile_rejects_invalid_characters(self, client, test_user, auth_headers):
+        """PUT /auth/me rejects items with invalid characters."""
+        update_data = {"favorite_ingredients": ["tomatoes", "invalid@item#here", "carrots"]}
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        assert any("favorite_ingredients" in str(err).lower() and "punctuation" in str(err).lower() for err in error_detail)
+
+    def test_update_profile_accepts_valid_special_chars(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me accepts items with valid special characters."""
+        update_data = {
+            "allergies": ["tree nuts", "low-fat milk", "peanut butter (smooth)", "Trader Joe's sauce"],
+            "disliked_ingredients": ["cilantro/coriander", "onions, raw"],
+        }
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all items were accepted
+        assert data["allergies"] == ["tree nuts", "low-fat milk", "peanut butter (smooth)", "Trader Joe's sauce"]
+        assert data["disliked_ingredients"] == ["cilantro/coriander", "onions, raw"]
+
+        # Verify database state
+        db_session.refresh(test_user)
+        assert test_user.allergies == ["tree nuts", "low-fat milk", "peanut butter (smooth)", "Trader Joe's sauce"]
+        assert test_user.disliked_ingredients == ["cilantro/coriander", "onions, raw"]
 
 
 class TestSwitchUser:
@@ -848,7 +904,6 @@ class TestRegister:
         }
 
         response = client.post("/auth/register", json=register_data)
-
         assert response.status_code == 201
         data = response.json()
 
@@ -1069,3 +1124,73 @@ class TestRegister:
         assert response.status_code == 201
         data = response.json()
         assert data["email"] == "newuser@example.com"
+
+class TestRegistrationValidation:
+    """Tests for registration endpoint validation."""
+
+    def test_registration_rejects_invalid_dietary_profile(self, client):
+        """POST /auth/register rejects invalid dietary profiles."""
+        registration_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "testpassword123",
+            "dietary_profile": ["invalid_diet"],
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        assert any("dietary_profile" in str(err).lower() for err in error_detail)
+
+    def test_registration_rejects_too_long_allergy(self, client):
+        """POST /auth/register rejects allergies exceeding max length."""
+        too_long_allergy = "a" * 101
+
+        registration_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "testpassword123",
+            "allergies": [too_long_allergy],
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        assert any("allergies" in str(err).lower() and "100 characters" in str(err).lower() for err in error_detail)
+
+    def test_registration_rejects_invalid_characters_in_allergies(self, client):
+        """POST /auth/register rejects allergies with invalid characters."""
+        registration_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "testpassword123",
+            "allergies": ["invalid@allergy#here"],
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+
+        assert response.status_code == 422
+        error_detail = response.json()["detail"]
+        assert any("allergies" in str(err).lower() and "punctuation" in str(err).lower() for err in error_detail)
+
+    def test_registration_accepts_valid_allergies_and_dietary_profile(self, client, db_session):
+        """POST /auth/register accepts valid allergies and dietary profiles."""
+        registration_data = {
+            "name": "Test User",
+            "email": "newuser@example.com",
+            "password": "testpassword123",
+            "dietary_profile": ["vegan", "keto"],
+            "allergies": ["tree nuts", "shellfish", "low-fat milk"],
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify response includes expected fields
+        assert data["name"] == "Test User"
+        assert data["email"] == "newuser@example.com"
+        assert data["dietary_profile"] == ["vegan", "keto"]
+        assert data["allergies"] == ["tree nuts", "shellfish", "low-fat milk"]
