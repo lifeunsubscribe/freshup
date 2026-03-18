@@ -43,5 +43,5 @@ def list_users(
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
     """
-    users = db.query(User).all()
+    users = db.query(User).order_by(User.name).all()
     return users
