@@ -13,7 +13,7 @@ from unittest.mock import Mock
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
-from src.middleware.auth import get_current_user, get_current_user_optional
+from src.middleware.auth import get_current_user, get_current_user_optional, require_coordinator
 from src.services.auth_service import create_access_token
 from src.db.models.user import User, UserRole
 
@@ -27,7 +27,9 @@ def setup_test_env(monkeypatch):
     autouse=True means this fixture runs automatically for all tests in this module.
     """
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-for-testing-only-min-32-chars")
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+    monkeypatch.setenv("ACCESS_TOKEN_EXPIRE_MINUTES", "43200")
 
 
 class TestGetCurrentUser:
@@ -349,3 +351,114 @@ class TestAuthMiddlewareIntegration:
         # get_current_user_optional should return None
         result = get_current_user_optional(credentials=None, db=mock_db)
         assert result is None
+
+
+class TestRequireCoordinator:
+    """Tests for the require_coordinator dependency."""
+
+    def test_require_coordinator_allows_coordinator_user(self):
+        """Coordinator user should pass authorization and be returned."""
+        coordinator_user = User(
+            id=uuid4(),
+            name="Coordinator User",
+            email="coordinator@example.com",
+            role=UserRole.coordinator.value,
+        )
+
+        # Call the dependency with a coordinator user
+        result = require_coordinator(current_user=coordinator_user)
+
+        # Should return the same user
+        assert result == coordinator_user
+        assert result.role == UserRole.coordinator.value
+
+    def test_require_coordinator_rejects_member_user_with_403(self):
+        """Member user should be rejected with 403 Forbidden."""
+        member_user = User(
+            id=uuid4(),
+            name="Member User",
+            email="member@example.com",
+            role=UserRole.member.value,
+        )
+
+        # Call the dependency with a member user
+        with pytest.raises(HTTPException) as exc_info:
+            require_coordinator(current_user=member_user)
+
+        # Should raise 403, not 401 (user is authenticated but not authorized)
+        assert exc_info.value.status_code == 403
+        assert "Insufficient permissions" in exc_info.value.detail
+        assert "Coordinator role required" in exc_info.value.detail
+
+    def test_require_coordinator_error_message_is_descriptive(self):
+        """Error message should clearly indicate the authorization failure."""
+        member_user = User(
+            id=uuid4(),
+            name="Member User",
+            email="member@example.com",
+            role=UserRole.member.value,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_coordinator(current_user=member_user)
+
+        # Verify the error message is helpful
+        detail = exc_info.value.detail
+        assert "permissions" in detail.lower() or "coordinator" in detail.lower()
+        assert exc_info.value.status_code == 403
+
+    def test_require_coordinator_can_be_chained_with_get_current_user(self):
+        """
+        Integration test: verify require_coordinator can be used with get_current_user.
+
+        This simulates the pattern:
+            def endpoint(coordinator: User = Depends(require_coordinator)):
+                ...
+
+        Where require_coordinator internally depends on get_current_user.
+        """
+        user_id = uuid4()
+        coordinator_user = User(
+            id=user_id,
+            name="Coordinator",
+            email="coord@example.com",
+            role=UserRole.coordinator.value,
+        )
+
+        # Create valid token
+        token = create_access_token({"sub": str(user_id)})
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+        # Mock database
+        mock_db = Mock()
+        mock_query = mock_db.query.return_value
+        mock_filter = mock_query.filter.return_value
+        mock_filter.first.return_value = coordinator_user
+
+        # Simulate the full dependency chain:
+        # 1. get_current_user extracts and validates token
+        current_user = get_current_user(credentials=credentials, db=mock_db)
+
+        # 2. require_coordinator checks role
+        result = require_coordinator(current_user=current_user)
+
+        # Both should return the same coordinator
+        assert result == coordinator_user
+        assert result.role == UserRole.coordinator.value
+
+    def test_require_coordinator_preserves_user_object(self):
+        """The returned User object should be identical to the input."""
+        coordinator_user = User(
+            id=uuid4(),
+            name="Test Coordinator",
+            email="test@example.com",
+            role=UserRole.coordinator.value,
+        )
+
+        result = require_coordinator(current_user=coordinator_user)
+
+        # Should return the exact same object
+        assert result is coordinator_user
+        assert result.id == coordinator_user.id
+        assert result.name == coordinator_user.name
+        assert result.email == coordinator_user.email
