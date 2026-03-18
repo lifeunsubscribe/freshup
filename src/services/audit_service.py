@@ -203,8 +203,7 @@ def log_profile_update(
         Created AuthAuditLog record
     """
     # Include fields_updated in metadata for detailed audit trail
-    audit_metadata = metadata or {}
-    audit_metadata["fields_updated"] = fields_updated
+    audit_metadata = {**(metadata or {}), "fields_updated": fields_updated}
 
     audit_log = AuthAuditLog(
         user_id=user_id,

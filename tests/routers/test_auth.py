@@ -1415,8 +1415,8 @@ class TestAuditLogging:
             success=False
         ).all()
 
-        assert len(audit_logs) >= 1
-        log = audit_logs[-1]  # Get most recent
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
         assert log.failure_reason == "email_already_exists"
         assert log.user_id is None
 
@@ -1438,8 +1438,8 @@ class TestAuditLogging:
             event_type=AuthEventType.login_success.value
         ).all()
 
-        assert len(audit_logs) >= 1
-        log = audit_logs[-1]  # Get most recent
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
         assert log.success is True
         assert log.user_id == test_user.id
         assert log.failure_reason is None
@@ -1462,8 +1462,8 @@ class TestAuditLogging:
             event_type=AuthEventType.login_failure.value
         ).all()
 
-        assert len(audit_logs) >= 1
-        log = audit_logs[-1]  # Get most recent
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
         assert log.success is False
         assert log.failure_reason == "invalid_credentials"
 
@@ -1485,8 +1485,8 @@ class TestAuditLogging:
             event_type=AuthEventType.profile_update.value
         ).all()
 
-        assert len(audit_logs) >= 1
-        log = audit_logs[-1]  # Get most recent
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
         assert log.success is True
         assert log.email == test_user.email
         assert "name" in log.metadata["fields_updated"]
