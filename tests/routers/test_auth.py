@@ -8,6 +8,7 @@ Tests cover:
 """
 
 import pytest
+from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -715,7 +716,6 @@ class TestSwitchUser:
         switch_data = {"user_id": str(member_user.id)}
 
         response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
-
         assert response.status_code == 200
         assert "access_token" in response.json()
 
@@ -1194,3 +1194,176 @@ class TestRegistrationValidation:
         assert data["email"] == "newuser@example.com"
         assert data["dietary_profile"] == ["vegan", "keto"]
         assert data["allergies"] == ["tree nuts", "shellfish", "low-fat milk"]
+
+class TestAccountLockout:
+    """Tests for account lockout mechanism on login endpoint."""
+
+    def test_failed_login_increments_counter(self, client, test_user, db_session):
+        """Failed login attempts increment the failed_login_attempts counter."""
+        # Verify initial state
+        assert test_user.failed_login_attempts == 0
+        assert test_user.lockout_until is None
+
+        # Attempt login with wrong password
+        response = client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "wrongpassword"
+        })
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid credentials"
+
+        # Verify counter was incremented
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 1
+        assert test_user.lockout_until is None
+
+    def test_account_locks_after_five_failed_attempts(self, client, test_user, db_session):
+        """Account locks after 5 failed login attempts."""
+        # Make 4 failed attempts
+        for i in range(4):
+            client.post("/auth/login", json={
+                "email": "test@example.com",
+                "password": "wrongpassword"
+            })
+            db_session.refresh(test_user)
+            assert test_user.failed_login_attempts == i + 1
+            assert test_user.lockout_until is None
+
+        # 5th failed attempt should trigger lockout
+        response = client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "wrongpassword"
+        })
+
+        assert response.status_code == 401
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 5
+        assert test_user.lockout_until is not None
+
+    def test_locked_account_rejects_correct_password(self, client, test_user, db_session):
+        """Locked account rejects login even with correct password."""
+        # Lock the account
+        test_user.failed_login_attempts = 5
+        test_user.lockout_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+        db_session.commit()
+
+        # Try to login with correct password
+        response = client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "testpassword123"  # Correct password
+        })
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid credentials"
+
+        # Verify lockout is still in place
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 5
+        assert test_user.lockout_until is not None
+
+    def test_lockout_expires_after_duration(self, client, test_user, db_session):
+        """Account lockout expires after the lockout duration."""
+        # Lock the account with an expired lockout time
+        test_user.failed_login_attempts = 5
+        test_user.lockout_until = datetime.now(timezone.utc) - timedelta(minutes=1)  # Expired 1 minute ago
+        db_session.commit()
+
+        # Should be able to login with correct password
+        response = client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "testpassword123"
+        })
+        assert response.status_code == 200
+        assert "access_token" in response.json()
+
+        # Verify lockout was cleared
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 0
+        assert test_user.lockout_until is None
+
+    def test_successful_login_resets_failed_attempts(self, client, test_user, db_session):
+        """Successful login resets failed login attempts counter."""
+        # Set some failed attempts (but not locked)
+        test_user.failed_login_attempts = 3
+        db_session.commit()
+
+        # Login with correct password
+        response = client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "testpassword123"
+        })
+
+        assert response.status_code == 200
+        assert "access_token" in response.json()
+
+        # Verify counter was reset
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 0
+        assert test_user.lockout_until is None
+
+    def test_lockout_does_not_leak_account_existence(self, client):
+        """Locked accounts return same error message as non-existent accounts."""
+        # Try to login with non-existent account
+        response1 = client.post("/auth/login", json={
+            "email": "nonexistent@example.com",
+            "password": "anypassword"
+        })
+
+        # Try to login with (hypothetically) locked account
+        response2 = client.post("/auth/login", json={
+            "email": "locked@example.com",
+            "password": "anypassword"
+        })
+
+        # Both should return identical error messages
+        assert response1.status_code == 401
+        assert response2.status_code == 401
+        assert response1.json()["detail"] == response2.json()["detail"] == "Invalid credentials"
+
+    def test_multiple_users_lockout_independently(self, client, db_session):
+        """Lockout mechanism works independently for different users."""
+        from uuid import uuid4
+
+        # Create two users
+        user1 = User(
+            id=uuid4(),
+            name="User One",
+            email="user1@example.com",
+            hashed_password=hash_password("password123"),
+            role=UserRole.member.value,
+        )
+        user2 = User(
+            id=uuid4(),
+            name="User Two",
+            email="user2@example.com",
+            hashed_password=hash_password("password456"),
+            role=UserRole.member.value,
+        )
+        db_session.add(user1)
+        db_session.add(user2)
+        db_session.commit()
+
+        # Lock user1 by making 5 failed attempts
+        for _ in range(5):
+            client.post("/auth/login", json={
+                "email": "user1@example.com",
+                "password": "wrongpassword"
+            })
+
+        # User1 should be locked
+        db_session.refresh(user1)
+        assert user1.failed_login_attempts == 5
+        assert user1.lockout_until is not None
+
+        # User2 should not be affected
+        db_session.refresh(user2)
+        assert user2.failed_login_attempts == 0
+        assert user2.lockout_until is None
+
+        # User2 should still be able to login
+        response = client.post("/auth/login", json={
+            "email": "user2@example.com",
+            "password": "password456"
+        })
+        assert response.status_code == 200

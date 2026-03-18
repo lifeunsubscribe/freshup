@@ -5,6 +5,7 @@ Provides user registration and login endpoints with JWT token generation.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -22,6 +23,10 @@ logger = logging.getLogger(__name__)
 # Pre-computed valid bcrypt hash for timing attack mitigation
 # This is the hash of "dummy_password_for_timing_attack_protection"
 DUMMY_PASSWORD_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.VTtYMwJR1fGKHi"
+
+# Account lockout settings (OWASP recommendations)
+MAX_FAILED_LOGIN_ATTEMPTS = 5
+LOCKOUT_DURATION_MINUTES = 15
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -109,6 +114,11 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     """
     Authenticate a user and return a JWT access token.
 
+    Implements account lockout mechanism to prevent brute force attacks:
+    - Locks account for 15 minutes after 5 failed login attempts
+    - Resets failed attempts counter on successful login
+    - Returns generic error messages to avoid leaking account existence
+
     Args:
         login_data: Login credentials (email, password)
         db: Database session
@@ -117,8 +127,7 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
         TokenResponse: JWT access token
 
     Raises:
-        HTTPException(401): If credentials are invalid (generic message to avoid
-                           leaking whether email exists)
+        HTTPException(401): If credentials are invalid or account is locked
     """
     # Query user by email (email is normalized by schema validator)
     user = db.query(User).filter(User.email == login_data.email).first()
@@ -135,12 +144,64 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if not verify_password(login_data.password, user.hashed_password):
+    # Verify password FIRST (before lockout check) to prevent timing attacks
+    # This ensures constant-time operation regardless of lockout status
+    password_valid = verify_password(login_data.password, user.hashed_password)
+
+    # Check if account is currently locked
+    now = datetime.now(timezone.utc)
+    # Convert lockout_until to timezone-aware if it's naive (SQLite stores without tz)
+    lockout_until = user.lockout_until
+    if lockout_until and lockout_until.tzinfo is None:
+        lockout_until = lockout_until.replace(tzinfo=timezone.utc)
+
+    # If lockout has expired, reset the failed attempts counter
+    if lockout_until and lockout_until <= now:
+        user.failed_login_attempts = 0
+        user.lockout_until = None
+        # Update lockout_until for subsequent checks since we cleared it
+        lockout_until = None
+
+    # Check if account is still locked after expiry check
+    if lockout_until and lockout_until > now:
+        # Account is locked - return generic error to avoid leaking account status
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Check password validity (already verified above to prevent timing attacks)
+    if not password_valid:
+        # Increment failed login attempts
+        user.failed_login_attempts += 1
+
+        # Lock account if threshold reached
+        if user.failed_login_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
+            user.lockout_until = now + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+            logger.warning(
+                "Account locked due to failed login attempts: user_id=%s, email=%s, attempts=%d",
+                user.id,
+                user.email,
+                user.failed_login_attempts
+            )
+
+        # Commit failed login attempt state
+        db.commit()
+
+        # Return generic error message
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Successful login - reset lockout fields
+    user.failed_login_attempts = 0
+    user.lockout_until = None
+
+    # Commit successful login state
+    db.commit()
 
     # Create JWT token with user ID in the 'sub' claim
     access_token = create_access_token(data={"sub": str(user.id)})

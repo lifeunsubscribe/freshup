@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, DateTime, JSON, func
+from sqlalchemy import String, DateTime, JSON, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -43,6 +43,10 @@ class User(Base):
     disliked_ingredients: Mapped[list] = mapped_column(JSON, default=list)
     favorite_ingredients: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    # Account lockout fields for brute force protection
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    lockout_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
 
     # Relationships
     inventory_items: Mapped[list["InventoryItem"]] = relationship(back_populates="added_by_user")
