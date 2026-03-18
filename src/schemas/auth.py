@@ -169,6 +169,12 @@ class UserListResponse(BaseModel):
         from_attributes = True
 
 
+class SwitchUserRequest(BaseModel):
+    """Request schema for switching user sessions on shared devices."""
+
+    user_id: UUID = Field(..., description="Target user ID to switch to")
+
+
 class TokenResponse(BaseModel):
     """Response schema for JWT token."""
 

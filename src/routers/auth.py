@@ -11,7 +11,7 @@ from sqlalchemy import func
 
 from src.db.database import get_db
 from src.db.models.user import User, UserRole
-from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate
+from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate, SwitchUserRequest
 from src.services.auth_service import hash_password, verify_password, create_access_token
 from src.middleware.auth import get_current_user
 
@@ -226,3 +226,50 @@ def update_current_user_profile(
     )
 
     return current_user
+
+
+@router.post("/switch-user", response_model=TokenResponse)
+def switch_user(
+    switch_data: SwitchUserRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Switch active user session on a shared device.
+
+    This endpoint enables the household trust model for shared device sessions
+    (e.g., iPad kitchen terminal). Any authenticated user can switch to another
+    household member's session without re-entering passwords. This is designed
+    for the "who are you?" selector flow on shared devices.
+
+    Args:
+        switch_data: Target user ID to switch to
+        current_user: Currently authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        TokenResponse: New JWT access token for the target user
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If target user does not exist
+
+    Security Note:
+        This endpoint intentionally does not require password authentication,
+        following the household trust model described in FreshUp-ADR.md Section 1C.
+        It assumes physical device access implies household membership trust.
+    """
+    # Query target user by ID
+    target_user = db.query(User).filter(User.id == switch_data.user_id).first()
+
+    # Return 404 if target user doesn't exist
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # Create JWT token for the target user
+    access_token = create_access_token(data={"sub": str(target_user.id)})
+
+    return TokenResponse(access_token=access_token, token_type="bearer")

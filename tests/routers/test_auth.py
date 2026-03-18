@@ -44,9 +44,18 @@ def setup_test_env(monkeypatch):
     Uses monkeypatch to ensure clean setup/teardown and prevent test pollution.
     autouse=True means this fixture runs automatically for all tests in this module.
     """
+    # Clear the settings cache before setting environment variables
+    from src.config import get_settings
+    get_settings.cache_clear()
+
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-for-testing-only-min-32-chars")
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
     monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("ACCESS_TOKEN_EXPIRE_MINUTES", "43200")
+
+    # Clear the cache again to ensure fresh settings are loaded
+    get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -511,3 +520,201 @@ class TestUpdateProfile:
         assert test_user.email == original_email
         assert test_user.role == original_role
         assert test_user.name == original_name  # Name should be unchanged since request was rejected
+
+
+class TestSwitchUser:
+    """Tests for POST /auth/switch-user endpoint."""
+
+    @pytest.fixture
+    def member_user(self, db_session):
+        """Create a second test user (member role)."""
+        user = User(
+            id=uuid4(),
+            name="Member User",
+            email="member@example.com",
+            hashed_password=hash_password("memberpass123"),
+            role=UserRole.member.value,
+            dietary_profile=["vegan"],
+            allergies=[],
+            disliked_ingredients=[],
+            favorite_ingredients=[],
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+        return user
+
+    @pytest.fixture
+    def coordinator_user(self, db_session):
+        """Create a coordinator user."""
+        user = User(
+            id=uuid4(),
+            name="Coordinator User",
+            email="coordinator@example.com",
+            hashed_password=hash_password("coordpass123"),
+            role=UserRole.coordinator.value,
+            dietary_profile=["omnivore"],
+            allergies=[],
+            disliked_ingredients=[],
+            favorite_ingredients=[],
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+        return user
+
+    def test_switch_user_success(self, client, test_user, member_user, auth_headers):
+        """POST /auth/switch-user returns new token for target user."""
+        switch_data = {"user_id": str(member_user.id)}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify response contains access_token and token_type
+        assert "access_token" in data
+        assert "token_type" in data
+        assert data["token_type"] == "bearer"
+
+        # Verify the new token is for the target user by decoding it
+        from src.services.auth_service import decode_token
+        new_token = data["access_token"]
+        payload = decode_token(new_token)
+        assert payload["sub"] == str(member_user.id)
+
+    def test_switch_user_token_sub_claim(self, client, test_user, coordinator_user, auth_headers):
+        """POST /auth/switch-user token contains correct sub claim for target user."""
+        switch_data = {"user_id": str(coordinator_user.id)}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+
+        assert response.status_code == 200
+        new_token = response.json()["access_token"]
+
+        # Decode and verify sub claim matches target user
+        from src.services.auth_service import decode_token
+        payload = decode_token(new_token)
+        assert "sub" in payload
+        assert payload["sub"] == str(coordinator_user.id)
+        # Verify it's NOT the original user
+        assert payload["sub"] != str(test_user.id)
+
+    def test_switch_user_unauthorized(self, client, member_user):
+        """POST /auth/switch-user returns 401 without authentication."""
+        switch_data = {"user_id": str(member_user.id)}
+
+        response = client.post("/auth/switch-user", json=switch_data)
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Not authenticated"
+
+    def test_switch_user_invalid_token(self, client, member_user):
+        """POST /auth/switch-user returns 401 with invalid token."""
+        switch_data = {"user_id": str(member_user.id)}
+        invalid_headers = {"Authorization": "Bearer invalid.token.here"}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=invalid_headers)
+
+        assert response.status_code == 401
+        assert "detail" in response.json()
+
+    def test_switch_user_expired_token(self, client, member_user):
+        """POST /auth/switch-user returns 401 with expired token."""
+        from datetime import timedelta
+        user_id = uuid4()
+        token = create_access_token({"sub": str(user_id)}, expires_delta=timedelta(seconds=-1))
+        headers = {"Authorization": f"Bearer {token}"}
+        switch_data = {"user_id": str(member_user.id)}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=headers)
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Not authenticated"
+
+    def test_switch_user_not_found(self, client, auth_headers):
+        """POST /auth/switch-user returns 404 for non-existent user."""
+        nonexistent_user_id = uuid4()
+        switch_data = {"user_id": str(nonexistent_user_id)}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "User not found"
+
+    def test_switch_user_no_password_required(self, client, test_user, member_user, auth_headers):
+        """POST /auth/switch-user works without password (household trust model)."""
+        switch_data = {"user_id": str(member_user.id)}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+
+        assert response.status_code == 200
+        assert "access_token" in response.json()
+
+    def test_switch_user_any_user_can_switch(self, client, member_user, coordinator_user):
+        """POST /auth/switch-user allows any authenticated user to switch to any other user."""
+        member_token = create_access_token(data={"sub": str(member_user.id)})
+        member_headers = {"Authorization": f"Bearer {member_token}"}
+        switch_data = {"user_id": str(coordinator_user.id)}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=member_headers)
+
+        assert response.status_code == 200
+        new_token = response.json()["access_token"]
+
+        from src.services.auth_service import decode_token
+        payload = decode_token(new_token)
+        assert payload["sub"] == str(coordinator_user.id)
+
+    def test_switch_user_coordinator_to_member(self, client, coordinator_user, member_user):
+        """POST /auth/switch-user allows coordinator to switch to member (reverse direction)."""
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
+        switch_data = {"user_id": str(member_user.id)}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
+
+        assert response.status_code == 200
+        new_token = response.json()["access_token"]
+
+        from src.services.auth_service import decode_token
+        payload = decode_token(new_token)
+        assert payload["sub"] == str(member_user.id)
+
+    def test_switch_user_invalid_uuid_format(self, client, auth_headers):
+        """POST /auth/switch-user returns 422 for malformed UUID."""
+        switch_data = {"user_id": "not-a-valid-uuid"}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+
+        assert response.status_code == 422
+        assert "detail" in response.json()
+
+    def test_switch_user_missing_user_id(self, client, auth_headers):
+        """POST /auth/switch-user returns 422 when user_id is missing."""
+        switch_data = {}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+
+        assert response.status_code == 422
+        assert "detail" in response.json()
+
+    def test_switch_user_token_is_fresh(self, client, test_user, member_user, auth_headers):
+        """POST /auth/switch-user returns a new token with fresh expiration."""
+        import time
+        from src.services.auth_service import decode_token
+
+        switch_data = {"user_id": str(member_user.id)}
+        response1 = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        token1 = response1.json()["access_token"]
+        payload1 = decode_token(token1)
+
+        time.sleep(1)
+
+        response2 = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        token2 = response2.json()["access_token"]
+        payload2 = decode_token(token2)
+
+        assert token1 != token2
+        assert payload1["iat"] != payload2["iat"]
+        assert payload2["iat"] > payload1["iat"]
