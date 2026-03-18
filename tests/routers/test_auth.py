@@ -892,6 +892,7 @@ class TestUpdateProfileDatabaseErrors:
                 assert mock_rollback.called
                 assert response.status_code == 500
 
+
 class TestRegister:
     """Tests for POST /auth/register endpoint."""
 
@@ -1125,6 +1126,7 @@ class TestRegister:
         data = response.json()
         assert data["email"] == "newuser@example.com"
 
+
 class TestRegistrationValidation:
     """Tests for registration endpoint validation."""
 
@@ -1262,6 +1264,7 @@ class TestRegistrationValidation:
 
         # Should be normalized to NFC (single character é)
         assert "café" in data["allergies"]
+
 
 class TestAccountLockout:
     """Tests for account lockout mechanism on login endpoint."""
@@ -1595,6 +1598,7 @@ class TestAccountLockout:
         assert test_user.lockout_count == 0  # Reset on successful login
         assert test_user.failed_login_attempts == 0
         assert test_user.lockout_until is None
+
 
 class TestAuditLogging:
     """Tests for audit logging of authentication events."""
