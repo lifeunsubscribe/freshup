@@ -187,6 +187,17 @@ def update_current_user_profile(
     # Update only the fields that were provided (partial updates)
     update_dict = update_data.model_dump(exclude_unset=True)
 
+    # Log the profile update attempt with requested fields
+    logger.debug(
+        "Profile update attempt by user %s (email: %s) with fields: %s",
+        current_user.id,
+        current_user.email,
+        list(update_dict.keys())
+    )
+
+    # Track which fields are actually applied (for success logging)
+    applied_fields = []
+
     for field, value in update_dict.items():
         if field not in ALLOWED_UPDATE_FIELDS:
             # Log attempts to modify protected fields for security monitoring
@@ -201,8 +212,17 @@ def update_current_user_profile(
             # Silently skip disallowed fields for defense-in-depth
             continue
         setattr(current_user, field, value)
+        applied_fields.append(field)
 
     db.commit()
     db.refresh(current_user)
+
+    # Log successful profile update with applied fields
+    logger.info(
+        "Profile updated successfully for user %s (email: %s). Updated fields: %s",
+        current_user.id,
+        current_user.email,
+        applied_fields
+    )
 
     return current_user
