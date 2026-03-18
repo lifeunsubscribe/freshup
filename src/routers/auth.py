@@ -85,7 +85,8 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     except IntegrityError as e:
         # Handle database constraint violations (e.g., unique constraint on email)
         db.rollback()
-        logger.error(f"Integrity error during user registration: {str(e)}")
+        logger.error("Integrity error during user registration")
+        logger.debug(f"Integrity error details: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User registration failed due to data integrity violation"
@@ -93,7 +94,8 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     except SQLAlchemyError as e:
         # Handle general database errors
         db.rollback()
-        logger.error(f"Database error during user registration: {str(e)}")
+        logger.error("Database error during user registration")
+        logger.debug(f"Database error details: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the user account"
@@ -239,7 +241,8 @@ def update_current_user_profile(
     except IntegrityError as e:
         # Handle database constraint violations
         db.rollback()
-        logger.error(f"Integrity error during profile update for user {current_user.id}: {str(e)}")
+        logger.error(f"Integrity error during profile update for user {current_user.id}")
+        logger.debug(f"Integrity error details: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Profile update failed due to data integrity violation"
@@ -247,7 +250,8 @@ def update_current_user_profile(
     except SQLAlchemyError as e:
         # Handle general database errors
         db.rollback()
-        logger.error(f"Database error during profile update for user {current_user.id}: {str(e)}")
+        logger.error(f"Database error during profile update for user {current_user.id}")
+        logger.debug(f"Database error details: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while updating the profile"
