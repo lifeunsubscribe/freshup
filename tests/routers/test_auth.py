@@ -4,13 +4,16 @@ Integration tests for authentication endpoints.
 Tests cover:
 - GET /auth/me: unauthorized access and successful profile retrieval
 - PUT /auth/me: partial updates and validation errors
+- Database error handling for registration and profile updates
 """
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from uuid import uuid4
+from unittest.mock import patch, MagicMock
 
 from src.db.database import Base, get_db
 from src.db import models  # Import all models to ensure Base.metadata has all tables
@@ -727,3 +730,108 @@ class TestSwitchUser:
         assert token1 != token2
         assert payload1["iat"] != payload2["iat"]
         assert payload2["iat"] > payload1["iat"]
+
+
+class TestRegistrationDatabaseErrors:
+    """Tests for database error handling in POST /auth/register endpoint."""
+
+    def test_register_integrity_error_handling(self, client, db_session):
+        """POST /auth/register handles IntegrityError with appropriate response."""
+        registration_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "securepassword123",
+        }
+
+        # Mock db.commit to raise IntegrityError
+        with patch.object(db_session, 'commit', side_effect=IntegrityError("mock", "mock", "mock")):
+            response = client.post("/auth/register", json=registration_data)
+
+            assert response.status_code == 400
+            assert "data integrity violation" in response.json()["detail"].lower()
+
+    def test_register_sqlalchemy_error_handling(self, client, db_session):
+        """POST /auth/register handles SQLAlchemyError with appropriate response."""
+        registration_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "securepassword123",
+        }
+
+        # Mock db.commit to raise SQLAlchemyError
+        with patch.object(db_session, 'commit', side_effect=SQLAlchemyError("Database connection error")):
+            response = client.post("/auth/register", json=registration_data)
+
+            assert response.status_code == 500
+            assert "error occurred while creating" in response.json()["detail"].lower()
+
+    def test_register_integrity_error_triggers_rollback(self, client, db_session):
+        """POST /auth/register calls rollback when IntegrityError occurs."""
+        registration_data = {
+            "name": "New User",
+            "email": "newuser@example.com",
+            "password": "securepassword123",
+        }
+
+        with patch.object(db_session, 'commit', side_effect=IntegrityError("mock", "mock", "mock")):
+            with patch.object(db_session, 'rollback') as mock_rollback:
+                response = client.post("/auth/register", json=registration_data)
+
+                # Verify rollback was called
+                assert mock_rollback.called
+                assert response.status_code == 400
+
+
+class TestUpdateProfileDatabaseErrors:
+    """Tests for database error handling in PUT /auth/me endpoint."""
+
+    def test_update_profile_integrity_error_handling(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me handles IntegrityError with appropriate response."""
+        update_data = {"name": "Updated Name"}
+
+        # Mock db.commit to raise IntegrityError
+        with patch.object(db_session, 'commit', side_effect=IntegrityError("mock", "mock", "mock")):
+            response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+            assert response.status_code == 400
+            assert "data integrity violation" in response.json()["detail"].lower()
+
+    def test_update_profile_sqlalchemy_error_handling(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me handles SQLAlchemyError with appropriate response."""
+        update_data = {"name": "Updated Name"}
+
+        # Mock db.commit to raise SQLAlchemyError
+        with patch.object(db_session, 'commit', side_effect=SQLAlchemyError("Database connection error")):
+            response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+            assert response.status_code == 500
+            assert "error occurred while updating" in response.json()["detail"].lower()
+
+    def test_update_profile_integrity_error_triggers_rollback(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me calls rollback when IntegrityError occurs."""
+        update_data = {"name": "Updated Name"}
+        original_name = test_user.name
+
+        with patch.object(db_session, 'commit', side_effect=IntegrityError("mock", "mock", "mock")):
+            with patch.object(db_session, 'rollback') as mock_rollback:
+                response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+                # Verify rollback was called
+                assert mock_rollback.called
+                assert response.status_code == 400
+
+                # Verify user data wasn't changed (rollback worked)
+                db_session.refresh(test_user)
+                assert test_user.name == original_name
+
+    def test_update_profile_sqlalchemy_error_triggers_rollback(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me calls rollback when SQLAlchemyError occurs."""
+        update_data = {"name": "Updated Name"}
+
+        with patch.object(db_session, 'commit', side_effect=SQLAlchemyError("Database error")):
+            with patch.object(db_session, 'rollback') as mock_rollback:
+                response = client.put("/auth/me", json=update_data, headers=auth_headers)
+
+                # Verify rollback was called
+                assert mock_rollback.called
+                assert response.status_code == 500
