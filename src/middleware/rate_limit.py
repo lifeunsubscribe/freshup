@@ -96,6 +96,7 @@ def _create_limiter() -> Limiter:
 
             # Test Redis connection
             redis_client.ping()
+            # Close test connection - Limiter will create its own connection pool
             redis_client.close()
 
             logger.info(
