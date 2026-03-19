@@ -13,9 +13,9 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.db.database import get_db
 from src.db.models.user import User, UserRole
-from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate, SwitchUserRequest
+from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate, SwitchUserRequest, PasswordChangeRequest
 from src.services.auth_service import hash_password, verify_password, create_access_token
-from src.services.audit_service import log_registration, log_login_attempt, log_profile_update, log_user_switch
+from src.services.audit_service import log_registration, log_login_attempt, log_profile_update, log_user_switch, log_authorization_failure, log_password_change
 from src.middleware.auth import get_current_user
 from src.middleware.rate_limit import limiter
 
@@ -492,6 +492,94 @@ def update_current_user_profile(
     return current_user
 
 
+@router.post("/change-password", status_code=status.HTTP_200_OK)
+def change_password(
+    password_data: PasswordChangeRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Change the authenticated user's password.
+
+    Requires the user to provide their current password for verification before
+    allowing the password change. This prevents unauthorized password changes if
+    a session is compromised. All password changes are logged to the audit trail.
+
+    Args:
+        password_data: Current and new password
+        request: FastAPI request object (for audit logging)
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException(401): If current password is incorrect
+        HTTPException(422): If new password doesn't meet complexity requirements
+        HTTPException(500): If database error occurs
+    """
+    # Verify current password
+    if not current_user.hashed_password or not verify_password(password_data.old_password, current_user.hashed_password):
+        # Log failed password change attempt (incorrect old password)
+        log_password_change(
+            db=db,
+            user_id=current_user.id,
+            email=current_user.email,
+            request=request,
+            success=False,
+            failure_reason="invalid_old_password"
+        )
+        # Commit the audit log before raising exception
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error("Database error during password change audit logging (invalid old password)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Fall through to raise the original error
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect"
+        )
+
+    # Hash the new password
+    new_hashed_password = hash_password(password_data.new_password)
+
+    # Update the password
+    current_user.hashed_password = new_hashed_password
+
+    # Log successful password change (before commit so it's in the same transaction)
+    log_password_change(
+        db=db,
+        user_id=current_user.id,
+        email=current_user.email,
+        request=request,
+        success=True
+    )
+
+    try:
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during password change for user {current_user.id}")
+        logger.debug(f"Database error details: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while changing the password"
+        )
+
+    logger.info(
+        "Password changed successfully for user %s (email: %s)",
+        current_user.id,
+        current_user.email
+    )
+
+    return {"message": "Password changed successfully"}
+
+
 @router.post("/switch-user", response_model=TokenResponse)
 @limiter.limit("10/minute")
 def switch_user(
@@ -552,6 +640,16 @@ def switch_user(
             request=request,
             success=False,
             failure_reason="unauthorized"
+        )
+        # Log authorization failure for security monitoring
+        log_authorization_failure(
+            db=db,
+            user_id=current_user.id,
+            email=current_user.email,
+            request=request,
+            resource="user_switch",
+            action="switch_to_user",
+            metadata={"target_user_id": str(switch_data.user_id), "user_role": current_user.role}
         )
         # Commit the audit log before raising exception
         try:

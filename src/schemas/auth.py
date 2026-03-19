@@ -237,6 +237,61 @@ class SwitchUserRequest(BaseModel):
     user_id: UUID = Field(..., description="Target user ID to switch to")
 
 
+class PasswordChangeRequest(BaseModel):
+    """Request schema for password change."""
+
+    old_password: str = Field(..., description="Current password for verification")
+    new_password: str = Field(..., description="New password (minimum 8 characters, maximum 72 bytes for bcrypt compatibility)")
+
+    @field_validator('new_password')
+    @classmethod
+    def validate_password_complexity(cls, v: str) -> str:
+        """
+        Ensure new password meets complexity requirements.
+
+        Password must:
+        - Be at least 8 characters long
+        - Be at most 72 bytes (bcrypt's maximum) when encoded as UTF-8
+        - Contain at least one uppercase letter (A-Z)
+        - Contain at least one lowercase letter (a-z)
+        - Contain at least one digit (0-9)
+        - Contain at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)
+        """
+        errors = []
+
+        # Check minimum length (in characters for user-friendliness)
+        if len(v) < 8:
+            errors.append('at least 8 characters')
+
+        # Check maximum length (in bytes for bcrypt compatibility)
+        # bcrypt has a 72-byte limit for passwords
+        password_bytes = len(v.encode('utf-8'))
+        if password_bytes > 72:
+            errors.append('at most 72 bytes (currently {} bytes)'.format(password_bytes))
+
+        # Check for uppercase letter
+        if not any(c.isupper() for c in v):
+            errors.append('at least one uppercase letter')
+
+        # Check for lowercase letter
+        if not any(c.islower() for c in v):
+            errors.append('at least one lowercase letter')
+
+        # Check for digit
+        if not any(c.isdigit() for c in v):
+            errors.append('at least one digit')
+
+        # Check for special character
+        special_chars = set('!@#$%^&*()_+-=[]{}|;:,.<>?')
+        if not any(c in special_chars for c in v):
+            errors.append('at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)')
+
+        if errors:
+            raise ValueError(f"Password must contain {', '.join(errors)}")
+
+        return v
+
+
 class TokenResponse(BaseModel):
     """Response schema for JWT token."""
 
