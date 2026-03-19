@@ -151,6 +151,24 @@ class RecipeIngredientCreate(BaseModel):
     variation_diet: Optional[str] = Field(default=None, max_length=50, description="Dietary variation identifier")
     is_optional: bool = Field(default=False, description="Whether ingredient is optional")
 
+    @field_validator('ingredient_name', 'unit')
+    @classmethod
+    def strip_required_strings(cls, v: str) -> str:
+        """Strip whitespace from required string fields."""
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Field cannot be empty or only whitespace")
+        return stripped
+
+    @field_validator('variation_group', 'variation_diet')
+    @classmethod
+    def strip_optional_strings(cls, v: Optional[str]) -> Optional[str]:
+        """Strip whitespace from optional string fields."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped if stripped else None
+
 
 class RecipeIngredientUpdate(BaseModel):
     """Request schema for updating a recipe ingredient (partial updates allowed)."""
@@ -161,6 +179,26 @@ class RecipeIngredientUpdate(BaseModel):
     variation_group: Optional[str] = Field(default=None, max_length=100, description="Variation group identifier")
     variation_diet: Optional[str] = Field(default=None, max_length=50, description="Dietary variation identifier")
     is_optional: Optional[bool] = Field(default=None, description="Whether ingredient is optional")
+
+    @field_validator('ingredient_name', 'unit')
+    @classmethod
+    def strip_required_strings(cls, v: Optional[str]) -> Optional[str]:
+        """Strip whitespace from string fields."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Field cannot be empty or only whitespace")
+        return stripped
+
+    @field_validator('variation_group', 'variation_diet')
+    @classmethod
+    def strip_optional_strings(cls, v: Optional[str]) -> Optional[str]:
+        """Strip whitespace from optional string fields."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped if stripped else None
 
 
 class RecipeIngredientResponse(BaseModel):
