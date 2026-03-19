@@ -1194,10 +1194,10 @@ class TestRegister:
         data = response.json()
         assert data["email"] == "newuser@example.com"
 
-    def test_register_password_exceeds_128_characters(self, client):
-        """POST /auth/register fails when password exceeds 128 characters."""
-        # Create a password with 129 characters that meets all complexity requirements except max length
-        password = "A1!" + "a" * 125 + "!"  # 129 chars total
+    def test_register_password_exceeds_72_bytes(self, client):
+        """POST /auth/register fails when password exceeds 72 bytes (bcrypt limit)."""
+        # Create a password with 73 bytes that meets all complexity requirements except max length
+        password = "A1!" + "a" * 69 + "!"  # 73 chars = 73 bytes total
         register_data = {
             "name": "New User",
             "email": "newuser@example.com",
@@ -1209,12 +1209,13 @@ class TestRegister:
         assert response.status_code == 422
         error_detail = response.json()["detail"]
         error_msg = str(error_detail).lower()
-        assert "128 characters" in error_msg
+        assert "72 bytes" in error_msg
 
-    def test_register_password_exactly_128_characters(self, client, db_session):
-        """POST /auth/register accepts password with exactly 128 characters if valid."""
-        # Create a password with exactly 128 characters that meets all requirements
-        password = "A1!" + "a" * 124 + "!"  # 128 chars total
+    def test_register_password_exactly_72_bytes(self, client, db_session):
+        """POST /auth/register accepts password with exactly 72 bytes (bcrypt limit)."""
+        # Create a password with exactly 72 bytes that meets all requirements
+        # Using ASCII characters: 1 byte per character
+        password = "A1!" + "a" * 68 + "!"  # 72 chars = 72 bytes total
         register_data = {
             "name": "New User",
             "email": "newuser@example.com",
