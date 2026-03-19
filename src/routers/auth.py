@@ -27,9 +27,41 @@ DUMMY_PASSWORD_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.VTtYMwJR1fG
 
 # Account lockout settings (OWASP recommendations)
 MAX_FAILED_LOGIN_ATTEMPTS = 5
-LOCKOUT_DURATION_MINUTES = 15
+# Progressive lockout durations (exponential backoff) in minutes
+# [1st lockout, 2nd lockout, 3rd lockout, 4th lockout, 5th+ lockout]
+PROGRESSIVE_LOCKOUT_DURATIONS = [15, 30, 60, 120, 240]  # 15min, 30min, 1h, 2h, 4h (cap)
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
+
+
+def get_lockout_duration(lockout_count: int) -> int:
+    """
+    Calculate the lockout duration based on the number of previous lockouts.
+
+    Implements exponential backoff for account lockouts to progressively
+    increase the difficulty of brute force attacks. Uses a capped schedule
+    to prevent excessively long lockouts.
+
+    Args:
+        lockout_count: Number of times the account has been locked out previously
+
+    Returns:
+        Lockout duration in minutes
+
+    Examples:
+        >>> get_lockout_duration(0)  # First lockout
+        15
+        >>> get_lockout_duration(1)  # Second lockout
+        30
+        >>> get_lockout_duration(4)  # Fifth lockout
+        240
+        >>> get_lockout_duration(100)  # Exceeds schedule, uses cap
+        240
+    """
+    if lockout_count < len(PROGRESSIVE_LOCKOUT_DURATIONS):
+        return PROGRESSIVE_LOCKOUT_DURATIONS[lockout_count]
+    # Use the maximum duration (cap) for any lockout beyond the schedule
+    return PROGRESSIVE_LOCKOUT_DURATIONS[-1]
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -137,9 +169,11 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     """
     Authenticate a user and return a JWT access token.
 
-    Implements account lockout mechanism to prevent brute force attacks:
-    - Locks account for 15 minutes after 5 failed login attempts
-    - Resets failed attempts counter on successful login
+    Implements progressive account lockout mechanism to prevent brute force attacks:
+    - Locks account after 5 failed login attempts
+    - Uses exponential backoff for lockout duration (15min, 30min, 1h, 2h, 4h cap)
+    - Increases lockout duration with each subsequent lockout event
+    - Resets lockout counter on successful login
     - Returns generic error messages to avoid leaking account existence
 
     Args:
@@ -219,12 +253,21 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
 
         # Lock account if threshold reached
         if user.failed_login_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
-            user.lockout_until = now + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+            # Progressive lockout: duration increases with each lockout event
+            # lockout_count tracks how many times this user has been locked out before
+            # get_lockout_duration uses lockout_count to determine duration (15min, 30min, 1h, 2h, 4h)
+            lockout_duration_minutes = get_lockout_duration(user.lockout_count)
+            user.lockout_until = now + timedelta(minutes=lockout_duration_minutes)
+            # Increment lockout_count so next lockout will have longer duration (exponential backoff)
+            user.lockout_count += 1
             logger.warning(
-                "Account locked due to failed login attempts: user_id=%s, email=%s, attempts=%d",
+                "Account locked due to failed login attempts: user_id=%s, email=%s, attempts=%d, "
+                "lockout_count=%d, duration=%d minutes",
                 user.id,
                 user.email,
-                user.failed_login_attempts
+                user.failed_login_attempts,
+                user.lockout_count,
+                lockout_duration_minutes
             )
 
         # Commit failed login attempt state
@@ -246,9 +289,10 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Successful login - reset lockout fields
+    # Successful login - reset all lockout fields including progressive counter
     user.failed_login_attempts = 0
     user.lockout_until = None
+    user.lockout_count = 0  # Reset progressive lockout counter on successful login
 
     # Commit successful login state
     db.commit()
