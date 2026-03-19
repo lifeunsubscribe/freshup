@@ -969,7 +969,7 @@ def get_recipe_ratings(
         db.query(
             func.avg(UserRecipeRating.rating).label('average_rating'),
             func.count(UserRecipeRating.id).filter(UserRecipeRating.rating.isnot(None)).label('rating_count'),
-            func.count(UserRecipeRating.id).filter(UserRecipeRating.is_favorite == True).label('favorite_count'),
+            func.count(UserRecipeRating.id).filter(UserRecipeRating.is_favorite.is_(True)).label('favorite_count'),
         )
         .filter(UserRecipeRating.recipe_id == recipe_id)
         .first()
