@@ -111,10 +111,10 @@ class TestTrustedProxyValidation:
         assert _is_trusted_proxy("172.16.0.5", trusted) is True
         assert _is_trusted_proxy("172.16.0.6", trusted) is False
 
-    def test_trusted_proxy_empty_list_trusts_all(self):
-        """Empty trusted list means trust all proxies."""
-        assert _is_trusted_proxy("1.2.3.4", "") is True
-        assert _is_trusted_proxy("10.0.0.1", "  ") is True
+    def test_trusted_proxy_empty_list_trusts_none(self):
+        """Empty trusted list means trust NO proxies (fail-secure)."""
+        assert _is_trusted_proxy("1.2.3.4", "") is False
+        assert _is_trusted_proxy("10.0.0.1", "  ") is False
 
     def test_trusted_proxy_invalid_ip(self):
         """Invalid IP address returns False."""
@@ -221,7 +221,7 @@ class TestIPExtraction:
         assert ip == "203.0.113.42"
 
     def test_extract_ip_with_trust_enabled_empty_proxy_list(self, monkeypatch):
-        """Trust all proxies when trust enabled with empty proxy list."""
+        """Empty proxy list trusts NO proxies (fail-secure), falls back to direct IP."""
         monkeypatch.setenv("TRUST_X_FORWARDED_FOR", "true")
         monkeypatch.setenv("TRUSTED_PROXIES", "")
 
@@ -230,13 +230,15 @@ class TestIPExtraction:
 
         request = Mock()
         request.client = Mock()
-        request.client.host = "1.2.3.4"  # Any proxy IP
+        request.client.host = "1.2.3.4"  # Untrusted proxy IP
         request.headers = {
             "X-Forwarded-For": "203.0.113.42"
         }
 
         ip = _extract_client_ip(request)
-        assert ip == "203.0.113.42"
+        # Empty TRUSTED_PROXIES means no proxy is trusted (fail-secure)
+        # Should ignore X-Forwarded-For and return direct connection IP
+        assert ip == "1.2.3.4"
 
     def test_extract_ip_no_client(self):
         """Handle request with no client."""

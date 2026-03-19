@@ -46,7 +46,8 @@ def _is_trusted_proxy(ip: str, trusted_proxies: str) -> bool:
         True if IP is trusted, False otherwise
     """
     if not trusted_proxies.strip():
-        # Empty list means trust none (fail-secure)
+        # Empty/whitespace-only list means trust NO proxies (fail-secure default)
+        # This prevents X-Forwarded-For header spoofing when misconfigured
         return False
 
     try:
