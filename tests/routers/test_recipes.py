@@ -11,6 +11,7 @@ Tests cover:
 - Cross-user access prevention
 - Authentication requirements
 - Validation (source_type, times, servings, etc.)
+- Recipe ingredient CRUD operations with edge case validation
 """
 
 import pytest
@@ -931,3 +932,213 @@ class TestRecipeIngredientCRUD:
         )
 
         assert response.status_code == 401
+
+    def test_add_ingredient_empty_name(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with empty name fails validation."""
+        ingredient_data = {
+            "ingredient_name": "",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail either min_length or whitespace validation
+        assert any("ingredient_name" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_whitespace_only_name(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with whitespace-only name fails validation."""
+        ingredient_data = {
+            "ingredient_name": "   ",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail whitespace validation
+        assert any("ingredient_name" in str(error).lower() or "empty" in str(error).lower() or "whitespace" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_empty_unit(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with empty unit fails validation."""
+        ingredient_data = {
+            "ingredient_name": "Salt",
+            "quantity": 1.0,
+            "unit": "",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail either min_length or whitespace validation
+        assert any("unit" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_whitespace_only_unit(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with whitespace-only unit fails validation."""
+        ingredient_data = {
+            "ingredient_name": "Salt",
+            "quantity": 1.0,
+            "unit": "   ",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail whitespace validation
+        assert any("unit" in str(error).lower() or "empty" in str(error).lower() or "whitespace" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_zero_quantity(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with zero quantity fails validation."""
+        ingredient_data = {
+            "ingredient_name": "Salt",
+            "quantity": 0,
+            "unit": "tsp",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail gt=0 validation
+        assert any("quantity" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_negative_quantity(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with negative quantity fails validation."""
+        ingredient_data = {
+            "ingredient_name": "Salt",
+            "quantity": -1.5,
+            "unit": "tsp",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail gt=0 validation
+        assert any("quantity" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_empty_name(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with empty name fails validation."""
+        update_data = {
+            "ingredient_name": "",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("ingredient_name" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_whitespace_only_name(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with whitespace-only name fails validation."""
+        update_data = {
+            "ingredient_name": "   ",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("ingredient_name" in str(error).lower() or "empty" in str(error).lower() or "whitespace" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_empty_unit(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with empty unit fails validation."""
+        update_data = {
+            "unit": "",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("unit" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_whitespace_only_unit(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with whitespace-only unit fails validation."""
+        update_data = {
+            "unit": "   ",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("unit" in str(error).lower() or "empty" in str(error).lower() or "whitespace" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_zero_quantity(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with zero quantity fails validation."""
+        update_data = {
+            "quantity": 0,
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("quantity" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_negative_quantity(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with negative quantity fails validation."""
+        update_data = {
+            "quantity": -2.0,
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("quantity" in str(error).lower() for error in detail)
