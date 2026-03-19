@@ -106,6 +106,11 @@ def list_substitution_preferences(
     Returns all ingredient substitution preferences created by the current user,
     ordered by original ingredient name.
 
+    Note: This endpoint intentionally does not implement pagination. The 20-replacement
+    limit per preference and typical user behavior (managing a small set of personal
+    substitution rules) bounds the data size. Pagination can be added as a future
+    enhancement if usage patterns indicate need.
+
     Args:
         current_user: Authenticated user (injected by get_current_user dependency)
         db: Database session

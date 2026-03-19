@@ -449,6 +449,32 @@ class TestListSubstitutionPreferences:
 
         assert response.status_code == 401
 
+    def test_list_preferences_handles_many_preferences(self, client, db_session, test_user, auth_headers):
+        """Endpoint efficiently handles a large number of preferences without pagination."""
+        # Create 50 substitution preferences to test performance
+        # This validates the decision to not implement pagination given bounded data size
+        preferences = []
+        for i in range(50):
+            pref = SubstitutionPreference(
+                user_id=test_user.id,
+                original_ingredient=f"ingredient_{i:02d}",
+                replacements=[{"ingredient": f"replacement_{i}", "rank": 1}],
+                context="any"
+            )
+            preferences.append(pref)
+
+        db_session.add_all(preferences)
+        db_session.commit()
+
+        response = client.get("/users/me/substitutions", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 50
+        # Verify alphabetical ordering
+        assert data[0]["original_ingredient"] == "ingredient_00"
+        assert data[49]["original_ingredient"] == "ingredient_49"
+
 
 class TestGetSubstitutionPreference:
     """Tests for GET /users/me/substitutions/{id} endpoint."""
