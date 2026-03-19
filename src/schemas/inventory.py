@@ -279,3 +279,16 @@ class InventoryItemListResponse(BaseModel):
     shareability: str
     is_staple: bool
     expiration_date: Optional[datetime]
+
+
+class LowStockAlertItem(BaseModel):
+    """Response schema for low-stock alert items."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    quantity: float
+    unit: str
+    minimum_threshold: float
+    deficit: float = Field(..., description="How many units below threshold (threshold - quantity)")

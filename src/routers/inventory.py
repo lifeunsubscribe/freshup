@@ -25,6 +25,7 @@ from src.schemas.inventory import (
     SetPreferredStoreRequest,
     AddAvailableStoreRequest,
     UpdateShareabilityRequest,
+    LowStockAlertItem,
 )
 from src.middleware.auth import get_current_user
 
@@ -684,6 +685,63 @@ def remove_available_store(
         )
 
     return item
+
+
+@router.get("/alerts/low-stock", response_model=list[LowStockAlertItem])
+def get_low_stock_alerts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get staple items that are below their minimum threshold.
+
+    Returns items where:
+    - is_staple is True
+    - minimum_threshold is set (not NULL)
+    - quantity <= minimum_threshold
+
+    Items are ordered by deficit (most urgent first).
+
+    Args:
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        list[LowStockAlertItem]: List of low-stock staple items with deficit amounts
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+    """
+    # Query staple items below threshold
+    items = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.added_by == current_user.id,
+            InventoryItem.is_staple == True,
+            InventoryItem.minimum_threshold.isnot(None),
+            InventoryItem.quantity <= InventoryItem.minimum_threshold,
+        )
+        .all()
+    )
+
+    # Build response with deficit calculation
+    alert_items = []
+    for item in items:
+        alert_items.append(
+            LowStockAlertItem(
+                id=item.id,
+                name=item.name,
+                quantity=item.quantity,
+                unit=item.unit,
+                minimum_threshold=item.minimum_threshold,
+                deficit=item.minimum_threshold - item.quantity,
+            )
+        )
+
+    # Sort by deficit descending (most urgent first)
+    alert_items.sort(key=lambda x: x.deficit, reverse=True)
+
+    return alert_items
 
 
 @router.put("/{item_id}/shareability", response_model=InventoryItemResponse)
