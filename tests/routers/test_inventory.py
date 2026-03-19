@@ -2603,3 +2603,328 @@ class TestLowStockAlerts:
         # Only low_stock_staple should be returned
         assert len(data) == 1
         assert data[0]["name"] == "Low Stock Staple"
+
+
+class TestConsumeInventoryItem:
+    """Test suite for inventory item consumption endpoint."""
+
+    def test_consume_item_default_amount(self, client, auth_headers, test_user, db_session):
+        """Should consume item with default amount (1) and return updated item."""
+        item = InventoryItem(
+            name="Chocolate Bar",
+            quantity=5.0,
+            unit="count",
+            category="snack",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        response = client.post(f"/inventory/{item_id}/consume", headers=auth_headers, json={})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] is False
+        assert data["message"] == "Consumed 1.0 count. 4.0 count remaining."
+        assert data["item"] is not None
+        assert data["item"]["quantity"] == 4.0
+        assert data["item"]["name"] == "Chocolate Bar"
+
+        # Verify in database
+        db_session.expire_all()
+        updated_item = db_session.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        assert updated_item.quantity == 4.0
+
+    def test_consume_item_specific_amount(self, client, auth_headers, test_user, db_session):
+        """Should consume item with specified amount."""
+        item = InventoryItem(
+            name="Milk",
+            quantity=10.0,
+            unit="oz",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 3.5}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] is False
+        assert data["message"] == "Consumed 3.5 oz. 6.5 oz remaining."
+        assert data["item"]["quantity"] == 6.5
+
+    def test_consume_exact_quantity_with_auto_delete(self, client, auth_headers, test_user, db_session):
+        """Should delete item when consuming exact quantity with delete_when_empty=true (default)."""
+        item = InventoryItem(
+            name="Last Cookie",
+            quantity=1.0,
+            unit="count",
+            category="snack",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 1.0}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] is True
+        assert data["message"] == "Consumed 1.0 count. Item deleted (quantity reached 0)."
+        assert data["item"] is None
+
+        # Verify item is deleted from database
+        db_session.expire_all()
+        deleted_item = db_session.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        assert deleted_item is None
+
+    def test_consume_exact_quantity_without_auto_delete(self, client, auth_headers, test_user, db_session):
+        """Should keep item at quantity 0 when delete_when_empty=false."""
+        item = InventoryItem(
+            name="Empty Container",
+            quantity=2.0,
+            unit="count",
+            category="snack",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 2.0, "delete_when_empty": False}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] is False
+        assert data["message"] == "Consumed 2.0 count. 0.0 count remaining."
+        assert data["item"] is not None
+        assert data["item"]["quantity"] == 0.0
+
+        # Verify item still exists in database with quantity 0
+        db_session.expire_all()
+        kept_item = db_session.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        assert kept_item is not None
+        assert kept_item.quantity == 0.0
+
+    def test_consume_over_consumption_error(self, client, auth_headers, test_user, db_session):
+        """Should return 400 error when trying to consume more than available."""
+        item = InventoryItem(
+            name="Limited Snack",
+            quantity=2.0,
+            unit="count",
+            category="snack",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 5.0}
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert "Cannot consume 5.0 count. Only 2.0 count available" in data["detail"]
+
+        # Verify quantity unchanged
+        db_session.expire_all()
+        unchanged_item = db_session.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        assert unchanged_item.quantity == 2.0
+
+    def test_consume_negative_amount_validation_error(self, client, auth_headers, test_user, db_session):
+        """Should return 422 validation error for negative amount."""
+        item = InventoryItem(
+            name="Some Snack",
+            quantity=5.0,
+            unit="count",
+            category="snack",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": -1.0}
+        )
+
+        assert response.status_code == 422
+
+    def test_consume_zero_amount_validation_error(self, client, auth_headers, test_user, db_session):
+        """Should return 422 validation error for zero amount."""
+        item = InventoryItem(
+            name="Some Snack",
+            quantity=5.0,
+            unit="count",
+            category="snack",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 0}
+        )
+
+        assert response.status_code == 422
+
+    def test_consume_item_not_found(self, client, auth_headers):
+        """Should return 404 when item doesn't exist."""
+        non_existent_id = uuid4()
+
+        response = client.post(
+            f"/inventory/{non_existent_id}/consume",
+            headers=auth_headers,
+            json={"amount": 1.0}
+        )
+
+        assert response.status_code == 404
+        data = response.json()
+        assert data["detail"] == "Inventory item not found"
+
+    def test_consume_cross_user_access_denied(self, client, auth_headers, test_user2, db_session):
+        """Should return 404 when trying to consume another user's item."""
+        # Create item for test_user2
+        item = InventoryItem(
+            name="User2's Snack",
+            quantity=5.0,
+            unit="count",
+            category="snack",
+            storage_location="pantry",
+            added_by=test_user2.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        # Try to consume with test_user's auth (auth_headers)
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 1.0}
+        )
+
+        assert response.status_code == 404
+        data = response.json()
+        assert data["detail"] == "Inventory item not found"
+
+        # Verify quantity unchanged for user2's item
+        db_session.expire_all()
+        unchanged_item = db_session.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        assert unchanged_item.quantity == 5.0
+
+    def test_consume_requires_auth(self, client, test_user, db_session):
+        """Should return 401 when Authorization header is missing."""
+        item = InventoryItem(
+            name="Some Snack",
+            quantity=5.0,
+            unit="count",
+            category="snack",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        response = client.post(f"/inventory/{item_id}/consume", json={"amount": 1.0})
+
+        assert response.status_code == 401
+
+    def test_consume_partial_with_decimal(self, client, auth_headers, test_user, db_session):
+        """Should handle decimal quantities correctly."""
+        item = InventoryItem(
+            name="Olive Oil",
+            quantity=16.5,
+            unit="oz",
+            category="oil_vinegar",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 0.25}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] is False
+        assert data["item"]["quantity"] == 16.25
+
+    def test_consume_multiple_times(self, client, auth_headers, test_user, db_session):
+        """Should handle multiple consumption requests correctly."""
+        item = InventoryItem(
+            name="Crackers",
+            quantity=10.0,
+            unit="count",
+            category="snack",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        # First consumption
+        response1 = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 3.0}
+        )
+        assert response1.status_code == 200
+        assert response1.json()["item"]["quantity"] == 7.0
+
+        # Second consumption
+        response2 = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 2.0}
+        )
+        assert response2.status_code == 200
+        assert response2.json()["item"]["quantity"] == 5.0
+
+        # Third consumption (exact remaining)
+        response3 = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 5.0}
+        )
+        assert response3.status_code == 200
+        assert response3.json()["deleted"] is True

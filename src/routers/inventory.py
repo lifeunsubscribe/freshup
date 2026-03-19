@@ -26,6 +26,8 @@ from src.schemas.inventory import (
     AddAvailableStoreRequest,
     UpdateShareabilityRequest,
     LowStockAlertItem,
+    ConsumptionRequest,
+    ConsumptionResponse,
 )
 from src.middleware.auth import get_current_user
 
@@ -951,3 +953,111 @@ def thaw_inventory_item(
     )
 
     return item
+
+
+@router.post("/{item_id}/consume", response_model=ConsumptionResponse)
+def consume_inventory_item(
+    item_id: UUID,
+    consumption_data: ConsumptionRequest = ConsumptionRequest(),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Consume (decrement) inventory item quantity.
+
+    Decrements the item's quantity by the specified amount. If quantity reaches
+    zero and delete_when_empty is true (default), the item is deleted.
+
+    Args:
+        item_id: UUID of the inventory item to consume
+        consumption_data: Amount to consume and deletion preference
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        ConsumptionResponse: Status message, deletion flag, and updated item (if not deleted)
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist or belongs to another user
+        HTTPException(400): If consumption amount exceeds available quantity
+        HTTPException(422): If amount is negative or zero
+    """
+    # Query item with user ownership check
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.id == item_id,
+            InventoryItem.added_by == current_user.id,
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found"
+        )
+
+    # Validate consumption amount doesn't exceed available quantity
+    if consumption_data.amount > item.quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot consume {consumption_data.amount} {item.unit}. Only {item.quantity} {item.unit} available."
+        )
+
+    # Calculate new quantity
+    new_quantity = item.quantity - consumption_data.amount
+
+    # Check if item should be deleted (exact zero match, relying on float precision)
+    if new_quantity == 0 and consumption_data.delete_when_empty:
+        # Delete the item
+        try:
+            db.delete(item)
+            db.commit()
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database error during item consumption deletion for user {current_user.id}")
+            logger.debug(f"Database error occurred during item consumption deletion: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while deleting the consumed item"
+            )
+
+        logger.info(
+            f"Inventory item consumed and deleted: user_id={current_user.id}, "
+            f"item_id={item_id}, item_name={item.name}, amount={consumption_data.amount}"
+        )
+
+        return ConsumptionResponse(
+            message=f"Consumed {consumption_data.amount} {item.unit}. Item deleted (quantity reached 0).",
+            deleted=True,
+            item=None
+        )
+    else:
+        # Update quantity
+        item.quantity = new_quantity
+
+        try:
+            db.commit()
+            db.refresh(item)
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database error during item consumption for user {current_user.id}")
+            logger.debug(f"Database error occurred during item consumption: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while consuming the item"
+            )
+
+        logger.info(
+            f"Inventory item consumed: user_id={current_user.id}, "
+            f"item_id={item_id}, item_name={item.name}, amount={consumption_data.amount}, "
+            f"new_quantity={new_quantity}"
+        )
+
+        return ConsumptionResponse(
+            message=f"Consumed {consumption_data.amount} {item.unit}. {new_quantity} {item.unit} remaining.",
+            deleted=False,
+            item=item
+        )
