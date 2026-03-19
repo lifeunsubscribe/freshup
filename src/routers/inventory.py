@@ -105,7 +105,7 @@ def list_inventory_items(
     is_staple: Optional[bool] = Query(default=None, description="Filter by staple status"),
     expiring_soon: Optional[bool] = Query(default=None, description="Filter items expiring within 7 days"),
     expiring_within_days: Optional[int] = Query(default=None, ge=1, description="Filter items expiring within N days"),
-    search: Optional[str] = Query(default=None, max_length=255, description="Search items by name (case-insensitive partial match)"),
+    search: Optional[str] = Query(default=None, min_length=2, max_length=255, description="Search items by name (case-insensitive partial match)"),
 ):
     """
     List inventory items for the authenticated user with filtering and pagination.
