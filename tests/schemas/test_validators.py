@@ -95,6 +95,21 @@ class TestValidateEnumValue:
             validate_enum_value("Context", "bad_value", self.MockEnum)
         assert "Got: bad_value" in str(exc_info.value)
 
+    def test_case_sensitivity(self):
+        """Test that enum validation is case-sensitive."""
+        # Uppercase version should not match lowercase enum value
+        with pytest.raises(ValueError, match="Field must be one of: option_a, option_b, option_c. Got: OPTION_A"):
+            validate_enum_value("Field", "OPTION_A", self.MockEnum)
+
+        # Mixed case should not match
+        with pytest.raises(ValueError, match="Field must be one of: option_a, option_b, option_c. Got: Option_A"):
+            validate_enum_value("Field", "Option_A", self.MockEnum)
+
+    def test_empty_string_input(self):
+        """Test that empty string is rejected as invalid enum value."""
+        with pytest.raises(ValueError, match="Field must be one of: option_a, option_b, option_c. Got: "):
+            validate_enum_value("Field", "", self.MockEnum)
+
 
 class TestValidateNonNegative:
     """Tests for validate_non_negative function."""
