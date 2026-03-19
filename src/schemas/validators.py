@@ -7,7 +7,9 @@ validation logic diverging over time.
 """
 
 from typing import Optional
+from enum import Enum
 import unicodedata
+from fastapi import HTTPException, status
 
 
 # Validation constants for ingredient/allergy lists
@@ -21,6 +23,29 @@ BLOCKED_UNICODE_CATEGORIES = {'Cc', 'Cf', 'Co', 'Cn', 'Cs'}
 
 # Common punctuation and symbols used in food names
 ALLOWED_PUNCTUATION = set(" -'(),./")
+
+
+def validate_enum_value(field_name: str, value: str, enum_class: type[Enum]) -> None:
+    """
+    Validate that a string value is a valid member of an enum.
+
+    Raises HTTPException with 422 status if the value is not valid.
+    Used for validating query parameter enum values in API endpoints.
+
+    Args:
+        field_name: Name of the field being validated (for error messages)
+        value: The string value to validate
+        enum_class: The Enum class to validate against
+
+    Raises:
+        HTTPException(422): If value is not a valid enum member
+    """
+    valid_values = [member.value for member in enum_class]
+    if value not in valid_values:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid {field_name}. Must be one of: {', '.join(valid_values)}"
+        )
 
 
 def contains_blocked_characters(text: str) -> bool:
