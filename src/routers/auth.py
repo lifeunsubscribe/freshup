@@ -508,6 +508,42 @@ def switch_user(
         It assumes physical device access implies household membership trust.
         IMPORTANT: Only allows switching to users within the same household.
     """
+    # SECURITY: Authorization check - only coordinators can switch users
+    # This prevents unauthorized privilege escalation where a member could switch
+    # to a coordinator account and gain elevated privileges
+    if current_user.role != UserRole.coordinator.value:
+        logger.warning(
+            "SECURITY: Unauthorized user switch attempt blocked. "
+            "User %s (role: %s) attempted to switch users without coordinator privileges",
+            current_user.id,
+            current_user.role
+        )
+        # Log failed user switch attempt (unauthorized)
+        log_user_switch(
+            db=db,
+            original_user_id=current_user.id,
+            original_email=current_user.email,
+            target_user_id=switch_data.user_id,
+            target_email=None,
+            request=request,
+            success=False,
+            failure_reason="unauthorized"
+        )
+        # Commit the audit log before raising exception
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during user switch audit logging (unauthorized)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Fall through to raise the original error
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient privileges to switch users"
+        )
+
     # Query target user by ID
     target_user = db.query(User).filter(User.id == switch_data.user_id).first()
 
@@ -637,10 +673,20 @@ def switch_user(
         success=True
     )
 
-    # Create JWT token for the target user
-    access_token = create_access_token(data={"sub": str(target_user.id)})
+    # Commit the audit log before token creation to ensure it's persisted
+    # even if token creation fails
+    try:
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error("Database error during user switch audit logging")
+        logger.debug(f"Database error details: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while switching users"
+        )
 
-    # Commit the audit log after successful token creation
-    db.commit()
+    # Create JWT token for the target user (after audit log is committed)
+    access_token = create_access_token(data={"sub": str(target_user.id)})
 
     return TokenResponse(access_token=access_token, token_type="bearer")
