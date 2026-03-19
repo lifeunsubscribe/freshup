@@ -4,6 +4,21 @@ Audit logging service for FreshUp authentication events.
 Provides centralized functions for logging authentication and authorization events
 to the audit log table. All authentication-related routes should use these functions
 to ensure consistent audit trail.
+
+Transaction Semantics:
+    These functions add audit log entries to the database session but DO NOT commit.
+    The calling code is responsible for committing the transaction.
+
+    - For successful operations: Add audit log before db.commit() so both commit
+      atomically together. This ensures the operation and its audit log are consistent.
+
+    - For failed operations: Add audit log, commit it independently, then raise the
+      exception. This is intentionally NOT atomic - the audit log commits separately
+      to ensure failures are always logged, even if the main operation is rolled back.
+
+    This design prevents orphaned audit entries for successful operations (where the
+    main operation might fail after an independent audit commit), while guaranteeing
+    that security-relevant failures are always captured in the audit trail.
 """
 
 from typing import Optional
@@ -100,8 +115,6 @@ def log_registration(
         event_metadata=metadata
     )
     db.add(audit_log)
-    db.commit()
-    db.refresh(audit_log)
     return audit_log
 
 
@@ -140,8 +153,6 @@ def log_login_attempt(
         event_metadata=metadata
     )
     db.add(audit_log)
-    db.commit()
-    db.refresh(audit_log)
     return audit_log
 
 
@@ -175,8 +186,6 @@ def log_logout(
         event_metadata=metadata
     )
     db.add(audit_log)
-    db.commit()
-    db.refresh(audit_log)
     return audit_log
 
 
@@ -215,6 +224,4 @@ def log_profile_update(
         event_metadata=audit_metadata
     )
     db.add(audit_log)
-    db.commit()
-    db.refresh(audit_log)
     return audit_log
