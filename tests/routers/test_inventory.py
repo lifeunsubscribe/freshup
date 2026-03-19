@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from uuid import uuid4
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.db.database import Base, get_db
 from src.db import models
@@ -858,7 +858,7 @@ class TestFilterInventoryItems:
             unit="gallon",
             category="dairy",
             storage_location="fridge",
-            expiration_date=datetime.now() + timedelta(days=3),
+            expiration_date=datetime.now(timezone.utc) + timedelta(days=3),
             added_by=test_user.id,
         )
         expiring_later_item = InventoryItem(
@@ -867,7 +867,7 @@ class TestFilterInventoryItems:
             unit="gallon",
             category="dairy",
             storage_location="fridge",
-            expiration_date=datetime.now() + timedelta(days=14),
+            expiration_date=datetime.now(timezone.utc) + timedelta(days=14),
             added_by=test_user.id,
         )
         no_expiration_item = InventoryItem(
@@ -905,7 +905,7 @@ class TestFilterInventoryItems:
             unit="gallon",
             category="dairy",
             storage_location="fridge",
-            expiration_date=datetime.now() + timedelta(days=2),
+            expiration_date=datetime.now(timezone.utc) + timedelta(days=2),
             added_by=test_user.id,
         )
         expiring_in_5_days = InventoryItem(
@@ -914,7 +914,7 @@ class TestFilterInventoryItems:
             unit="gallon",
             category="dairy",
             storage_location="fridge",
-            expiration_date=datetime.now() + timedelta(days=5),
+            expiration_date=datetime.now(timezone.utc) + timedelta(days=5),
             added_by=test_user.id,
         )
         expiring_in_10_days = InventoryItem(
@@ -923,7 +923,7 @@ class TestFilterInventoryItems:
             unit="gallon",
             category="dairy",
             storage_location="fridge",
-            expiration_date=datetime.now() + timedelta(days=10),
+            expiration_date=datetime.now(timezone.utc) + timedelta(days=10),
             added_by=test_user.id,
         )
         db_session.add_all([expiring_in_2_days, expiring_in_5_days, expiring_in_10_days])
@@ -1137,7 +1137,7 @@ class TestFilterInventoryItems:
             unit="gallon",
             category="dairy",
             storage_location="fridge",
-            expiration_date=datetime.now() + timedelta(days=2),
+            expiration_date=datetime.now(timezone.utc) + timedelta(days=2),
             added_by=test_user.id,
         )
         expiring_in_5_days = InventoryItem(
@@ -1146,7 +1146,7 @@ class TestFilterInventoryItems:
             unit="gallon",
             category="dairy",
             storage_location="fridge",
-            expiration_date=datetime.now() + timedelta(days=5),
+            expiration_date=datetime.now(timezone.utc) + timedelta(days=5),
             added_by=test_user.id,
         )
         db_session.add_all([expiring_in_2_days, expiring_in_5_days])
