@@ -26,9 +26,12 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from fastapi import Request
 import ipaddress
+import logging
 
 from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
 from src.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _is_trusted_proxy(ip: str, trusted_proxies: str) -> bool:
@@ -43,8 +46,8 @@ def _is_trusted_proxy(ip: str, trusted_proxies: str) -> bool:
         True if IP is trusted, False otherwise
     """
     if not trusted_proxies.strip():
-        # Empty list means trust all when trust_x_forwarded_for is enabled
-        return True
+        # Empty list means trust none (fail-secure)
+        return False
 
     try:
         ip_addr = ipaddress.ip_address(ip)
@@ -67,7 +70,11 @@ def _is_trusted_proxy(ip: str, trusted_proxies: str) -> bool:
                 if ip_addr == ipaddress.ip_address(trusted):
                     return True
         except ValueError:
-            # Invalid IP/network in config, skip it
+            # Invalid IP/network in config, log and skip it
+            logger.warning(
+                "Invalid proxy configuration entry '%s' in TRUSTED_PROXIES - skipping",
+                trusted
+            )
             continue
 
     return False
