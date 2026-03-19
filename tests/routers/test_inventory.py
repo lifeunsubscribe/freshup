@@ -1952,3 +1952,335 @@ class TestUpdateShareability:
         response = client.put(f"/inventory/{item.id}/shareability", json=payload)
 
         assert response.status_code == 401
+
+
+class TestLowStockAlerts:
+    """Tests for GET /inventory/alerts/low-stock endpoint (threshold alerts)."""
+
+    def test_low_stock_alerts_item_below_threshold(self, client, auth_headers, test_user, db_session):
+        """Should return staple item when quantity is below threshold."""
+        # Create staple item below threshold
+        item = InventoryItem(
+            name="Rice",
+            quantity=2.0,
+            unit="lb",
+            category="grain",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Rice"
+        assert data[0]["quantity"] == 2.0
+        assert data[0]["minimum_threshold"] == 5.0
+        assert data[0]["deficit"] == 3.0  # 5.0 - 2.0
+        assert data[0]["unit"] == "lb"
+
+    def test_low_stock_alerts_item_at_threshold(self, client, auth_headers, test_user, db_session):
+        """Should return staple item when quantity equals threshold (edge case)."""
+        # Create staple item at exact threshold
+        item = InventoryItem(
+            name="Flour",
+            quantity=5.0,
+            unit="lb",
+            category="baking",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Flour"
+        assert data[0]["quantity"] == 5.0
+        assert data[0]["minimum_threshold"] == 5.0
+        assert data[0]["deficit"] == 0.0  # 5.0 - 5.0
+
+    def test_low_stock_alerts_item_above_threshold_not_returned(self, client, auth_headers, test_user, db_session):
+        """Should NOT return staple item when quantity is above threshold."""
+        # Create staple item above threshold
+        item = InventoryItem(
+            name="Pasta",
+            quantity=10.0,
+            unit="lb",
+            category="grain",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 0
+
+    def test_low_stock_alerts_non_staple_not_returned(self, client, auth_headers, test_user, db_session):
+        """Should NOT return non-staple items even if below threshold."""
+        # Create non-staple item below threshold
+        item = InventoryItem(
+            name="Ice Cream",
+            quantity=1.0,
+            unit="pint",
+            category="frozen",
+            storage_location="freezer",
+            is_staple=False,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 0
+
+    def test_low_stock_alerts_no_threshold_not_returned(self, client, auth_headers, test_user, db_session):
+        """Should NOT return staple items without a threshold set."""
+        # Create staple item without threshold
+        item = InventoryItem(
+            name="Sugar",
+            quantity=1.0,
+            unit="lb",
+            category="baking",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=None,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 0
+
+    def test_low_stock_alerts_empty_when_all_stocked(self, client, auth_headers, test_user, db_session):
+        """Should return empty list when all staple items are adequately stocked."""
+        # Create multiple staple items all above threshold
+        item1 = InventoryItem(
+            name="Rice",
+            quantity=10.0,
+            unit="lb",
+            category="grain",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            name="Pasta",
+            quantity=8.0,
+            unit="lb",
+            category="grain",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 0
+
+    def test_low_stock_alerts_multiple_items_sorted_by_deficit(self, client, auth_headers, test_user, db_session):
+        """Should return multiple low-stock items sorted by deficit (most urgent first)."""
+        # Create multiple staple items below threshold with different deficits
+        item1 = InventoryItem(
+            name="Rice",
+            quantity=2.0,
+            unit="lb",
+            category="grain",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,  # deficit = 3.0
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            name="Flour",
+            quantity=1.0,
+            unit="lb",
+            category="baking",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=10.0,  # deficit = 9.0 (most urgent)
+            added_by=test_user.id,
+        )
+        item3 = InventoryItem(
+            name="Sugar",
+            quantity=4.0,
+            unit="lb",
+            category="baking",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,  # deficit = 1.0 (least urgent)
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2, item3])
+        db_session.commit()
+
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 3
+
+        # Verify sorted by deficit descending (most urgent first)
+        assert data[0]["name"] == "Flour"
+        assert data[0]["deficit"] == 9.0
+        assert data[1]["name"] == "Rice"
+        assert data[1]["deficit"] == 3.0
+        assert data[2]["name"] == "Sugar"
+        assert data[2]["deficit"] == 1.0
+
+    def test_low_stock_alerts_multi_tenant_isolation(self, client, auth_headers, auth_headers2, test_user, test_user2, db_session):
+        """Should only return low-stock items for the authenticated user."""
+        # Create low-stock item for user 1
+        item1 = InventoryItem(
+            name="User 1 Rice",
+            quantity=2.0,
+            unit="lb",
+            category="grain",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        # Create low-stock item for user 2
+        item2 = InventoryItem(
+            name="User 2 Flour",
+            quantity=1.0,
+            unit="lb",
+            category="baking",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,
+            added_by=test_user2.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        # User 1 should only see their low-stock item
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "User 1 Rice"
+
+        # User 2 should only see their low-stock item
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers2)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "User 2 Flour"
+
+    def test_low_stock_alerts_requires_auth(self, client):
+        """Should return 401 if no auth token provided."""
+        response = client.get("/inventory/alerts/low-stock")
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Not authenticated"
+
+    def test_low_stock_alerts_threshold_zero_edge_case(self, client, auth_headers, test_user, db_session):
+        """Should handle threshold of 0 correctly."""
+        # Create staple item with threshold=0 and quantity=0 (at threshold)
+        item = InventoryItem(
+            name="Salt",
+            quantity=0.0,
+            unit="oz",
+            category="spice",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=0.0,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should be included (quantity <= threshold)
+        assert len(data) == 1
+        assert data[0]["name"] == "Salt"
+        assert data[0]["deficit"] == 0.0
+
+    def test_low_stock_alerts_mixed_conditions(self, client, auth_headers, test_user, db_session):
+        """Should correctly filter with mixed conditions (staple, non-staple, threshold, no threshold)."""
+        # Create various items
+        low_stock_staple = InventoryItem(
+            name="Low Stock Staple",
+            quantity=2.0,
+            unit="lb",
+            category="grain",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        stocked_staple = InventoryItem(
+            name="Stocked Staple",
+            quantity=10.0,
+            unit="lb",
+            category="grain",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        low_stock_non_staple = InventoryItem(
+            name="Low Stock Non-Staple",
+            quantity=1.0,
+            unit="count",
+            category="frozen",
+            storage_location="freezer",
+            is_staple=False,
+            minimum_threshold=5.0,
+            added_by=test_user.id,
+        )
+        staple_no_threshold = InventoryItem(
+            name="Staple No Threshold",
+            quantity=1.0,
+            unit="lb",
+            category="baking",
+            storage_location="pantry",
+            is_staple=True,
+            minimum_threshold=None,
+            added_by=test_user.id,
+        )
+        db_session.add_all([low_stock_staple, stocked_staple, low_stock_non_staple, staple_no_threshold])
+        db_session.commit()
+
+        response = client.get("/inventory/alerts/low-stock", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        # Only low_stock_staple should be returned
+        assert len(data) == 1
+        assert data[0]["name"] == "Low Stock Staple"
