@@ -15,7 +15,7 @@ from src.db.database import get_db
 from src.db.models.user import User, UserRole
 from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate, SwitchUserRequest
 from src.services.auth_service import hash_password, verify_password, create_access_token
-from src.services.audit_service import log_registration, log_login_attempt, log_profile_update
+from src.services.audit_service import log_registration, log_login_attempt, log_profile_update, log_user_switch
 from src.middleware.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -477,6 +477,7 @@ def update_current_user_profile(
 @router.post("/switch-user", response_model=TokenResponse)
 def switch_user(
     switch_data: SwitchUserRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -507,11 +508,68 @@ def switch_user(
         It assumes physical device access implies household membership trust.
         IMPORTANT: Only allows switching to users within the same household.
     """
+    # SECURITY: Authorization check - only coordinators can switch users
+    # This prevents unauthorized privilege escalation where a member could switch
+    # to a coordinator account and gain elevated privileges
+    if current_user.role != UserRole.coordinator.value:
+        logger.warning(
+            "SECURITY: Unauthorized user switch attempt blocked. "
+            "User %s (role: %s) attempted to switch users without coordinator privileges",
+            current_user.id,
+            current_user.role
+        )
+        # Log failed user switch attempt (unauthorized)
+        log_user_switch(
+            db=db,
+            original_user_id=current_user.id,
+            original_email=current_user.email,
+            target_user_id=switch_data.user_id,
+            target_email=None,
+            request=request,
+            success=False,
+            failure_reason="unauthorized"
+        )
+        # Commit the audit log before raising exception
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during user switch audit logging (unauthorized)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Fall through to raise the original error
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient privileges to switch users"
+        )
+
     # Query target user by ID
     target_user = db.query(User).filter(User.id == switch_data.user_id).first()
 
     # Return 404 if target user doesn't exist
     if not target_user:
+        # Log failed user switch attempt (target user not found)
+        log_user_switch(
+            db=db,
+            original_user_id=current_user.id,
+            original_email=current_user.email,
+            target_user_id=switch_data.user_id,
+            target_email=None,
+            request=request,
+            success=False,
+            failure_reason="user_not_found"
+        )
+        # Commit the audit log before raising exception
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during user switch audit logging (user not found)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Fall through to raise the original error
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
@@ -519,6 +577,27 @@ def switch_user(
 
     # Prevent switching to self (unnecessary token generation)
     if target_user.id == current_user.id:
+        # Log failed user switch attempt (switching to self)
+        log_user_switch(
+            db=db,
+            original_user_id=current_user.id,
+            original_email=current_user.email,
+            target_user_id=target_user.id,
+            target_email=target_user.email,
+            request=request,
+            success=False,
+            failure_reason="switch_to_self"
+        )
+        # Commit the audit log before raising exception
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during user switch audit logging (switch to self)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Fall through to raise the original error
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot switch to current user"
@@ -583,7 +662,31 @@ def switch_user(
     #         detail="Cannot switch to user in different household"
     #     )
 
-    # Create JWT token for the target user
+    # Log user switch event (before commit so it's in the same transaction)
+    log_user_switch(
+        db=db,
+        original_user_id=current_user.id,
+        original_email=current_user.email,
+        target_user_id=target_user.id,
+        target_email=target_user.email,
+        request=request,
+        success=True
+    )
+
+    # Commit the audit log before token creation to ensure it's persisted
+    # even if token creation fails
+    try:
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error("Database error during user switch audit logging")
+        logger.debug(f"Database error details: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while switching users"
+        )
+
+    # Create JWT token for the target user (after audit log is committed)
     access_token = create_access_token(data={"sub": str(target_user.id)})
 
     return TokenResponse(access_token=access_token, token_type="bearer")

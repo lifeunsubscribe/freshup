@@ -20,6 +20,8 @@ class AuthEventType(str, PyEnum):
     token_refresh = "token_refresh"
     profile_update = "profile_update"
     password_change = "password_change"
+    user_switch = "user_switch"
+    authorization_failure = "authorization_failure"
 
 
 class AuthAuditLog(Base):

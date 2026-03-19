@@ -22,6 +22,9 @@ from src.services.audit_service import (
     log_registration,
     log_login_attempt,
     log_profile_update,
+    log_user_switch,
+    log_password_change,
+    log_authorization_failure,
     _extract_client_ip,
     _extract_user_agent,
     _is_trusted_proxy
@@ -407,3 +410,135 @@ class TestLogProfileUpdate:
         assert log_entry.event_type == AuthEventType.profile_update.value
         assert log_entry.success is True
         assert log_entry.event_metadata["fields_updated"] == fields_updated
+
+
+class TestLogUserSwitch:
+    """Tests for log_user_switch function."""
+
+    def test_log_successful_user_switch(self, db_session, mock_request):
+        """Log successful user switch/impersonation."""
+        original_user_id = uuid4()
+        original_email = "alice@example.com"
+        target_user_id = uuid4()
+        target_email = "bob@example.com"
+
+        log_entry = log_user_switch(
+            db=db_session,
+            original_user_id=original_user_id,
+            original_email=original_email,
+            target_user_id=target_user_id,
+            target_email=target_email,
+            request=mock_request,
+            success=True
+        )
+
+        assert log_entry.user_id == original_user_id
+        assert log_entry.email == original_email
+        assert log_entry.event_type == AuthEventType.user_switch.value
+        assert log_entry.success is True
+        assert log_entry.failure_reason is None
+        assert log_entry.ip_address == "192.168.1.100"
+        assert log_entry.user_agent == "Mozilla/5.0 (Test Browser)"
+        assert log_entry.event_metadata["original_user_id"] == str(original_user_id)
+        assert log_entry.event_metadata["original_email"] == original_email
+        assert log_entry.event_metadata["target_user_id"] == str(target_user_id)
+        assert log_entry.event_metadata["target_email"] == target_email
+
+    def test_log_failed_user_switch(self, db_session, mock_request):
+        """Log failed user switch attempt."""
+        original_user_id = uuid4()
+        original_email = "alice@example.com"
+        target_user_id = uuid4()
+        target_email = "charlie@example.com"
+
+        log_entry = log_user_switch(
+            db=db_session,
+            original_user_id=original_user_id,
+            original_email=original_email,
+            target_user_id=target_user_id,
+            target_email=target_email,
+            request=mock_request,
+            success=False,
+            failure_reason="different_household"
+        )
+
+        assert log_entry.user_id == original_user_id
+        assert log_entry.email == original_email
+        assert log_entry.event_type == AuthEventType.user_switch.value
+        assert log_entry.success is False
+        assert log_entry.failure_reason == "different_household"
+
+
+class TestLogPasswordChange:
+    """Tests for log_password_change function."""
+
+    def test_log_successful_password_change(self, db_session, mock_request):
+        """Log successful password change."""
+        user_id = uuid4()
+        email = "user@example.com"
+
+        log_entry = log_password_change(
+            db=db_session,
+            user_id=user_id,
+            email=email,
+            request=mock_request,
+            success=True
+        )
+
+        assert log_entry.user_id == user_id
+        assert log_entry.email == email
+        assert log_entry.event_type == AuthEventType.password_change.value
+        assert log_entry.success is True
+        assert log_entry.failure_reason is None
+        assert log_entry.ip_address == "192.168.1.100"
+        assert log_entry.user_agent == "Mozilla/5.0 (Test Browser)"
+
+    def test_log_failed_password_change(self, db_session, mock_request):
+        """Log failed password change attempt."""
+        user_id = uuid4()
+        email = "user@example.com"
+
+        log_entry = log_password_change(
+            db=db_session,
+            user_id=user_id,
+            email=email,
+            request=mock_request,
+            success=False,
+            failure_reason="invalid_old_password"
+        )
+
+        assert log_entry.user_id == user_id
+        assert log_entry.email == email
+        assert log_entry.event_type == AuthEventType.password_change.value
+        assert log_entry.success is False
+        assert log_entry.failure_reason == "invalid_old_password"
+
+
+class TestLogAuthorizationFailure:
+    """Tests for log_authorization_failure function."""
+
+    def test_log_authorization_failure(self, db_session, mock_request):
+        """Log authorization failure (access denied)."""
+        user_id = uuid4()
+        email = "user@example.com"
+        resource = "meal_plan"
+        action = "delete"
+
+        log_entry = log_authorization_failure(
+            db=db_session,
+            user_id=user_id,
+            email=email,
+            request=mock_request,
+            resource=resource,
+            action=action
+        )
+
+        assert log_entry.user_id == user_id
+        assert log_entry.email == email
+        assert log_entry.event_type == AuthEventType.authorization_failure.value
+        assert log_entry.success is False
+        assert log_entry.failure_reason == f"unauthorized_access: {action} on {resource}"
+        assert log_entry.ip_address == "192.168.1.100"
+        assert log_entry.user_agent == "Mozilla/5.0 (Test Browser)"
+        assert log_entry.event_metadata["resource"] == resource
+        assert log_entry.event_metadata["action"] == action
