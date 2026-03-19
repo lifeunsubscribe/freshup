@@ -17,7 +17,7 @@ class UserCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255, description="User's display name")
     email: EmailStr = Field(..., description="User's email address (must be unique)")
-    password: str = Field(..., description="Password (minimum 8 characters, maximum 128 characters)")
+    password: str = Field(..., description="Password (minimum 8 characters, maximum 72 bytes for bcrypt compatibility)")
     dietary_profile: Optional[list[str]] = Field(default=None, description="Dietary preferences")
     allergies: Optional[list[str]] = Field(default=None, description="Food allergies")
     disliked_ingredients: Optional[list[str]] = Field(default=None, description="Disliked ingredients (stored as JSON array)")
@@ -32,7 +32,7 @@ class UserCreate(BaseModel):
 
         Password must:
         - Be at least 8 characters long
-        - Be at most 128 characters long
+        - Be at most 72 bytes (bcrypt's maximum) when encoded as UTF-8
         - Contain at least one uppercase letter (A-Z)
         - Contain at least one lowercase letter (a-z)
         - Contain at least one digit (0-9)
@@ -40,13 +40,15 @@ class UserCreate(BaseModel):
         """
         errors = []
 
-        # Check minimum length
+        # Check minimum length (in characters for user-friendliness)
         if len(v) < 8:
             errors.append('at least 8 characters')
 
-        # Check maximum length
-        if len(v) > 128:
-            errors.append('at most 128 characters')
+        # Check maximum length (in bytes for bcrypt compatibility)
+        # bcrypt has a 72-byte limit for passwords
+        password_bytes = len(v.encode('utf-8'))
+        if password_bytes > 72:
+            errors.append('at most 72 bytes (currently {} bytes)'.format(password_bytes))
 
         # Check for uppercase letter
         if not any(c.isupper() for c in v):

@@ -176,10 +176,11 @@ class TestPasswordComplexityValidation:
         user = UserCreate(**user_data)
         assert user.password == "Pass123!"
 
-    def test_password_exactly_128_characters_valid(self):
-        """Test that password with exactly 128 characters is accepted if it meets all requirements."""
-        # Create a password with exactly 128 characters that meets all complexity requirements
-        password = "A1!" + "a" * 124 + "!"  # 128 chars: uppercase, digit, special chars, lowercase
+    def test_password_exactly_72_bytes_valid(self):
+        """Test that password with exactly 72 bytes (bcrypt limit) is accepted if it meets all requirements."""
+        # Create a password with exactly 72 bytes that meets all complexity requirements
+        # Using ASCII characters: 1 byte per character
+        password = "A1!" + "a" * 68 + "!"  # 72 chars = 72 bytes: uppercase, digit, special chars, lowercase
         user_data = {
             "name": "Test User",
             "email": "test@example.com",
@@ -187,12 +188,12 @@ class TestPasswordComplexityValidation:
         }
         user = UserCreate(**user_data)
         assert user.password == password
-        assert len(user.password) == 128
+        assert len(user.password.encode('utf-8')) == 72
 
-    def test_password_exceeds_128_characters_rejected(self):
-        """Test that password with 129+ characters is rejected."""
-        # Create a password with 129 characters that meets all complexity requirements except length
-        password = "A1!" + "a" * 125 + "!"  # 129 chars: uppercase, digit, special chars, lowercase
+    def test_password_exceeds_72_bytes_rejected(self):
+        """Test that password with 73+ bytes is rejected (bcrypt limit)."""
+        # Create a password with 73 bytes that meets all complexity requirements except max byte length
+        password = "A1!" + "a" * 69 + "!"  # 73 chars = 73 bytes: uppercase, digit, special chars, lowercase
         user_data = {
             "name": "Test User",
             "email": "test@example.com",
@@ -204,7 +205,7 @@ class TestPasswordComplexityValidation:
         errors = exc_info.value.errors()
         assert len(errors) == 1
         assert errors[0]["loc"] == ("password",)
-        assert "128 characters" in errors[0]["msg"]
+        assert "72 bytes" in errors[0]["msg"]
 
     def test_password_with_spaces(self):
         """Test that passwords with spaces are accepted if they meet requirements."""
