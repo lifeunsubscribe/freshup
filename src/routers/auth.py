@@ -311,7 +311,14 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
         )
 
         # Commit failed login attempt state and audit log together
-        db.commit()
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during login audit logging (invalid password)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Fall through to raise the original authentication error
 
         # Return generic error message
         raise HTTPException(
@@ -335,7 +342,17 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     )
 
     # Commit successful login state and audit log together
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError as e:
+        # If commit fails, rollback and raise error (cannot proceed without persisting login state)
+        db.rollback()
+        logger.error("Database error during successful login commit")
+        logger.debug(f"Database error details: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while completing the login"
+        )
 
     # Create JWT token with user ID in the 'sub' claim
     access_token = create_access_token(data={"sub": str(user.id)})
