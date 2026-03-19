@@ -232,3 +232,370 @@ class TestValidateDietaryProfile:
         assert "vegan" in str(exc_info.value)
         assert "gluten-free" in str(exc_info.value)
         assert "dairy-free" in str(exc_info.value)
+
+
+# Integration tests for auth schemas using consolidated validators
+class TestUserCreateSchemaIntegration:
+    """Integration tests for UserCreate schema validation using consolidated validators."""
+
+    def test_valid_user_create_minimal(self):
+        """Test creating user with minimal required fields."""
+        from src.schemas.auth import UserCreate
+
+        user_data = {
+            "name": "John Doe",
+            "email": "john@example.com",
+            "password": "SecurePass123!"
+        }
+        user = UserCreate(**user_data)
+        assert user.name == "John Doe"
+        assert user.email == "john@example.com"
+        assert user.password == "SecurePass123!"
+        assert user.dietary_profile is None
+        assert user.allergies is None
+        assert user.disliked_ingredients is None
+        assert user.favorite_ingredients is None
+        assert user.role is None
+
+    def test_valid_user_create_with_all_fields(self):
+        """Test creating user with all fields populated."""
+        from src.schemas.auth import UserCreate
+
+        user_data = {
+            "name": "Jane Smith",
+            "email": "JANE@EXAMPLE.COM",
+            "password": "AnotherPass456!",
+            "dietary_profile": ["vegetarian", "vegan"],
+            "allergies": ["peanuts", "shellfish"],
+            "disliked_ingredients": ["olives", "mushrooms"],
+            "favorite_ingredients": ["tomatoes", "basil"],
+            "role": "coordinator"
+        }
+        user = UserCreate(**user_data)
+        assert user.name == "Jane Smith"
+        assert user.email == "jane@example.com"  # Email normalized to lowercase
+        assert user.dietary_profile == ["vegetarian", "vegan"]
+        assert user.allergies == ["peanuts", "shellfish"]
+        assert user.role == "coordinator"
+
+    def test_user_create_email_normalization(self):
+        """Test that email is normalized to lowercase."""
+        from src.schemas.auth import UserCreate
+
+        user_data = {
+            "name": "Test User",
+            "email": "Test.User@EXAMPLE.COM",
+            "password": "Password123!"
+        }
+        user = UserCreate(**user_data)
+        assert user.email == "test.user@example.com"
+
+    def test_user_create_name_validation_strips_whitespace(self):
+        """Test that name validator strips whitespace."""
+        from src.schemas.auth import UserCreate
+
+        user_data = {
+            "name": "  John Doe  ",
+            "email": "john@example.com",
+            "password": "Password123!"
+        }
+        user = UserCreate(**user_data)
+        assert user.name == "John Doe"
+
+    def test_user_create_name_validation_rejects_empty(self):
+        """Test that empty name is rejected."""
+        from src.schemas.auth import UserCreate
+
+        user_data = {
+            "name": "   ",
+            "email": "john@example.com",
+            "password": "Password123!"
+        }
+        with pytest.raises(ValueError, match="Name cannot be empty"):
+            UserCreate(**user_data)
+
+    def test_user_create_role_validation_valid_roles(self):
+        """Test that valid role values are accepted."""
+        from src.schemas.auth import UserCreate
+
+        for role in ["coordinator", "member"]:
+            user_data = {
+                "name": "Test User",
+                "email": "test@example.com",
+                "password": "Password123!",
+                "role": role
+            }
+            user = UserCreate(**user_data)
+            assert user.role == role
+
+    def test_user_create_role_validation_invalid_role(self):
+        """Test that invalid role is rejected."""
+        from src.schemas.auth import UserCreate
+
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "Password123!",
+            "role": "admin"
+        }
+        with pytest.raises(ValueError, match="Role must be one of: coordinator, member"):
+            UserCreate(**user_data)
+
+    def test_user_create_dietary_profile_validation(self):
+        """Test dietary profile validation with valid and invalid values."""
+        from src.schemas.auth import UserCreate
+
+        # Valid profiles
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "Password123!",
+            "dietary_profile": ["vegetarian", "vegan"]
+        }
+        user = UserCreate(**user_data)
+        assert user.dietary_profile == ["vegetarian", "vegan"]
+
+        # Invalid profile
+        user_data["dietary_profile"] = ["invalid-profile"]
+        with pytest.raises(ValueError, match="Invalid dietary profile: invalid-profile"):
+            UserCreate(**user_data)
+
+    def test_user_create_dietary_profile_whitespace_handling(self):
+        """Test that dietary profile strips whitespace and filters empty strings."""
+        from src.schemas.auth import UserCreate
+
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "Password123!",
+            "dietary_profile": ["  vegetarian  ", "", "  ", "vegan"]
+        }
+        user = UserCreate(**user_data)
+        assert user.dietary_profile == ["vegetarian", "vegan"]
+
+    def test_user_create_ingredient_lists_validation(self):
+        """Test that ingredient lists are validated correctly."""
+        from src.schemas.auth import UserCreate
+
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "Password123!",
+            "allergies": ["peanuts", "shellfish"],
+            "disliked_ingredients": ["olives"],
+            "favorite_ingredients": ["tomatoes", "basil"]
+        }
+        user = UserCreate(**user_data)
+        assert user.allergies == ["peanuts", "shellfish"]
+        assert user.disliked_ingredients == ["olives"]
+        assert user.favorite_ingredients == ["tomatoes", "basil"]
+
+    def test_user_create_ingredient_lists_whitespace_handling(self):
+        """Test that ingredient lists strip whitespace and filter empty strings."""
+        from src.schemas.auth import UserCreate
+
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": "Password123!",
+            "allergies": ["  peanuts  ", "", "shellfish"]
+        }
+        user = UserCreate(**user_data)
+        assert user.allergies == ["peanuts", "shellfish"]
+
+    def test_user_create_password_validation_complexity(self):
+        """Test password complexity validation."""
+        from src.schemas.auth import UserCreate
+
+        base_data = {
+            "name": "Test User",
+            "email": "test@example.com"
+        }
+
+        # Valid password
+        user = UserCreate(**base_data, password="ValidPass123!")
+        assert user.password == "ValidPass123!"
+
+        # Too short
+        with pytest.raises(ValueError, match="at least 8 characters"):
+            UserCreate(**base_data, password="Short1!")
+
+        # No uppercase
+        with pytest.raises(ValueError, match="at least one uppercase letter"):
+            UserCreate(**base_data, password="lowercase123!")
+
+        # No lowercase
+        with pytest.raises(ValueError, match="at least one lowercase letter"):
+            UserCreate(**base_data, password="UPPERCASE123!")
+
+        # No digit
+        with pytest.raises(ValueError, match="at least one digit"):
+            UserCreate(**base_data, password="NoDigitsHere!")
+
+        # No special character
+        with pytest.raises(ValueError, match="at least one special character"):
+            UserCreate(**base_data, password="NoSpecial123")
+
+    def test_user_create_password_validation_bcrypt_limit(self):
+        """Test that password exceeding bcrypt 72-byte limit is rejected."""
+        from src.schemas.auth import UserCreate
+
+        # Create a password that exceeds 72 bytes
+        long_password = "A1!" + "a" * 100  # Will exceed 72 bytes
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": long_password
+        }
+        with pytest.raises(ValueError, match="at most 72 bytes"):
+            UserCreate(**user_data)
+
+
+class TestUserUpdateSchemaIntegration:
+    """Integration tests for UserUpdate schema validation using consolidated validators."""
+
+    def test_valid_user_update_single_field(self):
+        """Test updating a single field."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {"name": "Updated Name"}
+        update = UserUpdate(**update_data)
+        assert update.name == "Updated Name"
+        assert update.dietary_profile is None
+        assert update.allergies is None
+
+    def test_valid_user_update_multiple_fields(self):
+        """Test updating multiple fields."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {
+            "name": "Updated Name",
+            "dietary_profile": ["vegan"],
+            "allergies": ["nuts"],
+            "disliked_ingredients": ["onions"],
+            "favorite_ingredients": ["garlic"]
+        }
+        update = UserUpdate(**update_data)
+        assert update.name == "Updated Name"
+        assert update.dietary_profile == ["vegan"]
+        assert update.allergies == ["nuts"]
+        assert update.disliked_ingredients == ["onions"]
+        assert update.favorite_ingredients == ["garlic"]
+
+    def test_user_update_name_validation_strips_whitespace(self):
+        """Test that name validator strips whitespace in updates."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {"name": "  Updated Name  "}
+        update = UserUpdate(**update_data)
+        assert update.name == "Updated Name"
+
+    def test_user_update_name_validation_rejects_empty(self):
+        """Test that empty name is rejected in updates."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {"name": "   "}
+        with pytest.raises(ValueError, match="Name cannot be empty"):
+            UserUpdate(**update_data)
+
+    def test_user_update_dietary_profile_validation(self):
+        """Test dietary profile validation in updates."""
+        from src.schemas.auth import UserUpdate
+
+        # Valid profiles
+        update_data = {"dietary_profile": ["keto", "low_carb"]}
+        update = UserUpdate(**update_data)
+        assert update.dietary_profile == ["keto", "low_carb"]
+
+        # Invalid profile
+        update_data = {"dietary_profile": ["invalid-diet"]}
+        with pytest.raises(ValueError, match="Invalid dietary profile: invalid-diet"):
+            UserUpdate(**update_data)
+
+    def test_user_update_dietary_profile_whitespace_handling(self):
+        """Test that dietary profile handles whitespace in updates."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {"dietary_profile": ["  vegan  ", "", "vegetarian"]}
+        update = UserUpdate(**update_data)
+        assert update.dietary_profile == ["vegan", "vegetarian"]
+
+    def test_user_update_ingredient_lists_validation(self):
+        """Test that ingredient lists are validated in updates."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {
+            "allergies": ["soy", "wheat"],
+            "disliked_ingredients": ["cilantro"],
+            "favorite_ingredients": ["cheese", "bacon"]
+        }
+        update = UserUpdate(**update_data)
+        assert update.allergies == ["soy", "wheat"]
+        assert update.disliked_ingredients == ["cilantro"]
+        assert update.favorite_ingredients == ["cheese", "bacon"]
+
+    def test_user_update_ingredient_lists_whitespace_handling(self):
+        """Test ingredient lists whitespace handling in updates."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {"allergies": ["  soy  ", "", "  wheat  "]}
+        update = UserUpdate(**update_data)
+        assert update.allergies == ["soy", "wheat"]
+
+    def test_user_update_protected_fields_rejected_email(self):
+        """Test that protected field 'email' cannot be updated."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {"email": "newemail@example.com"}
+        with pytest.raises(ValueError, match="Cannot modify protected fields: email"):
+            UserUpdate(**update_data)
+
+    def test_user_update_protected_fields_rejected_role(self):
+        """Test that protected field 'role' cannot be updated."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {"role": "coordinator"}
+        with pytest.raises(ValueError, match="Cannot modify protected fields: role"):
+            UserUpdate(**update_data)
+
+    def test_user_update_protected_fields_rejected_both(self):
+        """Test that both protected fields are rejected together."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {"email": "newemail@example.com", "role": "coordinator"}
+        with pytest.raises(ValueError, match="Cannot modify protected fields"):
+            UserUpdate(**update_data)
+
+    def test_user_update_unknown_fields_ignored(self):
+        """Test that unknown fields are silently ignored due to extra='ignore'."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {
+            "name": "Updated Name",
+            "unknown_field": "should be ignored",
+            "another_unknown": 123
+        }
+        update = UserUpdate(**update_data)
+        assert update.name == "Updated Name"
+        # Unknown fields should be ignored, not raise an error
+
+    def test_user_update_empty_update(self):
+        """Test that empty update (no fields) is valid."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {}
+        update = UserUpdate(**update_data)
+        assert update.name is None
+        assert update.dietary_profile is None
+
+    def test_user_update_partial_updates_preserve_none(self):
+        """Test that unset fields remain None in partial updates."""
+        from src.schemas.auth import UserUpdate
+
+        update_data = {"name": "Only Name Updated"}
+        update = UserUpdate(**update_data)
+        assert update.name == "Only Name Updated"
+        assert update.dietary_profile is None
+        assert update.allergies is None
+        assert update.disliked_ingredients is None
+        assert update.favorite_ingredients is None
