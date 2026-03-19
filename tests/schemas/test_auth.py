@@ -207,6 +207,180 @@ class TestPasswordComplexityValidation:
         assert errors[0]["loc"] == ("password",)
         assert "72 bytes" in errors[0]["msg"]
 
+    def test_password_with_2byte_utf8_chars_within_72_bytes_valid(self):
+        """Test that password with 2-byte UTF-8 characters is accepted if total is within 72 bytes."""
+        # 'é' is 2 bytes in UTF-8 (C3 A9)
+        # Password: "Passé123!" = 5 ASCII (5 bytes) + 1 two-byte char (2 bytes) + 4 ASCII (4 bytes) = 11 bytes total
+        password = "Passé123!"
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        user = UserCreate(**user_data)
+        assert user.password == password
+        assert len(user.password.encode('utf-8')) == 11
+
+    def test_password_with_2byte_utf8_chars_at_72_bytes_valid(self):
+        """Test that password with 2-byte UTF-8 characters at exactly 72 bytes is accepted."""
+        # 'é' is 2 bytes in UTF-8
+        # Build a password: "A1!" (3 bytes) + "é" * 23 (46 bytes) + "a" * 23 (23 bytes) = 72 bytes
+        password = "A1!" + "é" * 23 + "a" * 23
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        user = UserCreate(**user_data)
+        assert user.password == password
+        assert len(user.password.encode('utf-8')) == 72
+
+    def test_password_with_2byte_utf8_chars_exceeds_72_bytes_rejected(self):
+        """Test that password with 2-byte UTF-8 characters exceeding 72 bytes is rejected."""
+        # 'é' is 2 bytes in UTF-8
+        # Build a password: "A1!" (3 bytes) + "é" * 24 (48 bytes) + "a" * 23 (23 bytes) = 74 bytes
+        password = "A1!" + "é" * 24 + "a" * 23
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserCreate(**user_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("password",)
+        assert "72 bytes" in errors[0]["msg"]
+        assert "74 bytes" in errors[0]["msg"]  # Should show actual byte count
+
+    def test_password_with_3byte_utf8_chars_within_72_bytes_valid(self):
+        """Test that password with 3-byte UTF-8 characters is accepted if total is within 72 bytes."""
+        # '你' (Chinese character) is 3 bytes in UTF-8 (E4 BD A0)
+        # Password: "Pass你123!" = 4 ASCII (4 bytes) + 1 three-byte char (3 bytes) + 4 ASCII (4 bytes) = 11 bytes
+        password = "Pass你123!"
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        user = UserCreate(**user_data)
+        assert user.password == password
+        assert len(user.password.encode('utf-8')) == 11
+
+    def test_password_with_3byte_utf8_chars_at_72_bytes_valid(self):
+        """Test that password with 3-byte UTF-8 characters at exactly 72 bytes is accepted."""
+        # '你' is 3 bytes in UTF-8
+        # Build a password: "A1!" (3 bytes) + "你" * 15 (45 bytes) + "a" * 24 (24 bytes) = 72 bytes
+        password = "A1!" + "你" * 15 + "a" * 24
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        user = UserCreate(**user_data)
+        assert user.password == password
+        assert len(user.password.encode('utf-8')) == 72
+
+    def test_password_with_3byte_utf8_chars_exceeds_72_bytes_rejected(self):
+        """Test that password with 3-byte UTF-8 characters exceeding 72 bytes is rejected."""
+        # '你' is 3 bytes in UTF-8
+        # Build a password: "A1!" (3 bytes) + "你" * 16 (48 bytes) + "a" * 24 (24 bytes) = 75 bytes
+        password = "A1!" + "你" * 16 + "a" * 24
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserCreate(**user_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("password",)
+        assert "72 bytes" in errors[0]["msg"]
+        assert "75 bytes" in errors[0]["msg"]  # Should show actual byte count
+
+    def test_password_with_4byte_utf8_chars_within_72_bytes_valid(self):
+        """Test that password with 4-byte UTF-8 characters (emoji) is accepted if total is within 72 bytes."""
+        # '😀' (emoji) is 4 bytes in UTF-8 (F0 9F 98 80)
+        # Password: "Pass😀123!" = 4 ASCII (4 bytes) + 1 four-byte char (4 bytes) + 4 ASCII (4 bytes) = 12 bytes
+        password = "Pass😀123!"
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        user = UserCreate(**user_data)
+        assert user.password == password
+        assert len(user.password.encode('utf-8')) == 12
+
+    def test_password_with_4byte_utf8_chars_at_72_bytes_valid(self):
+        """Test that password with 4-byte UTF-8 characters (emoji) at exactly 72 bytes is accepted."""
+        # '😀' is 4 bytes in UTF-8
+        # Build a password: "A1!" (3 bytes) + "😀" * 11 (44 bytes) + "a" * 25 (25 bytes) = 72 bytes
+        password = "A1!" + "😀" * 11 + "a" * 25
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        user = UserCreate(**user_data)
+        assert user.password == password
+        assert len(user.password.encode('utf-8')) == 72
+
+    def test_password_with_4byte_utf8_chars_exceeds_72_bytes_rejected(self):
+        """Test that password with 4-byte UTF-8 characters (emoji) exceeding 72 bytes is rejected."""
+        # '😀' is 4 bytes in UTF-8
+        # Build a password: "A1!" (3 bytes) + "😀" * 12 (48 bytes) + "a" * 25 (25 bytes) = 76 bytes
+        password = "A1!" + "😀" * 12 + "a" * 25
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserCreate(**user_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("password",)
+        assert "72 bytes" in errors[0]["msg"]
+        assert "76 bytes" in errors[0]["msg"]  # Should show actual byte count
+
+    def test_password_with_mixed_multibyte_chars_at_72_bytes_valid(self):
+        """Test password with mixed multi-byte UTF-8 characters at exactly 72 bytes is accepted."""
+        # Mix of 2-byte (é), 3-byte (你), and 4-byte (😀) characters
+        # "A1!" (3 bytes) + "é" * 10 (20 bytes) + "你" * 10 (30 bytes) + "😀" * 4 (16 bytes) + "a" (1 byte) + "!" (1 byte) + "b" (1 byte) = 72 bytes
+        password = "A1!" + "é" * 10 + "你" * 10 + "😀" * 4 + "ab!"
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        user = UserCreate(**user_data)
+        assert user.password == password
+        assert len(user.password.encode('utf-8')) == 72
+
+    def test_password_with_mixed_multibyte_chars_exceeds_72_bytes_rejected(self):
+        """Test password with mixed multi-byte UTF-8 characters exceeding 72 bytes is rejected."""
+        # Mix of 2-byte (é), 3-byte (你), and 4-byte (😀) characters
+        # "A1!" (3 bytes) + "é" * 10 (20 bytes) + "你" * 10 (30 bytes) + "😀" * 5 (20 bytes) = 73 bytes
+        password = "A1!" + "é" * 10 + "你" * 10 + "😀" * 5
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserCreate(**user_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("password",)
+        assert "72 bytes" in errors[0]["msg"]
+        assert "73 bytes" in errors[0]["msg"]  # Should show actual byte count
+
     def test_password_with_spaces(self):
         """Test that passwords with spaces are accepted if they meet requirements."""
         user_data = {
