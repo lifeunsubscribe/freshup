@@ -23,7 +23,8 @@ from src.services.audit_service import (
     log_login_attempt,
     log_profile_update,
     _extract_client_ip,
-    _extract_user_agent
+    _extract_user_agent,
+    _is_trusted_proxy
 )
 
 
@@ -73,11 +74,71 @@ def mock_request():
     return request
 
 
+class TestTrustedProxyValidation:
+    """Tests for trusted proxy IP validation."""
+
+    def test_trusted_proxy_single_ip_match(self):
+        """Match against single trusted IP."""
+        assert _is_trusted_proxy("10.0.0.1", "10.0.0.1") is True
+
+    def test_trusted_proxy_single_ip_no_match(self):
+        """No match against single trusted IP."""
+        assert _is_trusted_proxy("10.0.0.2", "10.0.0.1") is False
+
+    def test_trusted_proxy_multiple_ips(self):
+        """Match against multiple trusted IPs."""
+        trusted = "10.0.0.1, 192.168.1.1, 172.16.0.1"
+        assert _is_trusted_proxy("192.168.1.1", trusted) is True
+        assert _is_trusted_proxy("10.0.0.99", trusted) is False
+
+    def test_trusted_proxy_cidr_range(self):
+        """Match against CIDR range."""
+        assert _is_trusted_proxy("10.0.0.50", "10.0.0.0/24") is True
+        assert _is_trusted_proxy("10.0.1.50", "10.0.0.0/24") is False
+
+    def test_trusted_proxy_multiple_cidr_ranges(self):
+        """Match against multiple CIDR ranges."""
+        trusted = "10.0.0.0/24, 192.168.1.0/24"
+        assert _is_trusted_proxy("10.0.0.100", trusted) is True
+        assert _is_trusted_proxy("192.168.1.50", trusted) is True
+        assert _is_trusted_proxy("172.16.0.1", trusted) is False
+
+    def test_trusted_proxy_mixed_ip_and_cidr(self):
+        """Match against mixed IPs and CIDR ranges."""
+        trusted = "10.0.0.1, 192.168.1.0/24, 172.16.0.5"
+        assert _is_trusted_proxy("10.0.0.1", trusted) is True
+        assert _is_trusted_proxy("192.168.1.100", trusted) is True
+        assert _is_trusted_proxy("172.16.0.5", trusted) is True
+        assert _is_trusted_proxy("172.16.0.6", trusted) is False
+
+    def test_trusted_proxy_empty_list_trusts_all(self):
+        """Empty trusted list means trust all proxies."""
+        assert _is_trusted_proxy("1.2.3.4", "") is True
+        assert _is_trusted_proxy("10.0.0.1", "  ") is True
+
+    def test_trusted_proxy_invalid_ip(self):
+        """Invalid IP address returns False."""
+        assert _is_trusted_proxy("not-an-ip", "10.0.0.0/24") is False
+
+    def test_trusted_proxy_invalid_config(self):
+        """Invalid entries in config are skipped."""
+        trusted = "10.0.0.1, invalid-ip, 192.168.1.0/24"
+        assert _is_trusted_proxy("10.0.0.1", trusted) is True
+        assert _is_trusted_proxy("192.168.1.50", trusted) is True
+
+
 class TestIPExtraction:
     """Tests for IP address extraction from request."""
 
-    def test_extract_ip_from_client(self):
-        """Extract IP from request.client when no proxy headers."""
+    def test_extract_ip_from_client_no_trust(self, monkeypatch):
+        """Extract IP from request.client when trust is disabled (default)."""
+        monkeypatch.setenv("TRUST_X_FORWARDED_FOR", "false")
+        monkeypatch.delenv("TRUSTED_PROXIES", raising=False)
+
+        # Clear the settings cache
+        from src.config import get_settings
+        get_settings.cache_clear()
+
         request = Mock()
         request.client = Mock()
         request.client.host = "192.168.1.100"
@@ -86,8 +147,13 @@ class TestIPExtraction:
         ip = _extract_client_ip(request)
         assert ip == "192.168.1.100"
 
-    def test_extract_ip_from_forwarded_for(self):
-        """Extract IP from X-Forwarded-For header (proxy)."""
+    def test_extract_ip_ignores_forwarded_for_when_trust_disabled(self, monkeypatch):
+        """Ignore X-Forwarded-For when trust is disabled (secure by default)."""
+        monkeypatch.setenv("TRUST_X_FORWARDED_FOR", "false")
+
+        from src.config import get_settings
+        get_settings.cache_clear()
+
         request = Mock()
         request.client = Mock()
         request.client.host = "10.0.0.1"  # Proxy IP
@@ -96,7 +162,81 @@ class TestIPExtraction:
         }
 
         ip = _extract_client_ip(request)
+        # Should return proxy IP, not forwarded IP
+        assert ip == "10.0.0.1"
+
+    def test_extract_ip_from_forwarded_for_with_trust_enabled(self, monkeypatch):
+        """Extract IP from X-Forwarded-For when trust is enabled and proxy is trusted."""
+        monkeypatch.setenv("TRUST_X_FORWARDED_FOR", "true")
+        monkeypatch.setenv("TRUSTED_PROXIES", "10.0.0.1")
+
+        from src.config import get_settings
+        get_settings.cache_clear()
+
+        request = Mock()
+        request.client = Mock()
+        request.client.host = "10.0.0.1"  # Trusted proxy IP
+        request.headers = {
+            "X-Forwarded-For": "203.0.113.42, 10.0.0.1"
+        }
+
+        ip = _extract_client_ip(request)
         assert ip == "203.0.113.42"  # First IP is original client
+
+    def test_extract_ip_ignores_forwarded_for_from_untrusted_proxy(self, monkeypatch):
+        """Ignore X-Forwarded-For from untrusted proxy even when trust is enabled."""
+        monkeypatch.setenv("TRUST_X_FORWARDED_FOR", "true")
+        monkeypatch.setenv("TRUSTED_PROXIES", "10.0.0.1")  # Only trust this IP
+
+        from src.config import get_settings
+        get_settings.cache_clear()
+
+        request = Mock()
+        request.client = Mock()
+        request.client.host = "10.0.0.99"  # Untrusted proxy IP
+        request.headers = {
+            "X-Forwarded-For": "203.0.113.42, 10.0.0.99"
+        }
+
+        ip = _extract_client_ip(request)
+        # Should return direct connection IP, not forwarded IP
+        assert ip == "10.0.0.99"
+
+    def test_extract_ip_from_forwarded_for_with_cidr_trust(self, monkeypatch):
+        """Extract IP from X-Forwarded-For when proxy is in trusted CIDR range."""
+        monkeypatch.setenv("TRUST_X_FORWARDED_FOR", "true")
+        monkeypatch.setenv("TRUSTED_PROXIES", "10.0.0.0/24")
+
+        from src.config import get_settings
+        get_settings.cache_clear()
+
+        request = Mock()
+        request.client = Mock()
+        request.client.host = "10.0.0.50"  # In trusted CIDR range
+        request.headers = {
+            "X-Forwarded-For": "203.0.113.42"
+        }
+
+        ip = _extract_client_ip(request)
+        assert ip == "203.0.113.42"
+
+    def test_extract_ip_with_trust_enabled_empty_proxy_list(self, monkeypatch):
+        """Trust all proxies when trust enabled with empty proxy list."""
+        monkeypatch.setenv("TRUST_X_FORWARDED_FOR", "true")
+        monkeypatch.setenv("TRUSTED_PROXIES", "")
+
+        from src.config import get_settings
+        get_settings.cache_clear()
+
+        request = Mock()
+        request.client = Mock()
+        request.client.host = "1.2.3.4"  # Any proxy IP
+        request.headers = {
+            "X-Forwarded-For": "203.0.113.42"
+        }
+
+        ip = _extract_client_ip(request)
+        assert ip == "203.0.113.42"
 
     def test_extract_ip_no_client(self):
         """Handle request with no client."""
