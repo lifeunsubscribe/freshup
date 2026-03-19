@@ -976,9 +976,10 @@ def get_recipe_ratings(
     )
 
     # Extract values (handle None for average when no ratings)
+    # Note: count() always returns an integer (0 if no matches), never None
     average_rating = stats.average_rating if stats.average_rating is not None else None
-    rating_count = stats.rating_count if stats.rating_count is not None else 0
-    favorite_count = stats.favorite_count if stats.favorite_count is not None else 0
+    rating_count = stats.rating_count
+    favorite_count = stats.favorite_count
 
     return RecipeAggregateRatingsResponse(
         average_rating=average_rating,
