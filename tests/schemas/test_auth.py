@@ -459,3 +459,31 @@ class TestPasswordComplexityValidation:
         }
         user = UserCreate(**user_data)
         assert user.password == "Aa1!Aa1!"
+
+    def test_password_minimum_length_uses_characters_not_bytes(self):
+        """Test that minimum length validation uses character count, not byte count.
+
+        This ensures UX-friendly behavior where a 7-character password with multi-byte
+        UTF-8 characters (e.g., 14+ bytes) is still rejected, while the maximum length
+        of 72 bytes allows for internationalized passwords that may have fewer characters
+        but fit within bcrypt's byte limit.
+        """
+        # '😀' (emoji) is 4 bytes in UTF-8
+        # Password: "Aa1!" (4 bytes) + "😀" * 3 (12 bytes) = 7 characters, 16 bytes
+        # This is under 8 characters but well under 72 bytes
+        password = "Aa1!" + "😀" * 3  # 7 characters total, 16 bytes
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "password": password,
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserCreate(**user_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("password",)
+        assert "8 characters" in errors[0]["msg"]
+        # Verify we're testing the right thing: password has enough bytes but not enough characters
+        assert len(password) < 8  # Less than 8 characters
+        assert len(password.encode('utf-8')) > 8  # But more than 8 bytes
