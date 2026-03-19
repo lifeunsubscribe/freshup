@@ -34,6 +34,48 @@ from src.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_metadata(metadata: Optional[dict]) -> Optional[dict]:
+    """
+    Remove PII (email addresses) from metadata before storing in audit logs.
+
+    This function recursively removes any keys containing 'email' from the metadata
+    dictionary to comply with data minimization principles. Email addresses are
+    considered PII and should not be stored in audit logs where they could be
+    exposed to unauthorized personnel.
+
+    Args:
+        metadata: Optional metadata dictionary that may contain PII
+
+    Returns:
+        Sanitized metadata dict with email keys removed, or None if input was None
+
+    Examples:
+        >>> _sanitize_metadata({"user_id": "123", "email": "user@example.com"})
+        {"user_id": "123"}
+
+        >>> _sanitize_metadata({"original_email": "a@b.com", "target_email": "c@d.com"})
+        {}
+
+        >>> _sanitize_metadata(None)
+        None
+    """
+    if metadata is None:
+        return None
+
+    # Create a new dict with only non-email keys
+    sanitized = {}
+    for key, value in metadata.items():
+        # Skip any key containing 'email' (case-insensitive)
+        if 'email' not in key.lower():
+            # If value is a dict, recursively sanitize it
+            if isinstance(value, dict):
+                sanitized[key] = _sanitize_metadata(value)
+            else:
+                sanitized[key] = value
+
+    return sanitized if sanitized else None
+
+
 def _is_trusted_proxy(ip: str, trusted_proxies: str) -> bool:
     """
     Check if an IP address is in the trusted proxy list.
@@ -139,7 +181,6 @@ def _extract_user_agent(request: Request) -> Optional[str]:
 def log_registration(
     db: Session,
     user_id: Optional[UUID],
-    email: str,
     request: Request,
     success: bool = True,
     failure_reason: Optional[str] = None,
@@ -151,24 +192,25 @@ def log_registration(
     Args:
         db: Database session
         user_id: ID of the newly created user (None if registration failed)
-        email: Email address used for registration
         request: FastAPI request object for extracting IP and user agent
         success: Whether registration succeeded
         failure_reason: Optional reason for failure (e.g., "email_already_exists")
-        metadata: Optional additional context
+        metadata: Optional additional context (PII will be sanitized)
 
     Returns:
         Created AuthAuditLog record
+
+    Privacy Note:
+        Email addresses are NOT stored. Use user_id to look up user details.
     """
     audit_log = AuthAuditLog(
         user_id=user_id if success else None,
-        email=email,
         event_type=AuthEventType.registration.value,
         success=success,
         failure_reason=failure_reason,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        event_metadata=metadata
+        event_metadata=_sanitize_metadata(metadata)
     )
     db.add(audit_log)
     return audit_log
@@ -176,7 +218,6 @@ def log_registration(
 
 def log_login_attempt(
     db: Session,
-    email: str,
     request: Request,
     success: bool,
     user_id: Optional[UUID] = None,
@@ -188,25 +229,26 @@ def log_login_attempt(
 
     Args:
         db: Database session
-        email: Email address used for login attempt
         request: FastAPI request object for extracting IP and user agent
         success: Whether login succeeded
         user_id: ID of the user (only for successful logins)
         failure_reason: Reason for failure (e.g., "invalid_credentials", "user_not_found")
-        metadata: Optional additional context
+        metadata: Optional additional context (PII will be sanitized)
 
     Returns:
         Created AuthAuditLog record
+
+    Privacy Note:
+        Email addresses are NOT stored. Use user_id to look up user details.
     """
     audit_log = AuthAuditLog(
         user_id=user_id,
-        email=email,
         event_type=AuthEventType.login_success.value if success else AuthEventType.login_failure.value,
         success=success,
         failure_reason=failure_reason,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        event_metadata=metadata
+        event_metadata=_sanitize_metadata(metadata)
     )
     db.add(audit_log)
     return audit_log
@@ -215,7 +257,6 @@ def log_login_attempt(
 def log_logout(
     db: Session,
     user_id: UUID,
-    email: str,
     request: Request,
     metadata: Optional[dict] = None
 ) -> AuthAuditLog:
@@ -225,21 +266,22 @@ def log_logout(
     Args:
         db: Database session
         user_id: ID of the user logging out
-        email: Email of the user logging out
         request: FastAPI request object for extracting IP and user agent
-        metadata: Optional additional context
+        metadata: Optional additional context (PII will be sanitized)
 
     Returns:
         Created AuthAuditLog record
+
+    Privacy Note:
+        Email addresses are NOT stored. Use user_id to look up user details.
     """
     audit_log = AuthAuditLog(
         user_id=user_id,
-        email=email,
         event_type=AuthEventType.logout.value,
         success=True,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        event_metadata=metadata
+        event_metadata=_sanitize_metadata(metadata)
     )
     db.add(audit_log)
     return audit_log
@@ -248,7 +290,6 @@ def log_logout(
 def log_profile_update(
     db: Session,
     user_id: UUID,
-    email: str,
     request: Request,
     fields_updated: list[str],
     metadata: Optional[dict] = None
@@ -259,25 +300,26 @@ def log_profile_update(
     Args:
         db: Database session
         user_id: ID of the user updating their profile
-        email: Email of the user
         request: FastAPI request object for extracting IP and user agent
         fields_updated: List of field names that were updated
-        metadata: Optional additional context
+        metadata: Optional additional context (PII will be sanitized)
 
     Returns:
         Created AuthAuditLog record
+
+    Privacy Note:
+        Email addresses are NOT stored. Use user_id to look up user details.
     """
     # Include fields_updated in metadata for detailed audit trail
     audit_metadata = {**(metadata or {}), "fields_updated": fields_updated}
 
     audit_log = AuthAuditLog(
         user_id=user_id,
-        email=email,
         event_type=AuthEventType.profile_update.value,
         success=True,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        event_metadata=audit_metadata
+        event_metadata=_sanitize_metadata(audit_metadata)
     )
     db.add(audit_log)
     return audit_log
@@ -286,9 +328,7 @@ def log_profile_update(
 def log_user_switch(
     db: Session,
     original_user_id: UUID,
-    original_email: str,
     target_user_id: UUID,
-    target_email: str,
     request: Request,
     success: bool = True,
     failure_reason: Optional[str] = None,
@@ -304,35 +344,34 @@ def log_user_switch(
     Args:
         db: Database session
         original_user_id: ID of the user initiating the switch
-        original_email: Email of the user initiating the switch
         target_user_id: ID of the user being switched to
-        target_email: Email of the user being switched to
         request: FastAPI request object for extracting IP and user agent
         success: Whether the switch succeeded
         failure_reason: Optional reason for failure (e.g., "different_household", "user_not_found")
-        metadata: Optional additional context
+        metadata: Optional additional context (PII will be sanitized)
 
     Returns:
         Created AuthAuditLog record
+
+    Privacy Note:
+        Email addresses are NOT stored. Use user_id to look up user details.
+        The metadata will have email addresses removed if present.
     """
     # Include switch context in metadata for detailed audit trail
     audit_metadata = {
         **(metadata or {}),
         "original_user_id": str(original_user_id),
-        "original_email": original_email,
-        "target_user_id": str(target_user_id),
-        "target_email": target_email
+        "target_user_id": str(target_user_id)
     }
 
     audit_log = AuthAuditLog(
         user_id=original_user_id,  # Log against the user initiating the switch
-        email=original_email,
         event_type=AuthEventType.user_switch.value,
         success=success,
         failure_reason=failure_reason,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        event_metadata=audit_metadata
+        event_metadata=_sanitize_metadata(audit_metadata)
     )
     db.add(audit_log)
     return audit_log
@@ -341,7 +380,6 @@ def log_user_switch(
 def log_password_change(
     db: Session,
     user_id: UUID,
-    email: str,
     request: Request,
     success: bool = True,
     failure_reason: Optional[str] = None,
@@ -357,24 +395,25 @@ def log_password_change(
     Args:
         db: Database session
         user_id: ID of the user changing their password
-        email: Email of the user
         request: FastAPI request object for extracting IP and user agent
         success: Whether the password change succeeded
         failure_reason: Optional reason for failure (e.g., "invalid_old_password")
-        metadata: Optional additional context (NEVER include passwords)
+        metadata: Optional additional context (NEVER include passwords; PII will be sanitized)
 
     Returns:
         Created AuthAuditLog record
+
+    Privacy Note:
+        Email addresses are NOT stored. Use user_id to look up user details.
     """
     audit_log = AuthAuditLog(
         user_id=user_id,
-        email=email,
         event_type=AuthEventType.password_change.value,
         success=success,
         failure_reason=failure_reason,
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        event_metadata=metadata
+        event_metadata=_sanitize_metadata(metadata)
     )
     db.add(audit_log)
     return audit_log
@@ -383,7 +422,6 @@ def log_password_change(
 def log_authorization_failure(
     db: Session,
     user_id: UUID,
-    email: str,
     request: Request,
     resource: str,
     action: str,
@@ -399,14 +437,16 @@ def log_authorization_failure(
     Args:
         db: Database session
         user_id: ID of the user attempting the action
-        email: Email of the user
         request: FastAPI request object for extracting IP and user agent
         resource: Resource being accessed (e.g., "meal_plan", "user_profile")
         action: Action being attempted (e.g., "update", "delete", "read")
-        metadata: Optional additional context
+        metadata: Optional additional context (PII will be sanitized)
 
     Returns:
         Created AuthAuditLog record
+
+    Privacy Note:
+        Email addresses are NOT stored. Use user_id to look up user details.
     """
     # Include authorization context in metadata for detailed audit trail
     audit_metadata = {
@@ -417,13 +457,12 @@ def log_authorization_failure(
 
     audit_log = AuthAuditLog(
         user_id=user_id,
-        email=email,
         event_type=AuthEventType.authorization_failure.value,
         success=False,  # Authorization failures are always unsuccessful
         failure_reason=f"unauthorized_access: {action} on {resource}",
         ip_address=_extract_client_ip(request),
         user_agent=_extract_user_agent(request),
-        event_metadata=audit_metadata
+        event_metadata=_sanitize_metadata(audit_metadata)
     )
     db.add(audit_log)
     return audit_log
