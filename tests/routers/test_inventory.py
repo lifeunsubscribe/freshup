@@ -23,6 +23,7 @@ from src.db.database import Base, get_db
 from src.db import models
 from src.db.models.user import User, UserRole
 from src.db.models.inventory_item import InventoryItem
+from src.db.models.store import Store
 from src.services.auth_service import hash_password, create_access_token
 
 from fastapi import FastAPI
@@ -143,6 +144,34 @@ def auth_headers2(test_user2):
     """Generate authorization headers for test user 2."""
     access_token = create_access_token({"sub": str(test_user2.id)})
     return {"Authorization": f"Bearer {access_token}"}
+
+
+@pytest.fixture
+def test_store(db_session):
+    """Create a test store."""
+    store = Store(
+        id=uuid4(),
+        name="Test Store",
+        has_digital_receipts=False,
+    )
+    db_session.add(store)
+    db_session.commit()
+    db_session.refresh(store)
+    return store
+
+
+@pytest.fixture
+def test_store2(db_session):
+    """Create a second test store."""
+    store = Store(
+        id=uuid4(),
+        name="Test Store 2",
+        has_digital_receipts=True,
+    )
+    db_session.add(store)
+    db_session.commit()
+    db_session.refresh(store)
+    return store
 
 
 class TestCreateInventoryItem:
@@ -1161,3 +1190,512 @@ class TestFilterInventoryItems:
         data = response.json()
         assert len(data) == 1
         assert data[0]["name"] == "Milk 2 Days"
+
+
+class TestStoreMappingEndpoints:
+    """Tests for store mapping endpoints (preferred store and available stores)."""
+
+    def test_set_preferred_store_success(self, client, auth_headers, test_user, test_store, db_session):
+        """Should set preferred store for inventory item."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Set preferred store
+        payload = {"store_id": str(test_store.id)}
+        response = client.put(f"/inventory/{item.id}/preferred-store", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["preferred_store"] == str(test_store.id)
+        assert data["preferred_store_rel"]["id"] == str(test_store.id)
+        assert data["preferred_store_rel"]["name"] == "Test Store"
+
+    def test_set_preferred_store_invalid_store_id(self, client, auth_headers, test_user, db_session):
+        """Should return 404 if store_id doesn't exist."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Try to set non-existent store
+        fake_store_id = uuid4()
+        payload = {"store_id": str(fake_store_id)}
+        response = client.put(f"/inventory/{item.id}/preferred-store", json=payload, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Store not found"
+
+    def test_set_preferred_store_item_not_found(self, client, auth_headers, test_store):
+        """Should return 404 if inventory item doesn't exist."""
+        fake_item_id = uuid4()
+        payload = {"store_id": str(test_store.id)}
+        response = client.put(f"/inventory/{fake_item_id}/preferred-store", json=payload, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_set_preferred_store_cross_user_access_denied(self, client, auth_headers, test_user2, test_store, db_session):
+        """Should return 404 if item belongs to another user."""
+        # Create item for user 2
+        item = InventoryItem(
+            name="User 2 Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user2.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # User 1 tries to set preferred store for user 2's item
+        payload = {"store_id": str(test_store.id)}
+        response = client.put(f"/inventory/{item.id}/preferred-store", json=payload, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_set_preferred_store_requires_auth(self, client, test_user, test_store, db_session):
+        """Should return 401 if no auth token provided."""
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        payload = {"store_id": str(test_store.id)}
+        response = client.put(f"/inventory/{item.id}/preferred-store", json=payload)
+
+        assert response.status_code == 401
+
+    def test_clear_preferred_store_success(self, client, auth_headers, test_user, test_store, db_session):
+        """Should clear preferred store for inventory item."""
+        # Create inventory item with preferred store
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+            preferred_store=test_store.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Clear preferred store
+        response = client.delete(f"/inventory/{item.id}/preferred-store", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["preferred_store"] is None
+        assert data["preferred_store_rel"] is None
+
+    def test_clear_preferred_store_item_not_found(self, client, auth_headers):
+        """Should return 404 if inventory item doesn't exist."""
+        fake_item_id = uuid4()
+        response = client.delete(f"/inventory/{fake_item_id}/preferred-store", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_clear_preferred_store_cross_user_access_denied(self, client, auth_headers, test_user2, test_store, db_session):
+        """Should return 404 if item belongs to another user."""
+        # Create item for user 2
+        item = InventoryItem(
+            name="User 2 Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user2.id,
+            preferred_store=test_store.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # User 1 tries to clear preferred store for user 2's item
+        response = client.delete(f"/inventory/{item.id}/preferred-store", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_clear_preferred_store_requires_auth(self, client, test_user, test_store, db_session):
+        """Should return 401 if no auth token provided."""
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+            preferred_store=test_store.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        response = client.delete(f"/inventory/{item.id}/preferred-store")
+
+        assert response.status_code == 401
+
+    def test_add_available_store_success(self, client, auth_headers, test_user, test_store, db_session):
+        """Should add store to available_at_stores list."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Add available store
+        payload = {"store_id": str(test_store.id)}
+        response = client.post(f"/inventory/{item.id}/available-stores", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["available_at_stores"]) == 1
+        assert data["available_at_stores"][0]["id"] == str(test_store.id)
+        assert data["available_at_stores"][0]["name"] == "Test Store"
+
+    def test_add_available_store_multiple(self, client, auth_headers, test_user, test_store, test_store2, db_session):
+        """Should add multiple stores to available_at_stores list."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Add first store
+        payload = {"store_id": str(test_store.id)}
+        response = client.post(f"/inventory/{item.id}/available-stores", json=payload, headers=auth_headers)
+        assert response.status_code == 200
+
+        # Add second store
+        payload = {"store_id": str(test_store2.id)}
+        response = client.post(f"/inventory/{item.id}/available-stores", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["available_at_stores"]) == 2
+        store_ids = {store["id"] for store in data["available_at_stores"]}
+        assert store_ids == {str(test_store.id), str(test_store2.id)}
+
+    def test_add_available_store_idempotent(self, client, auth_headers, test_user, test_store, db_session):
+        """Should be idempotent when adding same store twice."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Add store first time
+        payload = {"store_id": str(test_store.id)}
+        response = client.post(f"/inventory/{item.id}/available-stores", json=payload, headers=auth_headers)
+        assert response.status_code == 200
+        assert len(response.json()["available_at_stores"]) == 1
+
+        # Add same store again
+        response = client.post(f"/inventory/{item.id}/available-stores", json=payload, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["available_at_stores"]) == 1  # Should still be 1
+
+    def test_add_available_store_invalid_store_id(self, client, auth_headers, test_user, db_session):
+        """Should return 404 if store_id doesn't exist."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Try to add non-existent store
+        fake_store_id = uuid4()
+        payload = {"store_id": str(fake_store_id)}
+        response = client.post(f"/inventory/{item.id}/available-stores", json=payload, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Store not found"
+
+    def test_add_available_store_item_not_found(self, client, auth_headers, test_store):
+        """Should return 404 if inventory item doesn't exist."""
+        fake_item_id = uuid4()
+        payload = {"store_id": str(test_store.id)}
+        response = client.post(f"/inventory/{fake_item_id}/available-stores", json=payload, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_add_available_store_cross_user_access_denied(self, client, auth_headers, test_user2, test_store, db_session):
+        """Should return 404 if item belongs to another user."""
+        # Create item for user 2
+        item = InventoryItem(
+            name="User 2 Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user2.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # User 1 tries to add available store for user 2's item
+        payload = {"store_id": str(test_store.id)}
+        response = client.post(f"/inventory/{item.id}/available-stores", json=payload, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_add_available_store_requires_auth(self, client, test_user, test_store, db_session):
+        """Should return 401 if no auth token provided."""
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        payload = {"store_id": str(test_store.id)}
+        response = client.post(f"/inventory/{item.id}/available-stores", json=payload)
+
+        assert response.status_code == 401
+
+    def test_remove_available_store_success(self, client, auth_headers, test_user, test_store, db_session):
+        """Should remove store from available_at_stores list."""
+        # Create inventory item with available store
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        item.available_at_stores.append(test_store)
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Remove available store
+        response = client.delete(f"/inventory/{item.id}/available-stores/{test_store.id}", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["available_at_stores"]) == 0
+
+    def test_remove_available_store_multiple(self, client, auth_headers, test_user, test_store, test_store2, db_session):
+        """Should remove specific store from list with multiple stores."""
+        # Create inventory item with multiple available stores
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        item.available_at_stores.extend([test_store, test_store2])
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Remove first store
+        response = client.delete(f"/inventory/{item.id}/available-stores/{test_store.id}", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["available_at_stores"]) == 1
+        assert data["available_at_stores"][0]["id"] == str(test_store2.id)
+
+    def test_remove_available_store_idempotent(self, client, auth_headers, test_user, test_store, db_session):
+        """Should be idempotent when removing store not in list."""
+        # Create inventory item without available stores
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Try to remove store that's not in the list
+        response = client.delete(f"/inventory/{item.id}/available-stores/{test_store.id}", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["available_at_stores"]) == 0
+
+    def test_remove_available_store_invalid_store_id(self, client, auth_headers, test_user, db_session):
+        """Should return 404 if store_id doesn't exist."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Try to remove non-existent store
+        fake_store_id = uuid4()
+        response = client.delete(f"/inventory/{item.id}/available-stores/{fake_store_id}", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Store not found"
+
+    def test_remove_available_store_item_not_found(self, client, auth_headers, test_store):
+        """Should return 404 if inventory item doesn't exist."""
+        fake_item_id = uuid4()
+        response = client.delete(f"/inventory/{fake_item_id}/available-stores/{test_store.id}", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_remove_available_store_cross_user_access_denied(self, client, auth_headers, test_user2, test_store, db_session):
+        """Should return 404 if item belongs to another user."""
+        # Create item for user 2 with available store
+        item = InventoryItem(
+            name="User 2 Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user2.id,
+        )
+        item.available_at_stores.append(test_store)
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # User 1 tries to remove available store for user 2's item
+        response = client.delete(f"/inventory/{item.id}/available-stores/{test_store.id}", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_remove_available_store_requires_auth(self, client, test_user, test_store, db_session):
+        """Should return 401 if no auth token provided."""
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        item.available_at_stores.append(test_store)
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        response = client.delete(f"/inventory/{item.id}/available-stores/{test_store.id}")
+
+        assert response.status_code == 401
+
+    def test_get_inventory_item_includes_store_data(self, client, auth_headers, test_user, test_store, test_store2, db_session):
+        """Should include preferred_store_rel and available_at_stores in GET response."""
+        # Create inventory item with both preferred store and available stores
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+            preferred_store=test_store.id,
+        )
+        item.available_at_stores.extend([test_store, test_store2])
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Get inventory item
+        response = client.get(f"/inventory/{item.id}", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check preferred store data
+        assert data["preferred_store"] == str(test_store.id)
+        assert data["preferred_store_rel"] is not None
+        assert data["preferred_store_rel"]["id"] == str(test_store.id)
+        assert data["preferred_store_rel"]["name"] == "Test Store"
+        assert data["preferred_store_rel"]["has_digital_receipts"] is False
+
+        # Check available stores data
+        assert len(data["available_at_stores"]) == 2
+        store_ids = {store["id"] for store in data["available_at_stores"]}
+        assert store_ids == {str(test_store.id), str(test_store2.id)}
+
+        # Verify store names are included
+        store_names = {store["name"] for store in data["available_at_stores"]}
+        assert store_names == {"Test Store", "Test Store 2"}
