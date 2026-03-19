@@ -20,9 +20,23 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Rename metadata column to event_metadata to avoid SQLAlchemy reserved word conflict
-    op.alter_column('auth_audit_logs', 'metadata', new_column_name='event_metadata')
+    # Explicit type preservation improves portability across different database backends
+    op.alter_column(
+        'auth_audit_logs',
+        'metadata',
+        new_column_name='event_metadata',
+        existing_type=sa.JSON(),
+        existing_nullable=True
+    )
 
 
 def downgrade() -> None:
     # Revert the column name back to metadata
-    op.alter_column('auth_audit_logs', 'event_metadata', new_column_name='metadata')
+    # Explicit type preservation improves portability across different database backends
+    op.alter_column(
+        'auth_audit_logs',
+        'event_metadata',
+        new_column_name='metadata',
+        existing_type=sa.JSON(),
+        existing_nullable=True
+    )
