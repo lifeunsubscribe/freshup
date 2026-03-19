@@ -1954,6 +1954,325 @@ class TestUpdateShareability:
         assert response.status_code == 401
 
 
+class TestFreezeThawActions:
+    """Tests for POST /inventory/{id}/freeze and POST /inventory/{id}/thaw endpoints."""
+
+    def test_freeze_item_success(self, client, auth_headers, test_user, db_session):
+        """Should freeze item by setting storage_location to freezer and frozen_date to now."""
+        # Create inventory item in fridge
+        item = InventoryItem(
+            name="Chicken Breast",
+            quantity=2.0,
+            unit="lb",
+            category="protein",
+            storage_location="fridge",
+            frozen_date=None,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Freeze the item
+        response = client.post(f"/inventory/{item.id}/freeze", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "freezer"
+        assert data["frozen_date"] is not None
+        # Verify frozen_date is recent (within last minute)
+        from datetime import datetime, timezone, timedelta
+        frozen_date = datetime.fromisoformat(data["frozen_date"].replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        assert (now - frozen_date) < timedelta(minutes=1)
+
+    def test_freeze_item_already_frozen_is_idempotent(self, client, auth_headers, test_user, db_session):
+        """Should update frozen_date when freezing already-frozen item (idempotent)."""
+        # Create inventory item already frozen with old frozen_date
+        from datetime import datetime, timezone, timedelta
+        old_frozen_date = datetime.now(timezone.utc) - timedelta(days=5)
+        item = InventoryItem(
+            name="Frozen Pizza",
+            quantity=1.0,
+            unit="count",
+            category="frozen",
+            storage_location="freezer",
+            frozen_date=old_frozen_date,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Freeze again
+        response = client.post(f"/inventory/{item.id}/freeze", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "freezer"
+        # Verify frozen_date is updated to recent time (not old date)
+        frozen_date = datetime.fromisoformat(data["frozen_date"].replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        assert (now - frozen_date) < timedelta(minutes=1)
+        assert frozen_date > old_frozen_date
+
+    def test_freeze_item_from_pantry(self, client, auth_headers, test_user, db_session):
+        """Should freeze item from pantry storage location."""
+        # Create inventory item in pantry
+        item = InventoryItem(
+            name="Bread",
+            quantity=1.0,
+            unit="count",
+            category="grain",
+            storage_location="pantry",
+            frozen_date=None,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Freeze the item
+        response = client.post(f"/inventory/{item.id}/freeze", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "freezer"
+        assert data["frozen_date"] is not None
+
+    def test_freeze_item_not_found(self, client, auth_headers):
+        """Should return 404 if item doesn't exist."""
+        fake_id = uuid4()
+        response = client.post(f"/inventory/{fake_id}/freeze", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_freeze_item_cross_user_access_denied(self, client, auth_headers, test_user2, db_session):
+        """Should return 404 if item belongs to another user."""
+        # Create item for user 2
+        item = InventoryItem(
+            name="User 2 Meat",
+            quantity=1.0,
+            unit="lb",
+            category="protein",
+            storage_location="fridge",
+            added_by=test_user2.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # User 1 tries to freeze user 2's item
+        response = client.post(f"/inventory/{item.id}/freeze", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_freeze_item_requires_auth(self, client, test_user, db_session):
+        """Should return 401 if no auth token provided."""
+        item = InventoryItem(
+            name="Chicken",
+            quantity=1.0,
+            unit="lb",
+            category="protein",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        response = client.post(f"/inventory/{item.id}/freeze")
+
+        assert response.status_code == 401
+
+    def test_thaw_item_success(self, client, auth_headers, test_user, db_session):
+        """Should thaw item by setting storage_location to fridge and clearing frozen_date."""
+        # Create inventory item in freezer with frozen_date
+        from datetime import datetime, timezone, timedelta
+        item = InventoryItem(
+            name="Frozen Chicken",
+            quantity=2.0,
+            unit="lb",
+            category="protein",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc) - timedelta(days=3),
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Thaw the item
+        response = client.post(f"/inventory/{item.id}/thaw", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "fridge"
+        assert data["frozen_date"] is None
+
+    def test_thaw_item_not_frozen_is_idempotent(self, client, auth_headers, test_user, db_session):
+        """Should succeed when thawing non-frozen item (idempotent)."""
+        # Create inventory item in fridge (not frozen)
+        item = InventoryItem(
+            name="Fresh Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            frozen_date=None,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Thaw non-frozen item
+        response = client.post(f"/inventory/{item.id}/thaw", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "fridge"
+        assert data["frozen_date"] is None
+
+    def test_thaw_item_from_pantry(self, client, auth_headers, test_user, db_session):
+        """Should thaw item from pantry storage location."""
+        # Create inventory item in pantry
+        item = InventoryItem(
+            name="Frozen Bread",
+            quantity=1.0,
+            unit="count",
+            category="grain",
+            storage_location="pantry",
+            frozen_date=None,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Thaw the item
+        response = client.post(f"/inventory/{item.id}/thaw", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "fridge"
+        assert data["frozen_date"] is None
+
+    def test_thaw_item_not_found(self, client, auth_headers):
+        """Should return 404 if item doesn't exist."""
+        fake_id = uuid4()
+        response = client.post(f"/inventory/{fake_id}/thaw", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_thaw_item_cross_user_access_denied(self, client, auth_headers, test_user2, db_session):
+        """Should return 404 if item belongs to another user."""
+        # Create frozen item for user 2
+        from datetime import datetime, timezone
+        item = InventoryItem(
+            name="User 2 Frozen Meat",
+            quantity=1.0,
+            unit="lb",
+            category="protein",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            added_by=test_user2.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # User 1 tries to thaw user 2's item
+        response = client.post(f"/inventory/{item.id}/thaw", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_thaw_item_requires_auth(self, client, test_user, db_session):
+        """Should return 401 if no auth token provided."""
+        from datetime import datetime, timezone
+        item = InventoryItem(
+            name="Frozen Chicken",
+            quantity=1.0,
+            unit="lb",
+            category="protein",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        response = client.post(f"/inventory/{item.id}/thaw")
+
+        assert response.status_code == 401
+
+    def test_freeze_then_thaw_transition(self, client, auth_headers, test_user, db_session):
+        """Should transition item from freeze to thaw correctly."""
+        # Create fresh item
+        item = InventoryItem(
+            name="Chicken",
+            quantity=2.0,
+            unit="lb",
+            category="protein",
+            storage_location="fridge",
+            frozen_date=None,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Freeze it
+        freeze_response = client.post(f"/inventory/{item.id}/freeze", headers=auth_headers)
+        assert freeze_response.status_code == 200
+        freeze_data = freeze_response.json()
+        assert freeze_data["storage_location"] == "freezer"
+        assert freeze_data["frozen_date"] is not None
+
+        # Thaw it
+        thaw_response = client.post(f"/inventory/{item.id}/thaw", headers=auth_headers)
+        assert thaw_response.status_code == 200
+        thaw_data = thaw_response.json()
+        assert thaw_data["storage_location"] == "fridge"
+        assert thaw_data["frozen_date"] is None
+
+    def test_thaw_then_freeze_transition(self, client, auth_headers, test_user, db_session):
+        """Should transition item from thaw to freeze correctly."""
+        from datetime import datetime, timezone
+        # Create frozen item
+        item = InventoryItem(
+            name="Frozen Pizza",
+            quantity=1.0,
+            unit="count",
+            category="frozen",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Thaw it
+        thaw_response = client.post(f"/inventory/{item.id}/thaw", headers=auth_headers)
+        assert thaw_response.status_code == 200
+        thaw_data = thaw_response.json()
+        assert thaw_data["storage_location"] == "fridge"
+        assert thaw_data["frozen_date"] is None
+
+        # Freeze it again
+        freeze_response = client.post(f"/inventory/{item.id}/freeze", headers=auth_headers)
+        assert freeze_response.status_code == 200
+        freeze_data = freeze_response.json()
+        assert freeze_data["storage_location"] == "freezer"
+        assert freeze_data["frozen_date"] is not None
+
+
 class TestLowStockAlerts:
     """Tests for GET /inventory/alerts/low-stock endpoint (threshold alerts)."""
 

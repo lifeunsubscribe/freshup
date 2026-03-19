@@ -822,3 +822,132 @@ def update_shareability(
     )
 
     return item
+
+
+@router.post("/{item_id}/freeze", response_model=InventoryItemResponse)
+def freeze_inventory_item(
+    item_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Freeze an inventory item (quick action).
+
+    Updates the item's storage location to "freezer" and sets frozen_date to now.
+    This endpoint is idempotent - freezing an already-frozen item updates the
+    frozen_date to the current time.
+
+    Args:
+        item_id: UUID of the inventory item to freeze
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        InventoryItemResponse: Updated inventory item with freezer location and frozen_date
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist or belongs to another user
+    """
+    # Query item with user ownership check
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.id == item_id,
+            InventoryItem.added_by == current_user.id,
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found"
+        )
+
+    # Update storage location and frozen date
+    item.storage_location = StorageLocation.freezer.value
+    item.frozen_date = datetime.now(timezone.utc)
+
+    try:
+        db.commit()
+        db.refresh(item)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during freeze action for user {current_user.id}")
+        logger.debug(f"Database error occurred during freeze action: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while freezing the inventory item"
+        )
+
+    logger.info(
+        f"Inventory item frozen: user_id={current_user.id}, "
+        f"item_id={item_id}, item_name={item.name}"
+    )
+
+    return item
+
+
+@router.post("/{item_id}/thaw", response_model=InventoryItemResponse)
+def thaw_inventory_item(
+    item_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Thaw an inventory item (quick action).
+
+    Updates the item's storage location to "fridge" and clears the frozen_date.
+    This endpoint is idempotent - thawing a non-frozen item does not raise an error.
+
+    Args:
+        item_id: UUID of the inventory item to thaw
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        InventoryItemResponse: Updated inventory item with fridge location and cleared frozen_date
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist or belongs to another user
+    """
+    # Query item with user ownership check
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.id == item_id,
+            InventoryItem.added_by == current_user.id,
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found"
+        )
+
+    # Update storage location and clear frozen date
+    item.storage_location = StorageLocation.fridge.value
+    item.frozen_date = None
+
+    try:
+        db.commit()
+        db.refresh(item)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during thaw action for user {current_user.id}")
+        logger.debug(f"Database error occurred during thaw action: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while thawing the inventory item"
+        )
+
+    logger.info(
+        f"Inventory item thawed: user_id={current_user.id}, "
+        f"item_id={item_id}, item_name={item.name}"
+    )
+
+    return item
