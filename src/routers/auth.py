@@ -17,6 +17,7 @@ from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenRespon
 from src.services.auth_service import hash_password, verify_password, create_access_token
 from src.services.audit_service import log_registration, log_login_attempt, log_profile_update, log_user_switch
 from src.middleware.auth import get_current_user
+from src.middleware.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -475,6 +476,7 @@ def update_current_user_profile(
 
 
 @router.post("/switch-user", response_model=TokenResponse)
+@limiter.limit("10/minute")
 def switch_user(
     switch_data: SwitchUserRequest,
     request: Request,
@@ -489,8 +491,12 @@ def switch_user(
     household member's session without re-entering passwords. This is designed
     for the "who are you?" selector flow on shared devices.
 
+    Rate Limiting:
+        Limited to 10 requests per minute per IP address to prevent abuse.
+
     Args:
         switch_data: Target user ID to switch to
+        request: FastAPI request object (for rate limiting and audit logging)
         current_user: Currently authenticated user (injected by get_current_user dependency)
         db: Database session
 
@@ -501,6 +507,7 @@ def switch_user(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(403): If target user is not in the same household
         HTTPException(404): If target user does not exist
+        HTTPException(429): If rate limit is exceeded (>10 requests/minute)
 
     Security Note:
         This endpoint intentionally does not require password authentication,
