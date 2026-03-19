@@ -516,6 +516,17 @@ class TestRecipeFiltering:
         assert len(data) == 1
         assert "%W" in data[0]["name"]
 
+    def test_filter_by_search_minimum_length_validation(self, client, auth_headers, sample_recipes):
+        """Test search parameter requires minimum 2 characters."""
+        # Search with only 1 character should fail validation
+        response = client.get("/recipes?search=a", headers=auth_headers)
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # FastAPI validation error for min_length constraint
+        assert any("at least 2 characters" in str(error).lower() or "min_length" in str(error).lower()
+                   for error in detail)
+
     def test_filter_by_has_variation_true(self, client, auth_headers, sample_recipes):
         """Test filtering by has_variation=true."""
         response = client.get("/recipes?has_variation=true", headers=auth_headers)

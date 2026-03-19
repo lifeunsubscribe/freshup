@@ -152,13 +152,21 @@ def list_recipes(
             )
         query = query.filter(Recipe.source_type == source_type)
 
-    # Apply tag filter (case-insensitive match in JSON array)
-    # Use json_each to iterate over array elements and check for case-insensitive match
+    # Apply tag filter (case-insensitive exact match in JSON array)
+    # Match exact tag values only, not substrings within tags
     if tag is not None:
-        # SQLite/PostgreSQL compatible: use LIKE with json cast to text for case-insensitive search
-        # Cast the entire tags JSON array to text and search within it
+        # SQLite/PostgreSQL compatible: use LIKE with proper JSON delimiters
+        # to ensure exact tag match (e.g., searching "an" won't match "italian")
+        # Pattern matches: ["tag"] or ["tag", ...] or [..., "tag"] or [..., "tag", ...]
+        # Note: JSON arrays may have spaces after commas: ["a", "b"]
+        tag_lower = tag.lower()
         query = query.filter(
-            func.lower(func.cast(Recipe.tags, String)).like(f'%"{tag.lower()}"%')
+            or_(
+                # Match at start: ["tag" or ["tag",
+                func.lower(func.cast(Recipe.tags, String)).like(f'["{tag_lower}"%'),
+                # Match in middle or end: , "tag", or , "tag"] (note space after comma)
+                func.lower(func.cast(Recipe.tags, String)).like(f'%, "{tag_lower}"%')
+            )
         )
 
     # Apply max_cook_time filter
