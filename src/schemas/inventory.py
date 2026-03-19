@@ -307,3 +307,20 @@ class ConsumptionResponse(BaseModel):
     message: str = Field(..., description="Status message")
     deleted: bool = Field(..., description="Whether the item was deleted")
     item: Optional[InventoryItemResponse] = Field(default=None, description="Updated item (null if deleted)")
+
+
+class BulkInventoryItemCreate(BaseModel):
+    """Request schema for bulk creating inventory items."""
+
+    items: list[InventoryItemCreate] = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="List of items to create (1-50 items)"
+    )
+
+
+class BulkInventoryItemResponse(BaseModel):
+    """Response schema for bulk create endpoint."""
+
+    items: list[InventoryItemResponse] = Field(..., description="List of created items with IDs")
