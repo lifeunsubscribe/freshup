@@ -159,13 +159,15 @@ def list_recipes(
         # to ensure exact tag match (e.g., searching "an" won't match "italian")
         # Pattern matches: ["tag"] or ["tag", ...] or [..., "tag"] or [..., "tag", ...]
         # Note: JSON arrays may have spaces after commas: ["a", "b"]
-        tag_lower = tag.lower()
+        # Escape LIKE wildcards to prevent DoS via expensive pattern matching
+        escaped_tag = tag.replace('\\', r'\\').replace('%', r'\%').replace('_', r'\_')
+        tag_lower = escaped_tag.lower()
         query = query.filter(
             or_(
                 # Match at start: ["tag" or ["tag",
-                func.lower(func.cast(Recipe.tags, String)).like(f'["{tag_lower}"%'),
+                func.lower(func.cast(Recipe.tags, String)).like(f'["{tag_lower}"%', escape='\\'),
                 # Match in middle or end: , "tag", or , "tag"] (note space after comma)
-                func.lower(func.cast(Recipe.tags, String)).like(f'%, "{tag_lower}"%')
+                func.lower(func.cast(Recipe.tags, String)).like(f'%, "{tag_lower}"%', escape='\\')
             )
         )
 
