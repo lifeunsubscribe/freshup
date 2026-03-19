@@ -1009,8 +1009,8 @@ def consume_inventory_item(
     # Calculate new quantity
     new_quantity = item.quantity - consumption_data.amount
 
-    # Check if item should be deleted (exact zero match, relying on float precision)
-    if new_quantity == 0 and consumption_data.delete_when_empty:
+    # Check if item should be deleted (using tolerance for float comparison)
+    if abs(new_quantity) < 1e-9 and consumption_data.delete_when_empty:
         # Delete the item
         try:
             db.delete(item)
@@ -1030,7 +1030,7 @@ def consume_inventory_item(
         )
 
         return ConsumptionResponse(
-            message=f"Consumed {consumption_data.amount} {item.unit}. Item deleted (quantity reached 0).",
+            message=f"Consumed {consumption_data.amount:.10g} {item.unit}. Item deleted (quantity reached 0).",
             deleted=True,
             item=None
         )
@@ -1057,7 +1057,7 @@ def consume_inventory_item(
         )
 
         return ConsumptionResponse(
-            message=f"Consumed {consumption_data.amount} {item.unit}. {new_quantity} {item.unit} remaining.",
+            message=f"Consumed {consumption_data.amount:.10g} {item.unit}. {new_quantity:.10g} {item.unit} remaining.",
             deleted=False,
             item=item
         )
