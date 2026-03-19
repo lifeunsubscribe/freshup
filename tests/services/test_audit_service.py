@@ -139,6 +139,16 @@ class TestMetadataSanitization:
         result = _sanitize_metadata(metadata)
         assert result == metadata
 
+    def test_sanitize_email_only_metadata_returns_none(self):
+        """Return None when all keys are email-related (not empty dict)."""
+        metadata = {
+            "email": "user@example.com",
+            "old_email": "old@example.com",
+            "new_email": "new@example.com"
+        }
+        result = _sanitize_metadata(metadata)
+        assert result is None
+
 
 class TestTrustedProxyValidation:
     """Tests for trusted proxy IP validation."""
