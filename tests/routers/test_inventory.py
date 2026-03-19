@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from uuid import uuid4
-from datetime import datetime
 
 from src.db.database import Base, get_db
 from src.db import models
