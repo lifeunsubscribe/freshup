@@ -865,11 +865,11 @@ class TestSwitchUser:
         assert response.status_code == 403
         assert response.json()["detail"] == "Insufficient privileges to switch users"
 
-        # Verify audit log was created for failed attempt
+        # Verify authorization failure audit log was created
+        # (Changed from user_switch to authorization_failure to eliminate duplicate logging)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
             user_id=member_user.id,
-            event_type=AuthEventType.user_switch.value,
-            success=False
+            event_type=AuthEventType.authorization_failure.value
         ).all()
 
         assert len(audit_logs) == 1
@@ -878,15 +878,14 @@ class TestSwitchUser:
         # Verify audit log contains correct failure information
         assert audit_log.user_id == member_user.id
         assert audit_log.email == member_user.email
-        assert audit_log.event_type == AuthEventType.user_switch.value
-        assert audit_log.success is False
-        assert audit_log.failure_reason == "unauthorized"
+        assert audit_log.event_type == AuthEventType.authorization_failure.value
 
         # Verify metadata contains attempted switch context
         assert audit_log.event_metadata is not None
-        assert audit_log.event_metadata["original_user_id"] == str(member_user.id)
-        assert audit_log.event_metadata["original_email"] == member_user.email
+        assert audit_log.event_metadata["resource"] == "user_switch"
+        assert audit_log.event_metadata["action"] == "switch_to_user"
         assert audit_log.event_metadata["target_user_id"] == str(coordinator_user.id)
+        assert audit_log.event_metadata["user_role"] == member_user.role
 
 
 class TestRegistrationDatabaseErrors:
@@ -2343,3 +2342,133 @@ class TestChangePasswordRateLimiting:
         }
         response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
         assert response.status_code == 429
+
+
+class TestChangePassword:
+    """Tests for core password change functionality on POST /auth/change-password endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def reset_limiter(self):
+        """Reset rate limiter state before each test."""
+        from src.middleware.rate_limit import limiter
+        limiter.reset()
+        yield
+
+    def test_change_password_success(self, client, test_user, auth_headers, db_session):
+        """POST /auth/change-password with correct old password successfully changes password."""
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json() == {"message": "Password changed successfully"}
+
+        # Verify password was actually changed by attempting login with new password
+        db_session.refresh(test_user)
+        from src.services.auth_service import verify_password
+        assert verify_password("NewSecurePass123!", test_user.hashed_password) is True
+        assert verify_password("testpassword123", test_user.hashed_password) is False
+
+    def test_change_password_with_incorrect_old_password(self, client, test_user, auth_headers):
+        """POST /auth/change-password with incorrect old password returns 401."""
+        password_data = {
+            "old_password": "wrongoldpassword",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Current password is incorrect"
+
+    def test_change_password_creates_audit_log_on_success(self, client, test_user, auth_headers, db_session):
+        """POST /auth/change-password with correct credentials creates success audit log."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 200
+
+        # Check audit log was created
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.password_change.value
+        ).all()
+
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
+        assert log.success is True
+        assert log.email == test_user.email
+        assert log.failure_reason is None
+
+    def test_change_password_creates_audit_log_on_failure(self, client, test_user, auth_headers, db_session):
+        """POST /auth/change-password with incorrect old password creates failure audit log."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        password_data = {
+            "old_password": "wrongoldpassword",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 401
+
+        # Check audit log was created for failure
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.password_change.value
+        ).all()
+
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
+        assert log.success is False
+        assert log.failure_reason == "invalid_old_password"
+
+    def test_change_password_without_authentication(self, client):
+        """POST /auth/change-password without auth token returns 401."""
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data)
+        assert response.status_code == 401
+
+    def test_change_password_validates_new_password_length(self, client, test_user, auth_headers):
+        """POST /auth/change-password with short new password returns 422 validation error."""
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "short",  # Too short (min 8 chars required)
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 422
+        # Validation error for password length
+
+    def test_change_password_multiple_times(self, client, test_user, auth_headers, db_session):
+        """Password can be changed multiple times successfully."""
+        # First password change
+        password_data_1 = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+        response = client.post("/auth/change-password", json=password_data_1, headers=auth_headers)
+        assert response.status_code == 200
+
+        # Second password change using the new password as old
+        password_data_2 = {
+            "old_password": "NewSecurePass123!",
+            "new_password": "AnotherSecurePass456!",
+        }
+        response = client.post("/auth/change-password", json=password_data_2, headers=auth_headers)
+        assert response.status_code == 200
+
+        # Verify the final password
+        db_session.refresh(test_user)
+        from src.services.auth_service import verify_password
+        assert verify_password("AnotherSecurePass456!", test_user.hashed_password) is True

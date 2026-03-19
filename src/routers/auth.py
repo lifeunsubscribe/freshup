@@ -642,17 +642,6 @@ def switch_user(
             current_user.id,
             current_user.role
         )
-        # Log failed user switch attempt (unauthorized)
-        log_user_switch(
-            db=db,
-            original_user_id=current_user.id,
-            original_email=current_user.email,
-            target_user_id=switch_data.user_id,
-            target_email=None,
-            request=request,
-            success=False,
-            failure_reason="unauthorized"
-        )
         # Log authorization failure for security monitoring
         log_authorization_failure(
             db=db,
