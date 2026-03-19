@@ -513,6 +513,27 @@ def switch_user(
 
     # Return 404 if target user doesn't exist
     if not target_user:
+        # Log failed user switch attempt (target user not found)
+        log_user_switch(
+            db=db,
+            original_user_id=current_user.id,
+            original_email=current_user.email,
+            target_user_id=switch_data.user_id,
+            target_email=None,
+            request=request,
+            success=False,
+            failure_reason="user_not_found"
+        )
+        # Commit the audit log before raising exception
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during user switch audit logging (user not found)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Fall through to raise the original error
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
@@ -520,6 +541,27 @@ def switch_user(
 
     # Prevent switching to self (unnecessary token generation)
     if target_user.id == current_user.id:
+        # Log failed user switch attempt (switching to self)
+        log_user_switch(
+            db=db,
+            original_user_id=current_user.id,
+            original_email=current_user.email,
+            target_user_id=target_user.id,
+            target_email=target_user.email,
+            request=request,
+            success=False,
+            failure_reason="switch_to_self"
+        )
+        # Commit the audit log before raising exception
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during user switch audit logging (switch to self)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Fall through to raise the original error
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot switch to current user"
@@ -584,7 +626,7 @@ def switch_user(
     #         detail="Cannot switch to user in different household"
     #     )
 
-    # Log user switch event (before token creation so it's in the same transaction)
+    # Log user switch event (before commit so it's in the same transaction)
     log_user_switch(
         db=db,
         original_user_id=current_user.id,
@@ -595,10 +637,10 @@ def switch_user(
         success=True
     )
 
-    # Commit the audit log
-    db.commit()
-
     # Create JWT token for the target user
     access_token = create_access_token(data={"sub": str(target_user.id)})
+
+    # Commit the audit log after successful token creation
+    db.commit()
 
     return TokenResponse(access_token=access_token, token_type="bearer")

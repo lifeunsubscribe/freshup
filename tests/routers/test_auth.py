@@ -819,9 +819,7 @@ class TestSwitchUser:
         assert audit_log.event_metadata["target_user_id"] == str(member_user.id)
         assert audit_log.event_metadata["target_email"] == member_user.email
 
-        # Verify IP address and user agent are captured
-        # (Note: TestClient doesn't set these headers by default, so they may be None)
-        assert audit_log.ip_address is not None or audit_log.ip_address is None  # Just verify field exists
+        # Verify timestamp is captured
         assert audit_log.created_at is not None
 
 
