@@ -1,8 +1,7 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from sqlalchemy import inspect, text
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
