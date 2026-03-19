@@ -137,6 +137,8 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     """Response schema for user data (excludes password)."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     email: str
@@ -145,9 +147,6 @@ class UserResponse(BaseModel):
     allergies: list[str]
     disliked_ingredients: list[str]
     favorite_ingredients: list[str]
-
-    class Config:
-        from_attributes = True
 
 
 class UserUpdate(BaseModel):
@@ -219,6 +218,8 @@ class UserUpdate(BaseModel):
 class UserListResponse(BaseModel):
     """Response schema for user list (excludes email and password for privacy)."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     role: str
@@ -226,9 +227,6 @@ class UserListResponse(BaseModel):
     allergies: list[str]
     disliked_ingredients: list[str]
     favorite_ingredients: list[str]
-
-    class Config:
-        from_attributes = True
 
 
 class SwitchUserRequest(BaseModel):

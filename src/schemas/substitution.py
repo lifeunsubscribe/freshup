@@ -8,7 +8,7 @@ user-defined ingredient substitution preferences.
 from uuid import UUID
 from typing import Optional
 import unicodedata
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from src.db.models.substitution import SubstitutionContext
 from src.schemas.validators import (
@@ -178,11 +178,10 @@ class SubstitutionPreferenceUpdate(BaseModel):
 class SubstitutionPreferenceResponse(BaseModel):
     """Response schema for substitution preference data."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     user_id: UUID
     original_ingredient: str
     replacements: list[dict]  # List of {"ingredient": str, "rank": int}
     context: Optional[str]
-
-    class Config:
-        from_attributes = True
