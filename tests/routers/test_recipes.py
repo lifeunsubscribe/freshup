@@ -596,3 +596,338 @@ class TestRecipeFiltering:
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1  # Remaining 1 manual recipe
+
+
+class TestRecipeIngredientCRUD:
+    """Test recipe ingredient CRUD operations."""
+
+    @pytest.fixture
+    def test_recipe(self, db_session, test_user):
+        """Create a test recipe owned by test_user."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+        return recipe
+
+    @pytest.fixture
+    def system_recipe(self, db_session):
+        """Create a system recipe (created_by is NULL)."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="System Recipe",
+            source_type="manual",
+            created_by=None,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+        return recipe
+
+    @pytest.fixture
+    def test_ingredient(self, db_session, test_recipe):
+        """Create a test ingredient for test_recipe."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+        ingredient = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=test_recipe.id,
+            ingredient_name="Test Ingredient",
+            quantity=1.5,
+            unit="cups",
+            variation_group=None,
+            variation_diet=None,
+            is_optional=False,
+        )
+        db_session.add(ingredient)
+        db_session.commit()
+        db_session.refresh(ingredient)
+        return ingredient
+
+    def test_add_ingredient_success(self, client, auth_headers, test_recipe, db_session):
+        """Test adding an ingredient to a recipe successfully."""
+        ingredient_data = {
+            "ingredient_name": "Tomatoes",
+            "quantity": 2.0,
+            "unit": "lbs",
+            "is_optional": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["ingredient_name"] == "Tomatoes"
+        assert data["quantity"] == 2.0
+        assert data["unit"] == "lbs"
+        assert data["recipe_id"] == str(test_recipe.id)
+        assert data["is_optional"] is False
+        assert "id" in data
+
+    def test_add_ingredient_with_variations(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with variation fields."""
+        ingredient_data = {
+            "ingredient_name": "Chicken",
+            "quantity": 1.0,
+            "unit": "lb",
+            "variation_group": "protein",
+            "variation_diet": "non-vegetarian",
+            "is_optional": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["ingredient_name"] == "Chicken"
+        assert data["variation_group"] == "protein"
+        assert data["variation_diet"] == "non-vegetarian"
+
+    def test_add_ingredient_recipe_not_found(self, client, auth_headers):
+        """Test adding ingredient to non-existent recipe returns 404."""
+        ingredient_data = {
+            "ingredient_name": "Test",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        fake_recipe_id = uuid4()
+        response = client.post(
+            f"/recipes/{fake_recipe_id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_add_ingredient_recipe_not_owned(self, client, auth_headers2, test_recipe):
+        """Test adding ingredient to another user's recipe returns 404."""
+        ingredient_data = {
+            "ingredient_name": "Test",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers2
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_add_ingredient_system_recipe(self, client, auth_headers, system_recipe):
+        """Test adding ingredient to system recipe returns 403."""
+        ingredient_data = {
+            "ingredient_name": "Test",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{system_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Cannot modify system recipes"
+
+    def test_add_ingredient_unauthenticated(self, client, test_recipe):
+        """Test adding ingredient without auth returns 401."""
+        ingredient_data = {
+            "ingredient_name": "Test",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data
+        )
+
+        assert response.status_code == 401
+
+    def test_update_ingredient_success(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating an ingredient successfully."""
+        update_data = {
+            "quantity": 2.5,
+            "unit": "tablespoons",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["quantity"] == 2.5
+        assert data["unit"] == "tablespoons"
+        assert data["ingredient_name"] == "Test Ingredient"  # Unchanged
+
+    def test_update_ingredient_all_fields(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating all ingredient fields."""
+        update_data = {
+            "ingredient_name": "Updated Ingredient",
+            "quantity": 3.0,
+            "unit": "oz",
+            "variation_group": "base",
+            "variation_diet": "vegan",
+            "is_optional": True,
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ingredient_name"] == "Updated Ingredient"
+        assert data["quantity"] == 3.0
+        assert data["unit"] == "oz"
+        assert data["variation_group"] == "base"
+        assert data["variation_diet"] == "vegan"
+        assert data["is_optional"] is True
+
+    def test_update_ingredient_not_found(self, client, auth_headers, test_recipe):
+        """Test updating non-existent ingredient returns 404."""
+        update_data = {"quantity": 2.0}
+        fake_ingredient_id = uuid4()
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{fake_ingredient_id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Ingredient not found"
+
+    def test_update_ingredient_recipe_not_owned(self, client, auth_headers2, test_recipe, test_ingredient):
+        """Test updating ingredient on another user's recipe returns 404."""
+        update_data = {"quantity": 2.0}
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers2
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_update_ingredient_system_recipe(self, client, auth_headers, system_recipe, db_session):
+        """Test updating ingredient on system recipe returns 403."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+        # Create ingredient for system recipe
+        ingredient = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=system_recipe.id,
+            ingredient_name="System Ingredient",
+            quantity=1.0,
+            unit="cup",
+        )
+        db_session.add(ingredient)
+        db_session.commit()
+
+        update_data = {"quantity": 2.0}
+
+        response = client.put(
+            f"/recipes/{system_recipe.id}/ingredients/{ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Cannot modify system recipes"
+
+    def test_delete_ingredient_success(self, client, auth_headers, test_recipe, test_ingredient, db_session):
+        """Test deleting an ingredient successfully."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 204
+
+        # Verify ingredient is deleted
+        ingredient = db_session.query(RecipeIngredient).filter(
+            RecipeIngredient.id == test_ingredient.id
+        ).first()
+        assert ingredient is None
+
+    def test_delete_ingredient_not_found(self, client, auth_headers, test_recipe):
+        """Test deleting non-existent ingredient returns 404."""
+        fake_ingredient_id = uuid4()
+
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/ingredients/{fake_ingredient_id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Ingredient not found"
+
+    def test_delete_ingredient_recipe_not_owned(self, client, auth_headers2, test_recipe, test_ingredient):
+        """Test deleting ingredient from another user's recipe returns 404."""
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            headers=auth_headers2
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_delete_ingredient_system_recipe(self, client, auth_headers, system_recipe, db_session):
+        """Test deleting ingredient from system recipe returns 403."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+        # Create ingredient for system recipe
+        ingredient = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=system_recipe.id,
+            ingredient_name="System Ingredient",
+            quantity=1.0,
+            unit="cup",
+        )
+        db_session.add(ingredient)
+        db_session.commit()
+
+        response = client.delete(
+            f"/recipes/{system_recipe.id}/ingredients/{ingredient.id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Cannot modify system recipes"
+
+    def test_delete_ingredient_unauthenticated(self, client, test_recipe, test_ingredient):
+        """Test deleting ingredient without auth returns 401."""
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}"
+        )
+
+        assert response.status_code == 401
