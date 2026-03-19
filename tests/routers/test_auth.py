@@ -623,11 +623,14 @@ class TestSwitchUser:
         db_session.refresh(user)
         return user
 
-    def test_switch_user_success(self, client, test_user, member_user, auth_headers):
+    def test_switch_user_success(self, client, coordinator_user, member_user):
         """POST /auth/switch-user returns new token for target user."""
+        # Create auth headers for coordinator user
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
         switch_data = {"user_id": str(member_user.id)}
 
-        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -643,11 +646,14 @@ class TestSwitchUser:
         payload = decode_token(new_token)
         assert payload["sub"] == str(member_user.id)
 
-    def test_switch_user_token_sub_claim(self, client, test_user, coordinator_user, auth_headers):
+    def test_switch_user_token_sub_claim(self, client, coordinator_user, member_user):
         """POST /auth/switch-user token contains correct sub claim for target user."""
-        switch_data = {"user_id": str(coordinator_user.id)}
+        # Create auth headers for coordinator user
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
+        switch_data = {"user_id": str(member_user.id)}
 
-        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
 
         assert response.status_code == 200
         new_token = response.json()["access_token"]
@@ -656,9 +662,9 @@ class TestSwitchUser:
         from src.services.auth_service import decode_token
         payload = decode_token(new_token)
         assert "sub" in payload
-        assert payload["sub"] == str(coordinator_user.id)
+        assert payload["sub"] == str(member_user.id)
         # Verify it's NOT the original user
-        assert payload["sub"] != str(test_user.id)
+        assert payload["sub"] != str(coordinator_user.id)
 
     def test_switch_user_unauthorized(self, client, member_user):
         """POST /auth/switch-user returns 401 without authentication."""
@@ -692,47 +698,53 @@ class TestSwitchUser:
         assert response.status_code == 401
         assert response.json()["detail"] == "Not authenticated"
 
-    def test_switch_user_not_found(self, client, auth_headers):
+    def test_switch_user_not_found(self, client, coordinator_user):
         """POST /auth/switch-user returns 404 for non-existent user."""
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
         nonexistent_user_id = uuid4()
         switch_data = {"user_id": str(nonexistent_user_id)}
 
-        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
 
         assert response.status_code == 404
         assert response.json()["detail"] == "User not found"
 
-    def test_switch_user_to_self(self, client, test_user, auth_headers):
+    def test_switch_user_to_self(self, client, coordinator_user):
         """POST /auth/switch-user returns 400 when attempting to switch to self."""
-        switch_data = {"user_id": str(test_user.id)}
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
+        switch_data = {"user_id": str(coordinator_user.id)}
 
-        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Cannot switch to current user"
 
-    def test_switch_user_no_password_required(self, client, test_user, member_user, auth_headers):
+    def test_switch_user_no_password_required(self, client, coordinator_user, member_user):
         """POST /auth/switch-user works without password (household trust model)."""
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
         switch_data = {"user_id": str(member_user.id)}
 
-        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
         assert response.status_code == 200
         assert "access_token" in response.json()
 
-    def test_switch_user_any_user_can_switch(self, client, member_user, coordinator_user):
-        """POST /auth/switch-user allows any authenticated user to switch to any other user."""
-        member_token = create_access_token(data={"sub": str(member_user.id)})
-        member_headers = {"Authorization": f"Bearer {member_token}"}
-        switch_data = {"user_id": str(coordinator_user.id)}
+    def test_switch_user_coordinator_can_switch(self, client, member_user, coordinator_user):
+        """POST /auth/switch-user allows coordinator to switch to any other user."""
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
+        switch_data = {"user_id": str(member_user.id)}
 
-        response = client.post("/auth/switch-user", json=switch_data, headers=member_headers)
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
 
         assert response.status_code == 200
         new_token = response.json()["access_token"]
 
         from src.services.auth_service import decode_token
         payload = decode_token(new_token)
-        assert payload["sub"] == str(coordinator_user.id)
+        assert payload["sub"] == str(member_user.id)
 
     def test_switch_user_coordinator_to_member(self, client, coordinator_user, member_user):
         """POST /auth/switch-user allows coordinator to switch to member (reverse direction)."""
@@ -749,37 +761,43 @@ class TestSwitchUser:
         payload = decode_token(new_token)
         assert payload["sub"] == str(member_user.id)
 
-    def test_switch_user_invalid_uuid_format(self, client, auth_headers):
+    def test_switch_user_invalid_uuid_format(self, client, coordinator_user):
         """POST /auth/switch-user returns 422 for malformed UUID."""
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
         switch_data = {"user_id": "not-a-valid-uuid"}
 
-        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
 
         assert response.status_code == 422
         assert "detail" in response.json()
 
-    def test_switch_user_missing_user_id(self, client, auth_headers):
+    def test_switch_user_missing_user_id(self, client, coordinator_user):
         """POST /auth/switch-user returns 422 when user_id is missing."""
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
         switch_data = {}
 
-        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
 
         assert response.status_code == 422
         assert "detail" in response.json()
 
-    def test_switch_user_token_is_fresh(self, client, test_user, member_user, auth_headers):
+    def test_switch_user_token_is_fresh(self, client, coordinator_user, member_user):
         """POST /auth/switch-user returns a new token with fresh expiration."""
         import time
         from src.services.auth_service import decode_token
 
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
         switch_data = {"user_id": str(member_user.id)}
-        response1 = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response1 = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
         token1 = response1.json()["access_token"]
         payload1 = decode_token(token1)
 
         time.sleep(1)
 
-        response2 = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response2 = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
         token2 = response2.json()["access_token"]
         payload2 = decode_token(token2)
 
@@ -787,13 +805,15 @@ class TestSwitchUser:
         assert payload1["iat"] != payload2["iat"]
         assert payload2["iat"] > payload1["iat"]
 
-    def test_switch_user_creates_audit_log(self, client, test_user, member_user, auth_headers, db_session):
+    def test_switch_user_creates_audit_log(self, client, coordinator_user, member_user, db_session):
         """POST /auth/switch-user creates audit log entry for user switch event."""
         from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
 
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
         switch_data = {"user_id": str(member_user.id)}
 
-        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
 
         assert response.status_code == 200
 
@@ -806,21 +826,60 @@ class TestSwitchUser:
         audit_log = audit_logs[0]
 
         # Verify audit log contains correct information
-        assert audit_log.user_id == test_user.id  # Original user who initiated the switch
-        assert audit_log.email == test_user.email
+        assert audit_log.user_id == coordinator_user.id  # Original user who initiated the switch
+        assert audit_log.email == coordinator_user.email
         assert audit_log.event_type == AuthEventType.user_switch.value
         assert audit_log.success is True
         assert audit_log.failure_reason is None
 
         # Verify metadata contains switch context
         assert audit_log.event_metadata is not None
-        assert audit_log.event_metadata["original_user_id"] == str(test_user.id)
-        assert audit_log.event_metadata["original_email"] == test_user.email
+        assert audit_log.event_metadata["original_user_id"] == str(coordinator_user.id)
+        assert audit_log.event_metadata["original_email"] == coordinator_user.email
         assert audit_log.event_metadata["target_user_id"] == str(member_user.id)
         assert audit_log.event_metadata["target_email"] == member_user.email
 
         # Verify timestamp is captured
         assert audit_log.created_at is not None
+
+    def test_switch_user_member_unauthorized(self, client, member_user, coordinator_user, db_session):
+        """POST /auth/switch-user returns 403 when member attempts to switch users."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        # Create token for member user (non-coordinator)
+        member_token = create_access_token(data={"sub": str(member_user.id)})
+        member_headers = {"Authorization": f"Bearer {member_token}"}
+        switch_data = {"user_id": str(coordinator_user.id)}
+
+        # Attempt to switch as member user
+        response = client.post("/auth/switch-user", json=switch_data, headers=member_headers)
+
+        # Should return 403 Forbidden
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Insufficient privileges to switch users"
+
+        # Verify audit log was created for failed attempt
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            user_id=member_user.id,
+            event_type=AuthEventType.user_switch.value,
+            success=False
+        ).all()
+
+        assert len(audit_logs) == 1
+        audit_log = audit_logs[0]
+
+        # Verify audit log contains correct failure information
+        assert audit_log.user_id == member_user.id
+        assert audit_log.email == member_user.email
+        assert audit_log.event_type == AuthEventType.user_switch.value
+        assert audit_log.success is False
+        assert audit_log.failure_reason == "unauthorized"
+
+        # Verify metadata contains attempted switch context
+        assert audit_log.event_metadata is not None
+        assert audit_log.event_metadata["original_user_id"] == str(member_user.id)
+        assert audit_log.event_metadata["original_email"] == member_user.email
+        assert audit_log.event_metadata["target_user_id"] == str(coordinator_user.id)
 
 
 class TestRegistrationDatabaseErrors:
