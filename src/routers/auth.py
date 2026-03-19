@@ -99,7 +99,18 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
             failure_reason="email_already_exists"
         )
         # Commit the audit log before raising exception
-        db.commit()
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during registration audit logging (email exists)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Still raise the original validation error
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
@@ -209,7 +220,19 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             failure_reason="invalid_credentials"
         )
         # Commit the audit log before raising exception
-        db.commit()
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during login audit logging (user not found)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Still raise the original authentication error to avoid leaking info
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -246,7 +269,19 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             failure_reason="account_locked"
         )
         # Commit the audit log before raising exception
-        db.commit()
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            # If audit log commit fails, rollback and log the error
+            db.rollback()
+            logger.error("Database error during login audit logging (account locked)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Still raise the original authentication error to avoid leaking info
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
