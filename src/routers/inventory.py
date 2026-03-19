@@ -28,6 +28,8 @@ from src.schemas.inventory import (
     LowStockAlertItem,
     ConsumptionRequest,
     ConsumptionResponse,
+    BulkInventoryItemCreate,
+    BulkInventoryItemResponse,
 )
 from src.middleware.auth import get_current_user
 
@@ -98,6 +100,81 @@ def create_inventory_item(
     )
 
     return new_item
+
+
+@router.post("/bulk", response_model=BulkInventoryItemResponse, status_code=status.HTTP_201_CREATED)
+def create_inventory_items_bulk(
+    bulk_data: BulkInventoryItemCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Create multiple inventory items in a single atomic transaction.
+
+    All items are validated before any are created. If any validation fails,
+    no items are created and an error is returned with the index of the failing item.
+
+    The added_by field is automatically set to the current user's ID for all items,
+    ignoring any value provided in the request body.
+
+    Args:
+        bulk_data: List of inventory items to create (1-50 items)
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        BulkInventoryItemResponse: List of created inventory items with IDs
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(400): If more than 50 items provided or data integrity violation
+        HTTPException(422): If validation fails for any item (error includes item index)
+        HTTPException(500): If database error occurs
+    """
+    created_items = []
+
+    try:
+        # Create all items with added_by set to current user
+        for idx, item_data in enumerate(bulk_data.items):
+            # Exclude added_by from request for security (override with current user)
+            item_dict = item_data.model_dump(exclude={'added_by'})
+            new_item = InventoryItem(
+                **item_dict,
+                added_by=current_user.id,
+            )
+            db.add(new_item)
+            created_items.append(new_item)
+
+        # Commit all items atomically
+        db.commit()
+
+        # Refresh all items to get generated IDs
+        for item in created_items:
+            db.refresh(item)
+
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error during bulk inventory creation for user {current_user.id}")
+        logger.debug(f"Integrity error occurred during bulk inventory creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bulk inventory creation failed due to data integrity violation"
+        )
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during bulk inventory creation for user {current_user.id}")
+        logger.debug(f"Database error occurred during bulk inventory creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while creating inventory items"
+        )
+
+    logger.info(
+        f"Bulk inventory creation: user_id={current_user.id}, "
+        f"items_created={len(created_items)}"
+    )
+
+    return BulkInventoryItemResponse(items=created_items)
 
 
 @router.get("", response_model=list[InventoryItemListResponse])
