@@ -2928,3 +2928,369 @@ class TestConsumeInventoryItem:
         )
         assert response3.status_code == 200
         assert response3.json()["deleted"] is True
+
+
+class TestBulkCreateInventoryItems:
+    """Test suite for bulk inventory item creation endpoint."""
+
+    def test_bulk_create_single_item(self, client, auth_headers, test_user, db_session):
+        """Should create a single item via bulk endpoint."""
+        payload = {
+            "items": [
+                {
+                    "name": "Apples",
+                    "quantity": 6.0,
+                    "unit": "count",
+                    "category": "produce",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),  # Should be ignored
+                }
+            ]
+        }
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "Apples"
+        assert data["items"][0]["quantity"] == 6.0
+        assert data["items"][0]["unit"] == "count"
+        assert data["items"][0]["category"] == "produce"
+        assert data["items"][0]["added_by"] == str(test_user.id)
+        assert "id" in data["items"][0]
+
+        # Verify in database
+        db_session.expire_all()
+        items = db_session.query(InventoryItem).filter(InventoryItem.added_by == test_user.id).all()
+        assert len(items) == 1
+        assert items[0].name == "Apples"
+
+    def test_bulk_create_multiple_items(self, client, auth_headers, test_user, db_session):
+        """Should create multiple items in a single transaction."""
+        payload = {
+            "items": [
+                {
+                    "name": "Milk",
+                    "quantity": 1.0,
+                    "unit": "gallon",
+                    "category": "dairy",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                },
+                {
+                    "name": "Bread",
+                    "quantity": 2.0,
+                    "unit": "count",
+                    "category": "grain",
+                    "storage_location": "pantry",
+                    "added_by": str(uuid4()),
+                },
+                {
+                    "name": "Chicken Breast",
+                    "quantity": 1.5,
+                    "unit": "lb",
+                    "category": "protein",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                },
+            ]
+        }
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["items"]) == 3
+
+        # Check all items have correct user
+        for item in data["items"]:
+            assert item["added_by"] == str(test_user.id)
+            assert "id" in item
+
+        # Check specific items
+        names = [item["name"] for item in data["items"]]
+        assert "Milk" in names
+        assert "Bread" in names
+        assert "Chicken Breast" in names
+
+        # Verify in database
+        db_session.expire_all()
+        items = db_session.query(InventoryItem).filter(InventoryItem.added_by == test_user.id).all()
+        assert len(items) == 3
+
+    def test_bulk_create_max_limit_50_items(self, client, auth_headers, test_user, db_session):
+        """Should successfully create 50 items (max limit)."""
+        items = []
+        for i in range(50):
+            items.append({
+                "name": f"Item {i}",
+                "quantity": 1.0,
+                "unit": "count",
+                "category": "pantry_staple",
+                "storage_location": "pantry",
+                "added_by": str(uuid4()),
+            })
+
+        payload = {"items": items}
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["items"]) == 50
+
+        # Verify in database
+        db_session.expire_all()
+        db_items = db_session.query(InventoryItem).filter(InventoryItem.added_by == test_user.id).all()
+        assert len(db_items) == 50
+
+    def test_bulk_create_exceeds_max_limit(self, client, auth_headers, test_user, db_session):
+        """Should reject request with more than 50 items."""
+        items = []
+        for i in range(51):
+            items.append({
+                "name": f"Item {i}",
+                "quantity": 1.0,
+                "unit": "count",
+                "category": "pantry_staple",
+                "storage_location": "pantry",
+                "added_by": str(uuid4()),
+            })
+
+        payload = {"items": items}
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+        # Verify nothing was created
+        db_session.expire_all()
+        db_items = db_session.query(InventoryItem).filter(InventoryItem.added_by == test_user.id).all()
+        assert len(db_items) == 0
+
+    def test_bulk_create_empty_list(self, client, auth_headers, test_user, db_session):
+        """Should reject empty items list."""
+        payload = {"items": []}
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_bulk_create_validation_error_invalid_category(self, client, auth_headers, test_user, db_session):
+        """Should return 422 for validation errors with item details."""
+        payload = {
+            "items": [
+                {
+                    "name": "Valid Item",
+                    "quantity": 1.0,
+                    "unit": "count",
+                    "category": "produce",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                },
+                {
+                    "name": "Invalid Item",
+                    "quantity": 1.0,
+                    "unit": "count",
+                    "category": "invalid_category",  # Invalid
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                },
+            ]
+        }
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+        # Verify no items were created (atomic transaction)
+        db_session.expire_all()
+        db_items = db_session.query(InventoryItem).filter(InventoryItem.added_by == test_user.id).all()
+        assert len(db_items) == 0
+
+    def test_bulk_create_validation_error_negative_quantity(self, client, auth_headers, test_user, db_session):
+        """Should return 422 for negative quantity."""
+        payload = {
+            "items": [
+                {
+                    "name": "Bad Item",
+                    "quantity": -5.0,  # Invalid
+                    "unit": "count",
+                    "category": "produce",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                },
+            ]
+        }
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+        # Verify no items were created
+        db_session.expire_all()
+        db_items = db_session.query(InventoryItem).filter(InventoryItem.added_by == test_user.id).all()
+        assert len(db_items) == 0
+
+    def test_bulk_create_validation_error_invalid_unit(self, client, auth_headers, test_user, db_session):
+        """Should return 422 for invalid unit."""
+        payload = {
+            "items": [
+                {
+                    "name": "Item",
+                    "quantity": 1.0,
+                    "unit": "invalid_unit",  # Invalid
+                    "category": "produce",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                },
+            ]
+        }
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+
+        # Verify no items were created
+        db_session.expire_all()
+        db_items = db_session.query(InventoryItem).filter(InventoryItem.added_by == test_user.id).all()
+        assert len(db_items) == 0
+
+    def test_bulk_create_atomic_transaction(self, client, auth_headers, test_user, db_session):
+        """Should rollback all items if any validation fails (atomic)."""
+        payload = {
+            "items": [
+                {
+                    "name": "Good Item 1",
+                    "quantity": 1.0,
+                    "unit": "count",
+                    "category": "produce",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                },
+                {
+                    "name": "Good Item 2",
+                    "quantity": 2.0,
+                    "unit": "lb",
+                    "category": "protein",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                },
+                {
+                    "name": "Bad Item",
+                    "quantity": 3.0,
+                    "unit": "invalid_unit",  # This will fail
+                    "category": "dairy",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                },
+            ]
+        }
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+
+        # Verify NO items were created (all-or-nothing)
+        db_session.expire_all()
+        db_items = db_session.query(InventoryItem).filter(InventoryItem.added_by == test_user.id).all()
+        assert len(db_items) == 0
+
+    def test_bulk_create_requires_authentication(self, client, db_session):
+        """Should require authentication."""
+        payload = {
+            "items": [
+                {
+                    "name": "Apples",
+                    "quantity": 6.0,
+                    "unit": "count",
+                    "category": "produce",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                }
+            ]
+        }
+
+        response = client.post("/inventory/bulk", json=payload)
+
+        assert response.status_code == 401
+        data = response.json()
+        assert data["detail"] == "Not authenticated"
+
+    def test_bulk_create_with_optional_fields(self, client, auth_headers, test_user, db_session):
+        """Should create items with optional fields."""
+        expiration = datetime.now(timezone.utc) + timedelta(days=7)
+
+        payload = {
+            "items": [
+                {
+                    "name": "Premium Cheese",
+                    "quantity": 1.0,
+                    "unit": "lb",
+                    "category": "dairy",
+                    "storage_location": "fridge",
+                    "added_by": str(uuid4()),
+                    "expiration_date": expiration.isoformat(),
+                    "is_staple": True,
+                    "minimum_threshold": 0.5,
+                    "price": 8.99,
+                    "brand": "Organic Valley",
+                    "vegan_friendly": False,
+                }
+            ]
+        }
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "Premium Cheese"
+        assert data["items"][0]["is_staple"] is True
+        assert data["items"][0]["minimum_threshold"] == 0.5
+        assert data["items"][0]["price"] == 8.99
+        assert data["items"][0]["brand"] == "Organic Valley"
+        assert data["items"][0]["vegan_friendly"] is False
+
+    def test_bulk_create_returns_all_fields(self, client, auth_headers, test_user, db_session):
+        """Should return complete item data including generated fields."""
+        payload = {
+            "items": [
+                {
+                    "name": "Test Item",
+                    "quantity": 1.0,
+                    "unit": "count",
+                    "category": "other",
+                    "storage_location": "pantry",
+                    "added_by": str(uuid4()),
+                }
+            ]
+        }
+
+        response = client.post("/inventory/bulk", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        item = data["items"][0]
+
+        # Check all expected fields are present
+        assert "id" in item
+        assert "name" in item
+        assert "quantity" in item
+        assert "unit" in item
+        assert "category" in item
+        assert "storage_location" in item
+        assert "date_added" in item
+        assert "added_by" in item
+        assert "shareability" in item
+        assert "is_staple" in item
+        assert "vegan_friendly" in item
