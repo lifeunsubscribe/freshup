@@ -281,3 +281,149 @@ def log_profile_update(
     )
     db.add(audit_log)
     return audit_log
+
+
+def log_user_switch(
+    db: Session,
+    original_user_id: UUID,
+    original_email: str,
+    target_user_id: UUID,
+    target_email: str,
+    request: Request,
+    success: bool = True,
+    failure_reason: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> AuthAuditLog:
+    """
+    Log a user switch/impersonation event.
+
+    Records when a user switches their session to impersonate another user
+    (e.g., on shared household devices). This is a security-sensitive operation
+    that requires audit logging per OWASP guidelines.
+
+    Args:
+        db: Database session
+        original_user_id: ID of the user initiating the switch
+        original_email: Email of the user initiating the switch
+        target_user_id: ID of the user being switched to
+        target_email: Email of the user being switched to
+        request: FastAPI request object for extracting IP and user agent
+        success: Whether the switch succeeded
+        failure_reason: Optional reason for failure (e.g., "different_household", "user_not_found")
+        metadata: Optional additional context
+
+    Returns:
+        Created AuthAuditLog record
+    """
+    # Include switch context in metadata for detailed audit trail
+    audit_metadata = {
+        **(metadata or {}),
+        "original_user_id": str(original_user_id),
+        "original_email": original_email,
+        "target_user_id": str(target_user_id),
+        "target_email": target_email
+    }
+
+    audit_log = AuthAuditLog(
+        user_id=original_user_id,  # Log against the user initiating the switch
+        email=original_email,
+        event_type=AuthEventType.user_switch.value,
+        success=success,
+        failure_reason=failure_reason,
+        ip_address=_extract_client_ip(request),
+        user_agent=_extract_user_agent(request),
+        event_metadata=audit_metadata
+    )
+    db.add(audit_log)
+    return audit_log
+
+
+def log_password_change(
+    db: Session,
+    user_id: UUID,
+    email: str,
+    request: Request,
+    success: bool = True,
+    failure_reason: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> AuthAuditLog:
+    """
+    Log a password change event.
+
+    Password changes are security-sensitive operations that must be audited
+    per OWASP guidelines. This helps detect unauthorized password changes
+    and provides an audit trail for security investigations.
+
+    Args:
+        db: Database session
+        user_id: ID of the user changing their password
+        email: Email of the user
+        request: FastAPI request object for extracting IP and user agent
+        success: Whether the password change succeeded
+        failure_reason: Optional reason for failure (e.g., "invalid_old_password")
+        metadata: Optional additional context (NEVER include passwords)
+
+    Returns:
+        Created AuthAuditLog record
+    """
+    audit_log = AuthAuditLog(
+        user_id=user_id,
+        email=email,
+        event_type=AuthEventType.password_change.value,
+        success=success,
+        failure_reason=failure_reason,
+        ip_address=_extract_client_ip(request),
+        user_agent=_extract_user_agent(request),
+        event_metadata=metadata
+    )
+    db.add(audit_log)
+    return audit_log
+
+
+def log_authorization_failure(
+    db: Session,
+    user_id: UUID,
+    email: str,
+    request: Request,
+    resource: str,
+    action: str,
+    metadata: Optional[dict] = None
+) -> AuthAuditLog:
+    """
+    Log an authorization failure event.
+
+    Records when a user attempts to access a resource or perform an action
+    they are not authorized for. This helps detect privilege escalation
+    attempts and unauthorized access patterns.
+
+    Args:
+        db: Database session
+        user_id: ID of the user attempting the action
+        email: Email of the user
+        request: FastAPI request object for extracting IP and user agent
+        resource: Resource being accessed (e.g., "meal_plan", "user_profile")
+        action: Action being attempted (e.g., "update", "delete", "read")
+        metadata: Optional additional context
+
+    Returns:
+        Created AuthAuditLog record
+    """
+    # Include authorization context in metadata for detailed audit trail
+    audit_metadata = {
+        **(metadata or {}),
+        "resource": resource,
+        "action": action
+    }
+
+    audit_log = AuthAuditLog(
+        user_id=user_id,
+        email=email,
+        event_type=AuthEventType.authorization_failure.value,
+        success=False,  # Authorization failures are always unsuccessful
+        failure_reason=f"unauthorized_access: {action} on {resource}",
+        ip_address=_extract_client_ip(request),
+        user_agent=_extract_user_agent(request),
+        event_metadata=audit_metadata
+    )
+    db.add(audit_log)
+    return audit_log

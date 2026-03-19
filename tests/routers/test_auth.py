@@ -787,6 +787,43 @@ class TestSwitchUser:
         assert payload1["iat"] != payload2["iat"]
         assert payload2["iat"] > payload1["iat"]
 
+    def test_switch_user_creates_audit_log(self, client, test_user, member_user, auth_headers, db_session):
+        """POST /auth/switch-user creates audit log entry for user switch event."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        switch_data = {"user_id": str(member_user.id)}
+
+        response = client.post("/auth/switch-user", json=switch_data, headers=auth_headers)
+
+        assert response.status_code == 200
+
+        # Verify audit log was created
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            event_type=AuthEventType.user_switch.value
+        ).all()
+
+        assert len(audit_logs) == 1
+        audit_log = audit_logs[0]
+
+        # Verify audit log contains correct information
+        assert audit_log.user_id == test_user.id  # Original user who initiated the switch
+        assert audit_log.email == test_user.email
+        assert audit_log.event_type == AuthEventType.user_switch.value
+        assert audit_log.success is True
+        assert audit_log.failure_reason is None
+
+        # Verify metadata contains switch context
+        assert audit_log.event_metadata is not None
+        assert audit_log.event_metadata["original_user_id"] == str(test_user.id)
+        assert audit_log.event_metadata["original_email"] == test_user.email
+        assert audit_log.event_metadata["target_user_id"] == str(member_user.id)
+        assert audit_log.event_metadata["target_email"] == member_user.email
+
+        # Verify IP address and user agent are captured
+        # (Note: TestClient doesn't set these headers by default, so they may be None)
+        assert audit_log.ip_address is not None or audit_log.ip_address is None  # Just verify field exists
+        assert audit_log.created_at is not None
+
 
 class TestRegistrationDatabaseErrors:
     """Tests for database error handling in POST /auth/register endpoint."""

@@ -15,7 +15,7 @@ from src.db.database import get_db
 from src.db.models.user import User, UserRole
 from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate, SwitchUserRequest
 from src.services.auth_service import hash_password, verify_password, create_access_token
-from src.services.audit_service import log_registration, log_login_attempt, log_profile_update
+from src.services.audit_service import log_registration, log_login_attempt, log_profile_update, log_user_switch
 from src.middleware.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -477,6 +477,7 @@ def update_current_user_profile(
 @router.post("/switch-user", response_model=TokenResponse)
 def switch_user(
     switch_data: SwitchUserRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -582,6 +583,20 @@ def switch_user(
     #         status_code=status.HTTP_403_FORBIDDEN,
     #         detail="Cannot switch to user in different household"
     #     )
+
+    # Log user switch event (before token creation so it's in the same transaction)
+    log_user_switch(
+        db=db,
+        original_user_id=current_user.id,
+        original_email=current_user.email,
+        target_user_id=target_user.id,
+        target_email=target_user.email,
+        request=request,
+        success=True
+    )
+
+    # Commit the audit log
+    db.commit()
 
     # Create JWT token for the target user
     access_token = create_access_token(data={"sub": str(target_user.id)})
