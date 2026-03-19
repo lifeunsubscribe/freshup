@@ -132,10 +132,12 @@ def create_inventory_items_bulk(
         HTTPException(500): If database error occurs
     """
     created_items = []
+    current_idx = 0
 
     try:
         # Create all items with added_by set to current user
         for idx, item_data in enumerate(bulk_data.items):
+            current_idx = idx
             # Exclude added_by from request for security (override with current user)
             item_dict = item_data.model_dump(exclude={'added_by'})
             new_item = InventoryItem(
@@ -154,11 +156,11 @@ def create_inventory_items_bulk(
 
     except IntegrityError as e:
         db.rollback()
-        logger.error(f"Integrity error during bulk inventory creation for user {current_user.id}")
+        logger.error(f"Integrity error during bulk inventory creation for user {current_user.id} at index {current_idx}")
         logger.debug(f"Integrity error occurred during bulk inventory creation: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Bulk inventory creation failed due to data integrity violation"
+            detail=f"Bulk inventory creation failed due to data integrity violation at item index {current_idx}"
         )
     except SQLAlchemyError as e:
         db.rollback()
