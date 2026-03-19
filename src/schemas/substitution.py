@@ -101,15 +101,7 @@ class SubstitutionPreferenceUpdate(BaseModel):
     @classmethod
     def validate_context(cls, v: Optional[str]) -> Optional[str]:
         """Ensure context is a valid SubstitutionContext enum value if provided."""
-        if v is None:
-            return None
-
-        valid_contexts = [ctx.value for ctx in SubstitutionContext]
-        if v not in valid_contexts:
-            raise ValueError(
-                f'Context must be one of: {", ".join(valid_contexts)}. Got: {v}'
-            )
-        return v
+        return validate_enum_value('Context', v, SubstitutionContext, allow_none=True)
 
     @field_validator('replacements')
     @classmethod

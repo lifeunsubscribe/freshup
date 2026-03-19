@@ -6,7 +6,7 @@ across all schema modules. This prevents security vulnerabilities from duplicate
 validation logic diverging over time.
 """
 
-from typing import Optional, Any
+from typing import Optional
 from enum import Enum
 import unicodedata
 
@@ -226,7 +226,7 @@ def validate_enum_value(
 
     valid_values = [item.value for item in enum_class]
     if value not in valid_values:
-        raise ValueError(f'{field_name} must be one of: {", ".join(valid_values)}')
+        raise ValueError(f'{field_name} must be one of: {", ".join(valid_values)}. Got: {value}')
 
     return value
 
