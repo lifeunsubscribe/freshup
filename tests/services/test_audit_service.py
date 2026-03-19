@@ -128,6 +128,24 @@ class TestMetadataSanitization:
             "context": {"role": "admin"}
         }
 
+    def test_sanitize_nested_dict_becomes_empty(self):
+        """Nested dict with only email keys should be omitted entirely."""
+        metadata = {
+            "user_id": "123",
+            "context": {
+                "email": "user@example.com",
+                "original_email": "old@example.com"
+            },
+            "action": "update"
+        }
+        result = _sanitize_metadata(metadata)
+        # The "context" key should be omitted entirely, not set to None
+        assert result == {
+            "user_id": "123",
+            "action": "update"
+        }
+        assert "context" not in result
+
     def test_sanitize_preserves_non_email_keys(self):
         """Keep all non-email keys."""
         metadata = {

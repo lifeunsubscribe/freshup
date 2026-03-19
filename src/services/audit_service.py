@@ -69,7 +69,10 @@ def _sanitize_metadata(metadata: Optional[dict]) -> Optional[dict]:
         if 'email' not in key.lower():
             # If value is a dict, recursively sanitize it
             if isinstance(value, dict):
-                sanitized[key] = _sanitize_metadata(value)
+                sanitized_nested = _sanitize_metadata(value)
+                # Only include the key if the nested result is not None
+                if sanitized_nested is not None:
+                    sanitized[key] = sanitized_nested
             # If value is a list, sanitize each item
             elif isinstance(value, list):
                 sanitized_list = []

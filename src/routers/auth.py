@@ -250,11 +250,11 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     # Check if account is still locked after expiry check
     if lockout_until and lockout_until > now:
         # Account is locked - return generic error to avoid leaking account status
+        # SECURITY: Do not include user_id to prevent user enumeration via timing attacks
         log_login_attempt(
             db=db,
             request=request,
             success=False,
-            user_id=user.id,
             failure_reason="account_locked"
         )
         # Commit the audit log before raising exception
@@ -298,11 +298,11 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             )
 
         # Log failed login attempt (invalid password) - before commit so it's in same transaction
+        # SECURITY: Do not include user_id to prevent user enumeration via timing attacks
         log_login_attempt(
             db=db,
             request=request,
             success=False,
-            user_id=user.id,
             failure_reason="invalid_credentials"
         )
 
