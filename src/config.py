@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 43200  # 30 days (household use case)
 
+    # Proxy Trust Configuration
+    # Controls whether to trust X-Forwarded-For headers for client IP extraction
+    trust_x_forwarded_for: bool = False  # Secure by default
+    # Comma-separated list of trusted proxy IPs/CIDR ranges (e.g., "10.0.0.1,192.168.1.0/24")
+    # Empty string = trust NO proxies (fail-secure default, X-Forwarded-For will be ignored)
+    trusted_proxies: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

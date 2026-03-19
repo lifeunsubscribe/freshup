@@ -25,26 +25,78 @@ from typing import Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
 from fastapi import Request
+import ipaddress
+import logging
 
 from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+from src.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+def _is_trusted_proxy(ip: str, trusted_proxies: str) -> bool:
+    """
+    Check if an IP address is in the trusted proxy list.
+
+    Args:
+        ip: IP address to check
+        trusted_proxies: Comma-separated list of IPs/CIDR ranges
+
+    Returns:
+        True if IP is trusted, False otherwise
+    """
+    if not trusted_proxies.strip():
+        # Empty/whitespace-only list means trust NO proxies (fail-secure default)
+        # This prevents X-Forwarded-For header spoofing when misconfigured
+        return False
+
+    try:
+        ip_addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+
+    for trusted in trusted_proxies.split(","):
+        trusted = trusted.strip()
+        if not trusted:
+            continue
+
+        try:
+            # Try as network (CIDR notation)
+            if "/" in trusted:
+                network = ipaddress.ip_network(trusted, strict=False)
+                if ip_addr in network:
+                    return True
+            else:
+                # Try as individual IP
+                if ip_addr == ipaddress.ip_address(trusted):
+                    return True
+        except ValueError:
+            # Invalid IP/network in config, log and skip it
+            logger.warning(
+                "Invalid proxy configuration entry '%s' in TRUSTED_PROXIES - skipping",
+                trusted
+            )
+            continue
+
+    return False
 
 
 def _extract_client_ip(request: Request) -> Optional[str]:
     """
-    Extract client IP address from request, handling proxy headers.
+    Extract client IP address from request with proxy trust enforcement.
 
-    Checks X-Forwarded-For header first (for reverse proxy setups),
-    then falls back to direct client host.
+    This function implements secure X-Forwarded-For header handling. By default,
+    X-Forwarded-For headers are NOT trusted (secure by default). They are only
+    used when:
+    1. TRUST_X_FORWARDED_FOR=true in configuration, AND
+    2. The request comes from a trusted proxy IP (configured via TRUSTED_PROXIES)
 
-    SECURITY WARNING: X-Forwarded-For can be spoofed by malicious clients.
-    This function should ONLY be used behind a trusted reverse proxy (e.g., nginx,
-    Apache, AWS ALB) that is configured to:
-    1. Strip/replace X-Forwarded-For from incoming client requests
-    2. Set X-Forwarded-For to the actual client IP
+    When trust conditions are not met, falls back to the direct connection IP
+    (request.client.host), which cannot be spoofed.
 
-    If deployed without a properly configured proxy, clients can forge IP addresses
-    in audit logs. For production deployments, ensure your reverse proxy is configured
-    to sanitize these headers, or modify this function to only trust request.client.host.
+    Configuration:
+        TRUST_X_FORWARDED_FOR: Enable X-Forwarded-For trust (default: false)
+        TRUSTED_PROXIES: Comma-separated IPs/CIDR ranges (e.g., "10.0.0.1,192.168.1.0/24")
 
     Args:
         request: FastAPI request object
@@ -52,19 +104,23 @@ def _extract_client_ip(request: Request) -> Optional[str]:
     Returns:
         Client IP address as string, or None if unavailable
     """
-    # Check for proxy headers (X-Forwarded-For takes precedence)
-    # SECURITY: Only safe when behind a trusted proxy that sanitizes this header
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # X-Forwarded-For can contain multiple IPs (client, proxy1, proxy2)
-        # The first IP is the original client
-        return forwarded_for.split(",")[0].strip()
+    settings = get_settings()
 
-    # Fall back to direct client host
-    if request.client:
-        return request.client.host
+    # Get the direct connection IP (always available, cannot be spoofed)
+    direct_ip = request.client.host if request.client else None
 
-    return None
+    # Only check X-Forwarded-For if trust is explicitly enabled
+    if settings.trust_x_forwarded_for:
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for and direct_ip:
+            # Verify the request comes from a trusted proxy
+            if _is_trusted_proxy(direct_ip, settings.trusted_proxies):
+                # X-Forwarded-For can contain multiple IPs (client, proxy1, proxy2)
+                # The first IP is the original client
+                return forwarded_for.split(",")[0].strip()
+
+    # Fall back to direct client IP (secure default)
+    return direct_ip
 
 
 def _extract_user_agent(request: Request) -> Optional[str]:
