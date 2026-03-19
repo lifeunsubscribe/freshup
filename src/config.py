@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # Controls whether to trust X-Forwarded-For headers for client IP extraction
     trust_x_forwarded_for: bool = False  # Secure by default
     # Comma-separated list of trusted proxy IPs/CIDR ranges (e.g., "10.0.0.1,192.168.1.0/24")
-    # Empty string = trust all proxies when trust_x_forwarded_for=true (NOT recommended)
+    # Empty string = trust NO proxies (fail-secure default, X-Forwarded-For will be ignored)
     trusted_proxies: str = ""
 
 
