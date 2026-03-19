@@ -68,7 +68,7 @@ def create_inventory_item(
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Integrity error during inventory item creation for user {current_user.id}")
-        logger.debug(f"Integrity error details: {str(e)}")
+        logger.debug("Integrity error occurred during inventory item creation")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inventory item creation failed due to data integrity violation"
@@ -76,7 +76,7 @@ def create_inventory_item(
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error during inventory item creation for user {current_user.id}")
-        logger.debug(f"Database error details: {str(e)}")
+        logger.debug("Database error occurred during inventory item creation")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the inventory item"
@@ -226,7 +226,7 @@ def update_inventory_item(
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Integrity error during inventory item update for user {current_user.id}")
-        logger.debug(f"Integrity error details: {str(e)}")
+        logger.debug("Integrity error occurred during inventory item update")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inventory item update failed due to data integrity violation"
@@ -234,7 +234,7 @@ def update_inventory_item(
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error during inventory item update for user {current_user.id}")
-        logger.debug(f"Database error details: {str(e)}")
+        logger.debug("Database error occurred during inventory item update")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while updating the inventory item"
@@ -294,7 +294,7 @@ def delete_inventory_item(
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error during inventory item deletion for user {current_user.id}")
-        logger.debug(f"Database error details: {str(e)}")
+        logger.debug("Database error occurred during inventory item deletion")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while deleting the inventory item"
