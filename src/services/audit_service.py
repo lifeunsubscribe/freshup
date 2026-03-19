@@ -7,14 +7,18 @@ to ensure consistent audit trail.
 
 Transaction Semantics:
     These functions add audit log entries to the database session but DO NOT commit.
-    The calling code is responsible for committing the transaction. This ensures that
-    audit logs are committed atomically with the operation they're logging:
+    The calling code is responsible for committing the transaction.
 
-    - For successful operations: Add audit log before db.commit() so both commit together
-    - For failed operations: Add audit log, commit it, then raise the exception
+    - For successful operations: Add audit log before db.commit() so both commit
+      atomically together. This ensures the operation and its audit log are consistent.
 
-    This design prevents orphaned audit entries if the main operation fails after
-    the audit log would have been committed independently.
+    - For failed operations: Add audit log, commit it independently, then raise the
+      exception. This is intentionally NOT atomic - the audit log commits separately
+      to ensure failures are always logged, even if the main operation is rolled back.
+
+    This design prevents orphaned audit entries for successful operations (where the
+    main operation might fail after an independent audit commit), while guaranteeing
+    that security-relevant failures are always captured in the audit trail.
 """
 
 from typing import Optional
