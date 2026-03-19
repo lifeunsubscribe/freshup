@@ -493,6 +493,7 @@ def update_current_user_profile(
 
 
 @router.post("/change-password", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
 def change_password(
     password_data: PasswordChangeRequest,
     request: Request,

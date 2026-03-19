@@ -291,6 +291,18 @@ class PasswordChangeRequest(BaseModel):
 
         return v
 
+    @model_validator(mode='after')
+    def validate_passwords_different(self) -> 'PasswordChangeRequest':
+        """
+        Ensure new password is different from old password.
+
+        Prevents meaningless password "changes" where the user sets
+        the same password they already have.
+        """
+        if self.old_password == self.new_password:
+            raise ValueError('New password must be different from current password')
+        return self
+
 
 class TokenResponse(BaseModel):
     """Response schema for JWT token."""
