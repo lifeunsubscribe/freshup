@@ -733,12 +733,15 @@ def update_shareability(
     # Update shareability
     item.shareability = request_data.shareability
 
-    # Clear reserved fields when setting to "shared"
+    # Clear reserved fields when setting to "shared" or "personal"
     if request_data.shareability == Shareability.shared.value:
         item.reserved_note = None
         item.reserved_for = None
+    elif request_data.shareability == Shareability.personal.value:
+        item.reserved_note = None
+        item.reserved_for = None
     else:
-        # For "reserved" or "personal", set the note if provided
+        # For "reserved", set the note if provided
         item.reserved_note = request_data.reserved_note
 
     try:
