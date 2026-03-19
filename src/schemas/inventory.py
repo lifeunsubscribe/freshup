@@ -292,3 +292,18 @@ class LowStockAlertItem(BaseModel):
     unit: str
     minimum_threshold: float
     deficit: float = Field(..., description="How many units below threshold (threshold - quantity)")
+
+
+class ConsumptionRequest(BaseModel):
+    """Request schema for consuming inventory items."""
+
+    amount: float = Field(default=1.0, gt=0, description="Amount to consume (must be positive)")
+    delete_when_empty: bool = Field(default=True, description="Auto-delete item when quantity reaches 0")
+
+
+class ConsumptionResponse(BaseModel):
+    """Response schema for consumption endpoint."""
+
+    message: str = Field(..., description="Status message")
+    deleted: bool = Field(..., description="Whether the item was deleted")
+    item: Optional[InventoryItemResponse] = Field(default=None, description="Updated item (null if deleted)")
