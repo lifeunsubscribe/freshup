@@ -522,7 +522,18 @@ def change_password(
         HTTPException(500): If database error occurs
     """
     # Verify current password
-    if not current_user.hashed_password or not verify_password(password_data.old_password, current_user.hashed_password):
+    # Use constant-time comparison to prevent timing attacks
+    # Always call verify_password to avoid timing side-channel that reveals password existence
+    if current_user.hashed_password:
+        password_valid = verify_password(password_data.old_password, current_user.hashed_password)
+    else:
+        # No password set - call verify_password with dummy hash to maintain constant time
+        # This prevents timing attacks from distinguishing accounts with/without passwords
+        dummy_hash = hash_password("dummy")
+        verify_password(password_data.old_password, dummy_hash)
+        password_valid = False
+
+    if not password_valid:
         # Log failed password change attempt (incorrect old password)
         log_password_change(
             db=db,
