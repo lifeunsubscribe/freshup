@@ -7,7 +7,7 @@ All endpoints are scoped to the authenticated user's inventory.
 
 import logging
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -105,7 +105,7 @@ def list_inventory_items(
     is_staple: Optional[bool] = Query(default=None, description="Filter by staple status"),
     expiring_soon: Optional[bool] = Query(default=None, description="Filter items expiring within 7 days"),
     expiring_within_days: Optional[int] = Query(default=None, ge=1, description="Filter items expiring within N days"),
-    search: Optional[str] = Query(default=None, description="Search items by name (case-insensitive partial match)"),
+    search: Optional[str] = Query(default=None, max_length=255, description="Search items by name (case-insensitive partial match)"),
 ):
     """
     List inventory items for the authenticated user with filtering and pagination.
@@ -178,14 +178,14 @@ def list_inventory_items(
     # Apply expiration filters
     # expiring_within_days takes precedence over expiring_soon if both provided
     if expiring_within_days is not None:
-        expiration_cutoff = datetime.now() + timedelta(days=expiring_within_days)
+        expiration_cutoff = datetime.now(timezone.utc) + timedelta(days=expiring_within_days)
         query = query.filter(
             InventoryItem.expiration_date.isnot(None),
             InventoryItem.expiration_date <= expiration_cutoff
         )
     elif expiring_soon is not None and expiring_soon:
         # expiring_soon means within 7 days
-        expiration_cutoff = datetime.now() + timedelta(days=7)
+        expiration_cutoff = datetime.now(timezone.utc) + timedelta(days=7)
         query = query.filter(
             InventoryItem.expiration_date.isnot(None),
             InventoryItem.expiration_date <= expiration_cutoff
@@ -193,7 +193,9 @@ def list_inventory_items(
 
     # Apply name search filter (case-insensitive partial match)
     if search is not None:
-        query = query.filter(InventoryItem.name.ilike(f"%{search}%"))
+        # Escape LIKE wildcards to prevent DoS via expensive pattern matching
+        escaped_search = search.replace('%', r'\%').replace('_', r'\_')
+        query = query.filter(InventoryItem.name.ilike(f"%{escaped_search}%", escape='\\'))
 
     # Apply ordering and pagination
     items = (
