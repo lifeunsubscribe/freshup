@@ -202,6 +202,8 @@ class InventoryItemUpdate(BaseModel):
 class InventoryItemResponse(BaseModel):
     """Response schema for inventory item data (includes all fields)."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     quantity: float
@@ -222,12 +224,11 @@ class InventoryItemResponse(BaseModel):
     brand: Optional[str]
     preferred_store: Optional[UUID]
 
-    class Config:
-        from_attributes = True
-
 
 class InventoryItemListResponse(BaseModel):
     """Response schema for inventory item lists (summary fields only)."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     name: str
@@ -238,6 +239,3 @@ class InventoryItemListResponse(BaseModel):
     shareability: str
     is_staple: bool
     expiration_date: Optional[datetime]
-
-    class Config:
-        from_attributes = True
