@@ -10,7 +10,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from src.db.models.substitution import SubstitutionContext
-from src.schemas.validators import validate_ingredient_name
+from src.schemas.validators import validate_ingredient_name, validate_enum_value
 
 
 class ReplacementItem(BaseModel):
@@ -64,17 +64,14 @@ class SubstitutionPreferenceCreate(BaseModel):
 
     @field_validator('context')
     @classmethod
-    def validate_context(cls, v: Optional[str]) -> str:
+    def validate_context_field(cls, v: Optional[str]) -> str:
         """Ensure context is a valid SubstitutionContext enum value."""
         if v is None:
             return SubstitutionContext.any.value
 
-        valid_contexts = [ctx.value for ctx in SubstitutionContext]
-        if v not in valid_contexts:
-            raise ValueError(
-                f'Context must be one of: {", ".join(valid_contexts)}. Got: {v}'
-            )
-        return v
+        result = validate_enum_value('Context', v, SubstitutionContext, allow_none=False)
+        # validate_enum_value handles Optional, but we've already handled None case above
+        return result  # type: ignore
 
     @field_validator('replacements')
     @classmethod

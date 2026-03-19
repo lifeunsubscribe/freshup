@@ -9,7 +9,13 @@ from typing import Optional, Any
 import re
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator, ConfigDict
 from src.db.models.user import UserRole, DietaryProfile
-from src.schemas.validators import validate_string_list
+from src.schemas.validators import (
+    validate_string_list,
+    validate_name_not_empty,
+    validate_enum_value,
+    normalize_email,
+    validate_dietary_profile
+)
 
 
 class UserCreate(BaseModel):
@@ -74,40 +80,30 @@ class UserCreate(BaseModel):
 
     @field_validator('name')
     @classmethod
-    def validate_name_not_empty(cls, v: str) -> str:
+    def validate_name(cls, v: str) -> str:
         """Ensure name is not empty or whitespace only."""
-        if not v or not v.strip():
-            raise ValueError('Name cannot be empty')
-        return v.strip()
+        result = validate_name_not_empty(v)
+        # validate_name_not_empty handles None, but name is required so this won't be None
+        return result  # type: ignore
 
     @field_validator('role')
     @classmethod
     def validate_role(cls, v: Optional[str]) -> Optional[str]:
         """Ensure role is a valid UserRole enum value."""
-        if v is not None:
-            valid_roles = [role.value for role in UserRole]
-            if v not in valid_roles:
-                raise ValueError(f'Role must be one of: {", ".join(valid_roles)}')
-        return v
+        return validate_enum_value('Role', v, UserRole, allow_none=True)
 
     @field_validator('email')
     @classmethod
-    def normalize_email(cls, v: str) -> str:
+    def normalize_email_field(cls, v: str) -> str:
         """Normalize email to lowercase for case-insensitive comparison."""
-        return v.lower()
+        return normalize_email(v)
 
     @field_validator('dietary_profile')
     @classmethod
-    def validate_dietary_profile(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+    def validate_dietary_profile_field(cls, v: Optional[list[str]]) -> Optional[list[str]]:
         """Ensure dietary_profile contains valid DietaryProfile enum values and strip whitespace."""
-        if v is not None:
-            # Strip whitespace from each item
-            v = [item.strip() for item in v if item.strip()]
-            valid_profiles = [profile.value for profile in DietaryProfile]
-            for profile in v:
-                if profile not in valid_profiles:
-                    raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
-        return v
+        valid_profiles = [profile.value for profile in DietaryProfile]
+        return validate_dietary_profile(v, valid_profiles)
 
     @field_validator('allergies', 'disliked_ingredients', 'favorite_ingredients')
     @classmethod
@@ -131,9 +127,9 @@ class LoginRequest(BaseModel):
 
     @field_validator('email')
     @classmethod
-    def normalize_email(cls, v: str) -> str:
+    def normalize_email_field(cls, v: str) -> str:
         """Normalize email to lowercase for case-insensitive comparison."""
-        return v.lower()
+        return normalize_email(v)
 
 
 class UserResponse(BaseModel):
@@ -165,24 +161,16 @@ class UserUpdate(BaseModel):
 
     @field_validator('name')
     @classmethod
-    def validate_name_not_empty(cls, v: Optional[str]) -> Optional[str]:
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
         """Ensure name is not empty or whitespace only if provided."""
-        if v is not None and (not v or not v.strip()):
-            raise ValueError('Name cannot be empty')
-        return v.strip() if v else None
+        return validate_name_not_empty(v)
 
     @field_validator('dietary_profile')
     @classmethod
-    def validate_dietary_profile(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+    def validate_dietary_profile_field(cls, v: Optional[list[str]]) -> Optional[list[str]]:
         """Ensure dietary_profile contains valid DietaryProfile enum values and strip whitespace."""
-        if v is not None:
-            # Strip whitespace from each item
-            v = [item.strip() for item in v if item.strip()]
-            valid_profiles = [profile.value for profile in DietaryProfile]
-            for profile in v:
-                if profile not in valid_profiles:
-                    raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
-        return v
+        valid_profiles = [profile.value for profile in DietaryProfile]
+        return validate_dietary_profile(v, valid_profiles)
 
     @field_validator('allergies', 'disliked_ingredients', 'favorite_ingredients')
     @classmethod

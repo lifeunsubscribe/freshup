@@ -6,7 +6,8 @@ across all schema modules. This prevents security vulnerabilities from duplicate
 validation logic diverging over time.
 """
 
-from typing import Optional
+from typing import Optional, Any
+from enum import Enum
 import unicodedata
 
 
@@ -172,3 +173,132 @@ def validate_string_list(
         normalized.append(normalized_item)
 
     return normalized
+
+
+def validate_name_not_empty(value: Optional[str], strip: bool = True) -> Optional[str]:
+    """
+    Validate that a name field is not empty or whitespace-only.
+
+    Args:
+        value: The name to validate
+        strip: Whether to strip whitespace from the result (default: True)
+
+    Returns:
+        Stripped name if valid, or None if input was None
+
+    Raises:
+        ValueError: If name is empty or whitespace-only
+    """
+    if value is None:
+        return None
+
+    if not value or not value.strip():
+        raise ValueError('Name cannot be empty')
+
+    return value.strip() if strip else value
+
+
+def validate_enum_value(
+    field_name: str,
+    value: Optional[str],
+    enum_class: type[Enum],
+    allow_none: bool = False
+) -> Optional[str]:
+    """
+    Validate that a string value matches a valid enum value.
+
+    Args:
+        field_name: Name of the field being validated (for error messages)
+        value: The value to validate
+        enum_class: The Enum class to validate against
+        allow_none: Whether None is allowed (default: False)
+
+    Returns:
+        The validated value, or None if value was None and allow_none is True
+
+    Raises:
+        ValueError: If value is not a valid enum value
+    """
+    if value is None:
+        if allow_none:
+            return None
+        raise ValueError(f'{field_name} cannot be None')
+
+    valid_values = [item.value for item in enum_class]
+    if value not in valid_values:
+        raise ValueError(f'{field_name} must be one of: {", ".join(valid_values)}')
+
+    return value
+
+
+def validate_non_negative(
+    field_name: str,
+    value: Optional[float],
+    allow_none: bool = True
+) -> Optional[float]:
+    """
+    Validate that a numeric value is non-negative.
+
+    Args:
+        field_name: Name of the field being validated (for error messages)
+        value: The numeric value to validate
+        allow_none: Whether None is allowed (default: True)
+
+    Returns:
+        The validated value, or None if value was None and allow_none is True
+
+    Raises:
+        ValueError: If value is negative or None when not allowed
+    """
+    if value is None:
+        if allow_none:
+            return None
+        raise ValueError(f'{field_name} cannot be None')
+
+    if value < 0:
+        raise ValueError(f'{field_name} cannot be negative')
+
+    return value
+
+
+def normalize_email(email: str) -> str:
+    """
+    Normalize email to lowercase for case-insensitive comparison.
+
+    Args:
+        email: The email address to normalize
+
+    Returns:
+        Lowercase email address
+    """
+    return email.lower()
+
+
+def validate_dietary_profile(values: Optional[list[str]], valid_profiles: list[str]) -> Optional[list[str]]:
+    """
+    Validate dietary profile list against allowed values.
+
+    Strips whitespace from each item and filters out empty strings.
+
+    Args:
+        values: List of dietary profile strings to validate
+        valid_profiles: List of valid profile values
+
+    Returns:
+        Cleaned list of valid profiles, or None if input was None
+
+    Raises:
+        ValueError: If any profile is not in the valid list
+    """
+    if values is None:
+        return None
+
+    # Strip whitespace from each item and filter empty strings
+    cleaned = [item.strip() for item in values if item.strip()]
+
+    # Validate each profile
+    for profile in cleaned:
+        if profile not in valid_profiles:
+            raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
+
+    return cleaned

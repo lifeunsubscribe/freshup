@@ -10,6 +10,11 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from src.db.models.inventory_item import Category, UnitType, StorageLocation, Shareability
+from src.schemas.validators import (
+    validate_name_not_empty,
+    validate_enum_value,
+    validate_non_negative
+)
 
 
 class StoreResponse(BaseModel):
@@ -42,12 +47,11 @@ class UpdateShareabilityRequest(BaseModel):
 
     @field_validator('shareability')
     @classmethod
-    def validate_shareability(cls, v: str) -> str:
+    def validate_shareability_field(cls, v: str) -> str:
         """Ensure shareability is a valid Shareability enum value."""
-        valid_shareability = [share.value for share in Shareability]
-        if v not in valid_shareability:
-            raise ValueError(f'Shareability must be one of: {", ".join(valid_shareability)}')
-        return v
+        result = validate_enum_value('Shareability', v, Shareability, allow_none=False)
+        # validate_enum_value handles Optional, but this field is required so won't be None
+        return result  # type: ignore
 
 
 class InventoryItemCreate(BaseModel):
@@ -74,72 +78,61 @@ class InventoryItemCreate(BaseModel):
 
     @field_validator('quantity')
     @classmethod
-    def validate_quantity_non_negative(cls, v: float) -> float:
+    def validate_quantity_field(cls, v: float) -> float:
         """Ensure quantity is non-negative."""
-        if v < 0:
-            raise ValueError('Quantity cannot be negative')
-        return v
+        result = validate_non_negative('Quantity', v, allow_none=False)
+        # validate_non_negative handles Optional, but this field is required so won't be None
+        return result  # type: ignore
 
     @field_validator('minimum_threshold')
     @classmethod
-    def validate_threshold_non_negative(cls, v: Optional[float]) -> Optional[float]:
+    def validate_threshold_field(cls, v: Optional[float]) -> Optional[float]:
         """Ensure minimum threshold is non-negative if provided."""
-        if v is not None and v < 0:
-            raise ValueError('Minimum threshold cannot be negative')
-        return v
+        return validate_non_negative('Minimum threshold', v, allow_none=True)
 
     @field_validator('price')
     @classmethod
-    def validate_price_non_negative(cls, v: Optional[float]) -> Optional[float]:
+    def validate_price_field(cls, v: Optional[float]) -> Optional[float]:
         """Ensure price is non-negative if provided."""
-        if v is not None and v < 0:
-            raise ValueError('Price cannot be negative')
-        return v
+        return validate_non_negative('Price', v, allow_none=True)
 
     @field_validator('unit')
     @classmethod
-    def validate_unit(cls, v: str) -> str:
+    def validate_unit_field(cls, v: str) -> str:
         """Ensure unit is a valid UnitType enum value."""
-        valid_units = [unit.value for unit in UnitType]
-        if v not in valid_units:
-            raise ValueError(f'Unit must be one of: {", ".join(valid_units)}')
-        return v
+        result = validate_enum_value('Unit', v, UnitType, allow_none=False)
+        # validate_enum_value handles Optional, but this field is required so won't be None
+        return result  # type: ignore
 
     @field_validator('category')
     @classmethod
-    def validate_category(cls, v: str) -> str:
+    def validate_category_field(cls, v: str) -> str:
         """Ensure category is a valid Category enum value."""
-        valid_categories = [cat.value for cat in Category]
-        if v not in valid_categories:
-            raise ValueError(f'Category must be one of: {", ".join(valid_categories)}')
-        return v
+        result = validate_enum_value('Category', v, Category, allow_none=False)
+        # validate_enum_value handles Optional, but this field is required so won't be None
+        return result  # type: ignore
 
     @field_validator('storage_location')
     @classmethod
-    def validate_storage_location(cls, v: str) -> str:
+    def validate_storage_location_field(cls, v: str) -> str:
         """Ensure storage_location is a valid StorageLocation enum value."""
-        valid_locations = [loc.value for loc in StorageLocation]
-        if v not in valid_locations:
-            raise ValueError(f'Storage location must be one of: {", ".join(valid_locations)}')
-        return v
+        result = validate_enum_value('Storage location', v, StorageLocation, allow_none=False)
+        # validate_enum_value handles Optional, but this field is required so won't be None
+        return result  # type: ignore
 
     @field_validator('shareability')
     @classmethod
-    def validate_shareability(cls, v: Optional[str]) -> Optional[str]:
+    def validate_shareability_value(cls, v: Optional[str]) -> Optional[str]:
         """Ensure shareability is a valid Shareability enum value."""
-        if v is not None:
-            valid_shareability = [share.value for share in Shareability]
-            if v not in valid_shareability:
-                raise ValueError(f'Shareability must be one of: {", ".join(valid_shareability)}')
-        return v
+        return validate_enum_value('Shareability', v, Shareability, allow_none=True)
 
     @field_validator('name')
     @classmethod
-    def validate_name_not_empty(cls, v: str) -> str:
+    def validate_name(cls, v: str) -> str:
         """Ensure name is not empty or whitespace only."""
-        if not v or not v.strip():
-            raise ValueError('Name cannot be empty')
-        return v.strip()
+        result = validate_name_not_empty(v)
+        # validate_name_not_empty handles None, but name is required so this won't be None
+        return result  # type: ignore
 
 
 class InventoryItemUpdate(BaseModel):
@@ -166,75 +159,51 @@ class InventoryItemUpdate(BaseModel):
 
     @field_validator('quantity')
     @classmethod
-    def validate_quantity_non_negative(cls, v: Optional[float]) -> Optional[float]:
+    def validate_quantity_field(cls, v: Optional[float]) -> Optional[float]:
         """Ensure quantity is non-negative if provided."""
-        if v is not None and v < 0:
-            raise ValueError('Quantity cannot be negative')
-        return v
+        return validate_non_negative('Quantity', v, allow_none=True)
 
     @field_validator('minimum_threshold')
     @classmethod
-    def validate_threshold_non_negative(cls, v: Optional[float]) -> Optional[float]:
+    def validate_threshold_field(cls, v: Optional[float]) -> Optional[float]:
         """Ensure minimum threshold is non-negative if provided."""
-        if v is not None and v < 0:
-            raise ValueError('Minimum threshold cannot be negative')
-        return v
+        return validate_non_negative('Minimum threshold', v, allow_none=True)
 
     @field_validator('price')
     @classmethod
-    def validate_price_non_negative(cls, v: Optional[float]) -> Optional[float]:
+    def validate_price_field(cls, v: Optional[float]) -> Optional[float]:
         """Ensure price is non-negative if provided."""
-        if v is not None and v < 0:
-            raise ValueError('Price cannot be negative')
-        return v
+        return validate_non_negative('Price', v, allow_none=True)
 
     @field_validator('unit')
     @classmethod
-    def validate_unit(cls, v: Optional[str]) -> Optional[str]:
+    def validate_unit_field(cls, v: Optional[str]) -> Optional[str]:
         """Ensure unit is a valid UnitType enum value if provided."""
-        if v is not None:
-            valid_units = [unit.value for unit in UnitType]
-            if v not in valid_units:
-                raise ValueError(f'Unit must be one of: {", ".join(valid_units)}')
-        return v
+        return validate_enum_value('Unit', v, UnitType, allow_none=True)
 
     @field_validator('category')
     @classmethod
-    def validate_category(cls, v: Optional[str]) -> Optional[str]:
+    def validate_category_field(cls, v: Optional[str]) -> Optional[str]:
         """Ensure category is a valid Category enum value if provided."""
-        if v is not None:
-            valid_categories = [cat.value for cat in Category]
-            if v not in valid_categories:
-                raise ValueError(f'Category must be one of: {", ".join(valid_categories)}')
-        return v
+        return validate_enum_value('Category', v, Category, allow_none=True)
 
     @field_validator('storage_location')
     @classmethod
-    def validate_storage_location(cls, v: Optional[str]) -> Optional[str]:
+    def validate_storage_location_field(cls, v: Optional[str]) -> Optional[str]:
         """Ensure storage_location is a valid StorageLocation enum value if provided."""
-        if v is not None:
-            valid_locations = [loc.value for loc in StorageLocation]
-            if v not in valid_locations:
-                raise ValueError(f'Storage location must be one of: {", ".join(valid_locations)}')
-        return v
+        return validate_enum_value('Storage location', v, StorageLocation, allow_none=True)
 
     @field_validator('shareability')
     @classmethod
-    def validate_shareability(cls, v: Optional[str]) -> Optional[str]:
+    def validate_shareability_value(cls, v: Optional[str]) -> Optional[str]:
         """Ensure shareability is a valid Shareability enum value if provided."""
-        if v is not None:
-            valid_shareability = [share.value for share in Shareability]
-            if v not in valid_shareability:
-                raise ValueError(f'Shareability must be one of: {", ".join(valid_shareability)}')
-        return v
+        return validate_enum_value('Shareability', v, Shareability, allow_none=True)
 
     @field_validator('name')
     @classmethod
-    def validate_name_not_empty(cls, v: Optional[str]) -> Optional[str]:
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
         """Ensure name is not empty or whitespace only if provided."""
-        if v is not None and (not v or not v.strip()):
-            raise ValueError('Name cannot be empty')
-        return v.strip() if v else None
+        return validate_name_not_empty(v)
 
 
 class InventoryItemResponse(BaseModel):
