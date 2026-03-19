@@ -16,11 +16,14 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from src.db.database import get_db
 from src.db.models.user import User
 from src.db.models.inventory_item import InventoryItem, Category, StorageLocation, Shareability
+from src.db.models.store import Store
 from src.schemas.inventory import (
     InventoryItemCreate,
     InventoryItemUpdate,
     InventoryItemResponse,
     InventoryItemListResponse,
+    SetPreferredStoreRequest,
+    AddAvailableStoreRequest,
 )
 from src.middleware.auth import get_current_user
 
@@ -387,3 +390,296 @@ def delete_inventory_item(
     )
 
     return None
+
+
+@router.put("/{item_id}/preferred-store", response_model=InventoryItemResponse)
+def set_preferred_store(
+    item_id: UUID,
+    request_data: SetPreferredStoreRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Set the preferred store for an inventory item.
+
+    Updates the preferred_store field for the specified inventory item.
+    Validates that the store exists before assignment.
+
+    Args:
+        item_id: UUID of the inventory item to update
+        request_data: Store ID to set as preferred
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        InventoryItemResponse: Updated inventory item with store data
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist, belongs to another user, or store_id is invalid
+    """
+    # Validate store exists
+    store = db.query(Store).filter(Store.id == request_data.store_id).first()
+    if not store:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Store not found"
+        )
+
+    # Query item with user ownership check
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.id == item_id,
+            InventoryItem.added_by == current_user.id,
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found"
+        )
+
+    # Update preferred store
+    item.preferred_store = request_data.store_id
+
+    try:
+        db.commit()
+        db.refresh(item)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during preferred store update for user {current_user.id}")
+        logger.debug(f"Database error occurred during preferred store update: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while updating the preferred store"
+        )
+
+    logger.info(
+        f"Preferred store updated: user_id={current_user.id}, "
+        f"item_id={item_id}, store_id={request_data.store_id}"
+    )
+
+    return item
+
+
+@router.delete("/{item_id}/preferred-store", response_model=InventoryItemResponse)
+def clear_preferred_store(
+    item_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Clear the preferred store for an inventory item.
+
+    Sets the preferred_store field to NULL for the specified inventory item.
+
+    Args:
+        item_id: UUID of the inventory item to update
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        InventoryItemResponse: Updated inventory item
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist or belongs to another user
+    """
+    # Query item with user ownership check
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.id == item_id,
+            InventoryItem.added_by == current_user.id,
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found"
+        )
+
+    # Clear preferred store
+    item.preferred_store = None
+
+    try:
+        db.commit()
+        db.refresh(item)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during preferred store clear for user {current_user.id}")
+        logger.debug(f"Database error occurred during preferred store clear: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while clearing the preferred store"
+        )
+
+    logger.info(
+        f"Preferred store cleared: user_id={current_user.id}, "
+        f"item_id={item_id}"
+    )
+
+    return item
+
+
+@router.post("/{item_id}/available-stores", response_model=InventoryItemResponse, status_code=status.HTTP_200_OK)
+def add_available_store(
+    item_id: UUID,
+    request_data: AddAvailableStoreRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Add a store to the available_at_stores list for an inventory item.
+
+    Appends a store to the many-to-many relationship. If the store is already
+    in the list, this operation is idempotent (no duplicate added).
+
+    Args:
+        item_id: UUID of the inventory item to update
+        request_data: Store ID to add to available stores
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        InventoryItemResponse: Updated inventory item with store data
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist, belongs to another user, or store_id is invalid
+    """
+    # Validate store exists
+    store = db.query(Store).filter(Store.id == request_data.store_id).first()
+    if not store:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Store not found"
+        )
+
+    # Query item with user ownership check
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.id == item_id,
+            InventoryItem.added_by == current_user.id,
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found"
+        )
+
+    # Add store to available_at_stores if not already present
+    if store not in item.available_at_stores:
+        item.available_at_stores.append(store)
+
+        try:
+            db.commit()
+            db.refresh(item)
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database error during available store addition for user {current_user.id}")
+            logger.debug(f"Database error occurred during available store addition: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while adding the available store"
+            )
+
+        logger.info(
+            f"Available store added: user_id={current_user.id}, "
+            f"item_id={item_id}, store_id={request_data.store_id}"
+        )
+    else:
+        logger.debug(
+            f"Available store already exists: user_id={current_user.id}, "
+            f"item_id={item_id}, store_id={request_data.store_id}"
+        )
+
+    return item
+
+
+@router.delete("/{item_id}/available-stores/{store_id}", response_model=InventoryItemResponse)
+def remove_available_store(
+    item_id: UUID,
+    store_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Remove a store from the available_at_stores list for an inventory item.
+
+    Removes a store from the many-to-many relationship. If the store is not
+    in the list, this operation is idempotent (no error raised).
+
+    Args:
+        item_id: UUID of the inventory item to update
+        store_id: Store ID to remove from available stores
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        InventoryItemResponse: Updated inventory item with store data
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist, belongs to another user, or store_id is invalid
+    """
+    # Validate store exists
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if not store:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Store not found"
+        )
+
+    # Query item with user ownership check
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.id == item_id,
+            InventoryItem.added_by == current_user.id,
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found"
+        )
+
+    # Remove store from available_at_stores if present
+    if store in item.available_at_stores:
+        item.available_at_stores.remove(store)
+
+        try:
+            db.commit()
+            db.refresh(item)
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database error during available store removal for user {current_user.id}")
+            logger.debug(f"Database error occurred during available store removal: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while removing the available store"
+            )
+
+        logger.info(
+            f"Available store removed: user_id={current_user.id}, "
+            f"item_id={item_id}, store_id={store_id}"
+        )
+    else:
+        logger.debug(
+            f"Available store not in list: user_id={current_user.id}, "
+            f"item_id={item_id}, store_id={store_id}"
+        )
+
+    return item

@@ -12,6 +12,28 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 from src.db.models.inventory_item import Category, UnitType, StorageLocation, Shareability
 
 
+class StoreResponse(BaseModel):
+    """Response schema for store data."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    has_digital_receipts: bool
+
+
+class SetPreferredStoreRequest(BaseModel):
+    """Request schema for setting preferred store."""
+
+    store_id: UUID = Field(..., description="Store ID to set as preferred")
+
+
+class AddAvailableStoreRequest(BaseModel):
+    """Request schema for adding a store to available_at_stores."""
+
+    store_id: UUID = Field(..., description="Store ID to add to available stores")
+
+
 class InventoryItemCreate(BaseModel):
     """Request schema for creating a new inventory item."""
 
@@ -223,6 +245,8 @@ class InventoryItemResponse(BaseModel):
     price: Optional[float]
     brand: Optional[str]
     preferred_store: Optional[UUID]
+    preferred_store_rel: Optional[StoreResponse] = None
+    available_at_stores: list[StoreResponse] = []
 
 
 class InventoryItemListResponse(BaseModel):
