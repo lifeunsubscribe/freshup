@@ -1699,3 +1699,256 @@ class TestStoreMappingEndpoints:
         # Verify store names are included
         store_names = {store["name"] for store in data["available_at_stores"]}
         assert store_names == {"Test Store", "Test Store 2"}
+
+
+class TestUpdateShareability:
+    """Tests for PUT /inventory/{id}/shareability endpoint."""
+
+    def test_update_shareability_to_reserved_with_note(self, client, auth_headers, test_user, db_session):
+        """Should update shareability to reserved with a note."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            shareability="shared",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Update to reserved with note
+        payload = {
+            "shareability": "reserved",
+            "reserved_note": "For Saturday cheesecake"
+        }
+        response = client.put(f"/inventory/{item.id}/shareability", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["shareability"] == "reserved"
+        assert data["reserved_note"] == "For Saturday cheesecake"
+        assert data["reserved_for"] is None  # FK not implemented yet (Phase 3)
+
+    def test_update_shareability_to_personal_with_note(self, client, auth_headers, test_user, db_session):
+        """Should update shareability to personal with a note."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Cheese",
+            quantity=0.5,
+            unit="lb",
+            category="dairy",
+            storage_location="fridge",
+            shareability="shared",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Update to personal with note
+        payload = {
+            "shareability": "personal",
+            "reserved_note": "My special cheese"
+        }
+        response = client.put(f"/inventory/{item.id}/shareability", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["shareability"] == "personal"
+        assert data["reserved_note"] == "My special cheese"
+
+    def test_update_shareability_to_reserved_without_note(self, client, auth_headers, test_user, db_session):
+        """Should update shareability to reserved without a note."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Yogurt",
+            quantity=1.0,
+            unit="count",
+            category="dairy",
+            storage_location="fridge",
+            shareability="shared",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Update to reserved without note
+        payload = {
+            "shareability": "reserved"
+        }
+        response = client.put(f"/inventory/{item.id}/shareability", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["shareability"] == "reserved"
+        assert data["reserved_note"] is None
+
+    def test_update_shareability_to_shared_clears_reserved_fields(self, client, auth_headers, test_user, db_session):
+        """Should clear reserved_note and reserved_for when setting to shared."""
+        # Create inventory item with reserved status and note
+        item = InventoryItem(
+            name="Butter",
+            quantity=1.0,
+            unit="lb",
+            category="dairy",
+            storage_location="fridge",
+            shareability="reserved",
+            reserved_note="For my cookies",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Update to shared (should clear reserved fields)
+        payload = {
+            "shareability": "shared"
+        }
+        response = client.put(f"/inventory/{item.id}/shareability", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["shareability"] == "shared"
+        assert data["reserved_note"] is None
+        assert data["reserved_for"] is None
+
+    def test_update_shareability_transition_reserved_to_personal(self, client, auth_headers, test_user, db_session):
+        """Should transition from reserved to personal, updating note."""
+        # Create inventory item with reserved status
+        item = InventoryItem(
+            name="Cream",
+            quantity=1.0,
+            unit="pint",
+            category="dairy",
+            storage_location="fridge",
+            shareability="reserved",
+            reserved_note="For dinner party",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Transition to personal with new note
+        payload = {
+            "shareability": "personal",
+            "reserved_note": "Changed my mind, this is mine"
+        }
+        response = client.put(f"/inventory/{item.id}/shareability", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["shareability"] == "personal"
+        assert data["reserved_note"] == "Changed my mind, this is mine"
+
+    def test_update_shareability_invalid_enum(self, client, auth_headers, test_user, db_session):
+        """Should return 422 for invalid shareability value."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Try invalid shareability
+        payload = {
+            "shareability": "invalid_value"
+        }
+        response = client.put(f"/inventory/{item.id}/shareability", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+
+    def test_update_shareability_reserved_note_too_long(self, client, auth_headers, test_user, db_session):
+        """Should return 422 if reserved_note exceeds 500 characters."""
+        # Create inventory item
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Try note that's too long (501 chars)
+        long_note = "x" * 501
+        payload = {
+            "shareability": "reserved",
+            "reserved_note": long_note
+        }
+        response = client.put(f"/inventory/{item.id}/shareability", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+
+    def test_update_shareability_item_not_found(self, client, auth_headers):
+        """Should return 404 if item doesn't exist."""
+        fake_id = uuid4()
+        payload = {
+            "shareability": "reserved",
+            "reserved_note": "For dinner"
+        }
+        response = client.put(f"/inventory/{fake_id}/shareability", json=payload, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_update_shareability_cross_user_access_denied(self, client, auth_headers, test_user2, db_session):
+        """Should return 404 if item belongs to another user."""
+        # Create item for user 2
+        item = InventoryItem(
+            name="User 2 Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user2.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # User 1 tries to update user 2's item
+        payload = {
+            "shareability": "reserved",
+            "reserved_note": "For my dinner"
+        }
+        response = client.put(f"/inventory/{item.id}/shareability", json=payload, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory item not found"
+
+    def test_update_shareability_requires_auth(self, client, test_user, db_session):
+        """Should return 401 if no auth token provided."""
+        item = InventoryItem(
+            name="Milk",
+            quantity=1.0,
+            unit="gallon",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        payload = {
+            "shareability": "reserved",
+            "reserved_note": "For dinner"
+        }
+        response = client.put(f"/inventory/{item.id}/shareability", json=payload)
+
+        assert response.status_code == 401
