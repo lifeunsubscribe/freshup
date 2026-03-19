@@ -698,7 +698,8 @@ def update_shareability(
 
     Sets the shareability status (shared/reserved/personal) and optionally
     a reserved note. When setting to "shared", reserved_note and reserved_for
-    are automatically cleared.
+    are automatically cleared. For "personal" and "reserved", the reserved_note
+    can be set if provided.
 
     Args:
         item_id: UUID of the inventory item to update
@@ -733,12 +734,13 @@ def update_shareability(
     # Update shareability
     item.shareability = request_data.shareability
 
-    # Clear reserved fields when setting to "shared" or "personal"
+    # Clear reserved fields when setting to "shared"
     if request_data.shareability == Shareability.shared.value:
         item.reserved_note = None
         item.reserved_for = None
     elif request_data.shareability == Shareability.personal.value:
-        item.reserved_note = None
+        # For "personal", set the note if provided (allows personal notes)
+        item.reserved_note = request_data.reserved_note
         item.reserved_for = None
     else:
         # For "reserved", set the note if provided
