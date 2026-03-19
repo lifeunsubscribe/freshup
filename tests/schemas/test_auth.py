@@ -210,7 +210,7 @@ class TestPasswordComplexityValidation:
     def test_password_with_2byte_utf8_chars_within_72_bytes_valid(self):
         """Test that password with 2-byte UTF-8 characters is accepted if total is within 72 bytes."""
         # 'é' is 2 bytes in UTF-8 (C3 A9)
-        # Password: "Passé123!" = 5 ASCII (5 bytes) + 1 two-byte char (2 bytes) + 4 ASCII (4 bytes) = 11 bytes total
+        # Password: "Passé123!" = 4 ASCII (4 bytes) + 1 two-byte char (2 bytes) + 4 ASCII (4 bytes) = 10 bytes total
         password = "Passé123!"
         user_data = {
             "name": "Test User",
@@ -219,7 +219,7 @@ class TestPasswordComplexityValidation:
         }
         user = UserCreate(**user_data)
         assert user.password == password
-        assert len(user.password.encode('utf-8')) == 11
+        assert len(user.password.encode('utf-8')) == 10
 
     def test_password_with_2byte_utf8_chars_at_72_bytes_valid(self):
         """Test that password with 2-byte UTF-8 characters at exactly 72 bytes is accepted."""

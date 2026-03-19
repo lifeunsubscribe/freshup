@@ -1559,7 +1559,7 @@ class TestAccountLockout:
         assert test_user.lockout_count == 1
 
         # Verify lockout duration is approximately 15 minutes
-        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        lockout_duration = test_user.lockout_until - datetime.utcnow()
         # Allow 1-second tolerance for test execution time
         assert timedelta(minutes=14, seconds=59) <= lockout_duration <= timedelta(minutes=15, seconds=1)
 
@@ -1583,7 +1583,7 @@ class TestAccountLockout:
         assert test_user.lockout_count == 2
 
         # Verify lockout duration is approximately 30 minutes
-        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        lockout_duration = test_user.lockout_until - datetime.utcnow()
         assert timedelta(minutes=29, seconds=59) <= lockout_duration <= timedelta(minutes=30, seconds=1)
 
     def test_progressive_lockout_caps_at_240_minutes(self, client, test_user, db_session):
@@ -1602,7 +1602,7 @@ class TestAccountLockout:
         # Verify lockout uses maximum duration (cap)
         db_session.refresh(test_user)
         assert test_user.lockout_count == 5
-        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        lockout_duration = test_user.lockout_until - datetime.utcnow()
         assert timedelta(minutes=239, seconds=59) <= lockout_duration <= timedelta(minutes=240, seconds=1)
 
         # Trigger another lockout - should still use cap
@@ -1618,7 +1618,7 @@ class TestAccountLockout:
 
         db_session.refresh(test_user)
         assert test_user.lockout_count == 6  # Still incrementing
-        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        lockout_duration = test_user.lockout_until - datetime.utcnow()
         assert timedelta(minutes=239, seconds=59) <= lockout_duration <= timedelta(minutes=240, seconds=1)
 
     def test_progressive_lockout_schedule_follows_exponential_pattern(self, client, db_session):
@@ -1649,7 +1649,7 @@ class TestAccountLockout:
             # Verify lockout duration
             db_session.refresh(user)
             assert user.lockout_count == lockout_num + 1
-            lockout_duration = user.lockout_until - datetime.now(timezone.utc)
+            lockout_duration = user.lockout_until - datetime.utcnow()
 
             # Allow 1-second tolerance
             min_duration = timedelta(minutes=expected_minutes, seconds=-1)
