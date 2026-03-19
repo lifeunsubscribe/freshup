@@ -1736,7 +1736,7 @@ class TestAuditLogging:
         registration_data = {
             "name": "Duplicate User",
             "email": test_user.email,
-            "password": "password123",
+            "password": "ValidPass123!",
         }
 
         response = client.post("/auth/register", json=registration_data)
