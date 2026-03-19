@@ -98,6 +98,8 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
             success=False,
             failure_reason="email_already_exists"
         )
+        # Commit the audit log before raising exception
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
@@ -128,6 +130,17 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
     )
 
     db.add(new_user)
+    db.flush()  # Flush to get the user ID for audit logging
+
+    # Log successful registration (before commit so it's in the same transaction)
+    log_registration(
+        db=db,
+        user_id=new_user.id,
+        email=new_user.email,
+        request=request,
+        success=True,
+        metadata={"role": assigned_role}
+    )
 
     try:
         db.commit()
@@ -150,16 +163,6 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the user account"
         )
-
-    # Log successful registration
-    log_registration(
-        db=db,
-        user_id=new_user.id,
-        email=new_user.email,
-        request=request,
-        success=True,
-        metadata={"role": assigned_role}
-    )
 
     return new_user
 
@@ -205,6 +208,8 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             success=False,
             failure_reason="invalid_credentials"
         )
+        # Commit the audit log before raising exception
+        db.commit()
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -240,6 +245,8 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             user_id=user.id,
             failure_reason="account_locked"
         )
+        # Commit the audit log before raising exception
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -270,10 +277,7 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
                 lockout_duration_minutes
             )
 
-        # Commit failed login attempt state
-        db.commit()
-
-        # Log failed login attempt (invalid password)
+        # Log failed login attempt (invalid password) - before commit so it's in same transaction
         log_login_attempt(
             db=db,
             email=login_data.email,
@@ -281,6 +285,9 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             success=False,
             failure_reason="invalid_credentials"
         )
+
+        # Commit failed login attempt state and audit log together
+        db.commit()
 
         # Return generic error message
         raise HTTPException(
@@ -294,13 +301,7 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     user.lockout_until = None
     user.lockout_count = 0  # Reset progressive lockout counter on successful login
 
-    # Commit successful login state
-    db.commit()
-
-    # Create JWT token with user ID in the 'sub' claim
-    access_token = create_access_token(data={"sub": str(user.id)})
-
-    # Log successful login
+    # Log successful login (before commit so it's in the same transaction)
     log_login_attempt(
         db=db,
         email=login_data.email,
@@ -308,6 +309,12 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
         success=True,
         user_id=user.id
     )
+
+    # Commit successful login state and audit log together
+    db.commit()
+
+    # Create JWT token with user ID in the 'sub' claim
+    access_token = create_access_token(data={"sub": str(user.id)})
 
     return TokenResponse(access_token=access_token, token_type="bearer")
 
@@ -401,6 +408,16 @@ def update_current_user_profile(
         setattr(current_user, field, value)
         fields_updated.append(field)
 
+    # Log profile update to audit log (before commit so it's in the same transaction)
+    if fields_updated:
+        log_profile_update(
+            db=db,
+            user_id=current_user.id,
+            email=current_user.email,
+            request=request,
+            fields_updated=fields_updated
+        )
+
     try:
         db.commit()
         db.refresh(current_user)
@@ -430,16 +447,6 @@ def update_current_user_profile(
         current_user.email,
         fields_updated
     )
-
-    # Log profile update to audit log
-    if fields_updated:
-        log_profile_update(
-            db=db,
-            user_id=current_user.id,
-            email=current_user.email,
-            request=request,
-            fields_updated=fields_updated
-        )
 
     return current_user
 

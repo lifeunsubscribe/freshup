@@ -154,9 +154,10 @@ class TestLogRegistration:
         assert log_entry.failure_reason is None
         assert log_entry.ip_address == "192.168.1.100"
         assert log_entry.user_agent == "Mozilla/5.0 (Test Browser)"
-        assert log_entry.metadata == {"role": "coordinator"}
+        assert log_entry.event_metadata == {"role": "coordinator"}
 
-        # Verify it was persisted
+        # Verify it was persisted (need to commit since audit service no longer commits)
+        db_session.commit()
         db_log = db_session.query(AuthAuditLog).filter_by(id=log_entry.id).first()
         assert db_log is not None
         assert db_log.email == email
@@ -263,4 +264,4 @@ class TestLogProfileUpdate:
         assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.profile_update.value
         assert log_entry.success is True
-        assert log_entry.metadata["fields_updated"] == fields_updated
+        assert log_entry.event_metadata["fields_updated"] == fields_updated
