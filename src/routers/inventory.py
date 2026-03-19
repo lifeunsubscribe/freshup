@@ -24,6 +24,7 @@ from src.schemas.inventory import (
     InventoryItemListResponse,
     SetPreferredStoreRequest,
     AddAvailableStoreRequest,
+    UpdateShareabilityRequest,
 )
 from src.middleware.auth import get_current_user
 
@@ -681,5 +682,85 @@ def remove_available_store(
             f"Available store not in list: user_id={current_user.id}, "
             f"item_id={item_id}, store_id={store_id}"
         )
+
+    return item
+
+
+@router.put("/{item_id}/shareability", response_model=InventoryItemResponse)
+def update_shareability(
+    item_id: UUID,
+    request_data: UpdateShareabilityRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Update shareability status for an inventory item.
+
+    Sets the shareability status (shared/reserved/personal) and optionally
+    a reserved note. When setting to "shared", reserved_note and reserved_for
+    are automatically cleared. For "personal" and "reserved", the reserved_note
+    can be set if provided.
+
+    Args:
+        item_id: UUID of the inventory item to update
+        request_data: Shareability and optional reserved note
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        InventoryItemResponse: Updated inventory item
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist or belongs to another user
+        HTTPException(422): If shareability is invalid or reserved_note exceeds 500 chars
+    """
+    # Query item with user ownership check
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.id == item_id,
+            InventoryItem.added_by == current_user.id,
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found"
+        )
+
+    # Update shareability
+    item.shareability = request_data.shareability
+
+    # Clear reserved fields when setting to "shared"
+    if request_data.shareability == Shareability.shared.value:
+        item.reserved_note = None
+        item.reserved_for = None
+    elif request_data.shareability == Shareability.personal.value:
+        # For "personal", set the note if provided (allows personal notes)
+        item.reserved_note = request_data.reserved_note
+        item.reserved_for = None
+    else:
+        # For "reserved", set the note if provided
+        item.reserved_note = request_data.reserved_note
+
+    try:
+        db.commit()
+        db.refresh(item)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during shareability update for user {current_user.id}")
+        logger.debug(f"Database error occurred during shareability update: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while updating shareability"
+        )
+
+    logger.info(
+        f"Shareability updated: user_id={current_user.id}, "
+        f"item_id={item_id}, shareability={request_data.shareability}"
+    )
 
     return item

@@ -34,6 +34,22 @@ class AddAvailableStoreRequest(BaseModel):
     store_id: UUID = Field(..., description="Store ID to add to available stores")
 
 
+class UpdateShareabilityRequest(BaseModel):
+    """Request schema for updating item shareability."""
+
+    shareability: str = Field(..., description="Shareability status (shared, reserved, personal)")
+    reserved_note: Optional[str] = Field(default=None, max_length=500, description="Note for reserved items")
+
+    @field_validator('shareability')
+    @classmethod
+    def validate_shareability(cls, v: str) -> str:
+        """Ensure shareability is a valid Shareability enum value."""
+        valid_shareability = [share.value for share in Shareability]
+        if v not in valid_shareability:
+            raise ValueError(f'Shareability must be one of: {", ".join(valid_shareability)}')
+        return v
+
+
 class InventoryItemCreate(BaseModel):
     """Request schema for creating a new inventory item."""
 
