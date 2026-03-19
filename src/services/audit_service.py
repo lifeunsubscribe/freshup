@@ -70,6 +70,18 @@ def _sanitize_metadata(metadata: Optional[dict]) -> Optional[dict]:
             # If value is a dict, recursively sanitize it
             if isinstance(value, dict):
                 sanitized[key] = _sanitize_metadata(value)
+            # If value is a list, sanitize each item
+            elif isinstance(value, list):
+                sanitized_list = []
+                for item in value:
+                    if isinstance(item, dict):
+                        sanitized_item = _sanitize_metadata(item)
+                        if sanitized_item is not None:
+                            sanitized_list.append(sanitized_item)
+                    else:
+                        sanitized_list.append(item)
+                if sanitized_list:
+                    sanitized[key] = sanitized_list
             else:
                 sanitized[key] = value
 

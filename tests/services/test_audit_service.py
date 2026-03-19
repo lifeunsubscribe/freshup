@@ -149,6 +149,56 @@ class TestMetadataSanitization:
         result = _sanitize_metadata(metadata)
         assert result is None
 
+    def test_sanitize_list_with_dicts_containing_emails(self):
+        """Sanitize lists containing dicts with email keys."""
+        metadata = {
+            "user_id": "123",
+            "users": [
+                {"name": "Alice", "email": "alice@example.com", "role": "admin"},
+                {"name": "Bob", "email": "bob@example.com", "role": "member"}
+            ]
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == {
+            "user_id": "123",
+            "users": [
+                {"name": "Alice", "role": "admin"},
+                {"name": "Bob", "role": "member"}
+            ]
+        }
+
+    def test_sanitize_list_with_mixed_types(self):
+        """Sanitize lists with mixed types (dicts and primitives)."""
+        metadata = {
+            "tags": ["tag1", "tag2"],
+            "items": [
+                {"id": 1, "email": "test@example.com"},
+                "string_value",
+                123
+            ]
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == {
+            "tags": ["tag1", "tag2"],
+            "items": [
+                {"id": 1},
+                "string_value",
+                123
+            ]
+        }
+
+    def test_sanitize_list_all_email_dicts_removed(self):
+        """Return None for key when all list items are email-only dicts."""
+        metadata = {
+            "user_id": "123",
+            "emails": [
+                {"email": "user1@example.com"},
+                {"email": "user2@example.com"}
+            ]
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == {"user_id": "123"}
+
 
 class TestTrustedProxyValidation:
     """Tests for trusted proxy IP validation."""
