@@ -11,5 +11,6 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 # bcrypt pinned to 4.2.1 for passlib 1.7.4 compatibility (passlib has known issues with bcrypt 5.x)
 bcrypt==4.2.1
+slowapi==0.1.9
 pytest==8.3.4
 httpx==0.28.1

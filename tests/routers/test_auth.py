@@ -585,6 +585,13 @@ class TestUpdateProfile:
 class TestSwitchUser:
     """Tests for POST /auth/switch-user endpoint."""
 
+    @pytest.fixture(autouse=True)
+    def reset_limiter(self):
+        """Reset rate limiter state before each test."""
+        from src.middleware.rate_limit import limiter
+        limiter.reset()
+        yield
+
     @pytest.fixture
     def member_user(self, db_session):
         """Create a second test user (member role)."""
@@ -2072,3 +2079,133 @@ class TestAuditLoggingTransactionAtomicity:
             event_type=AuthEventType.login_failure.value
         ).order_by(AuthAuditLog.created_at.desc()).first()
         assert latest_audit.failure_reason == "account_locked"
+
+
+class TestSwitchUserRateLimiting:
+    """Tests for rate limiting on POST /auth/switch-user endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def reset_limiter(self):
+        """Reset rate limiter state before each test."""
+        from src.middleware.rate_limit import limiter
+        # Reset the limiter's storage to clear rate limit state between tests
+        limiter.reset()
+        yield
+
+    @pytest.fixture
+    def member_user(self, db_session):
+        """Create a second test user (member role)."""
+        user = User(
+            id=uuid4(),
+            name="Member User",
+            email="member@example.com",
+            hashed_password=hash_password("memberpass123"),
+            role=UserRole.member.value,
+            dietary_profile=["vegan"],
+            allergies=[],
+            disliked_ingredients=[],
+            favorite_ingredients=[],
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+        return user
+
+    @pytest.fixture
+    def coordinator_user(self, db_session):
+        """Create a coordinator user."""
+        user = User(
+            id=uuid4(),
+            name="Coordinator User",
+            email="coordinator@example.com",
+            hashed_password=hash_password("coordpass123"),
+            role=UserRole.coordinator.value,
+            dietary_profile=["omnivore"],
+            allergies=[],
+            disliked_ingredients=[],
+            favorite_ingredients=[],
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+        return user
+
+    def test_switch_user_within_rate_limit(self, client, coordinator_user, member_user):
+        """POST /auth/switch-user succeeds for requests within rate limit (10/minute)."""
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
+        switch_data = {"user_id": str(member_user.id)}
+
+        # Make 10 requests (within limit)
+        for _ in range(10):
+            response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
+            assert response.status_code == 200
+            assert "access_token" in response.json()
+
+    def test_switch_user_exceeds_rate_limit(self, client, coordinator_user, member_user):
+        """POST /auth/switch-user returns 429 when rate limit exceeded (>10/minute)."""
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
+        switch_data = {"user_id": str(member_user.id)}
+
+        # Make 10 requests (at limit)
+        for _ in range(10):
+            response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
+            assert response.status_code == 200
+
+        # 11th request should be rate limited
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
+        assert response.status_code == 429
+        # Verify the error message contains rate limit info
+        assert "10 per 1 minute" in response.text or "detail" in response.json()
+
+    def test_switch_user_rate_limit_response_format(self, client, coordinator_user, member_user):
+        """POST /auth/switch-user rate limit response includes retry-after header."""
+        coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord_headers = {"Authorization": f"Bearer {coord_token}"}
+        switch_data = {"user_id": str(member_user.id)}
+
+        # Exhaust rate limit
+        for _ in range(10):
+            client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
+
+        # Get rate limited response
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
+
+        assert response.status_code == 429
+        # Verify response contains rate limit detail
+        assert response.json().get("detail") is not None
+
+    def test_switch_user_rate_limit_per_ip(self, client, coordinator_user, member_user, db_session):
+        """Rate limit is enforced per IP address for switch-user endpoint."""
+        # Create a second coordinator to test that rate limit is IP-based, not user-based
+        second_coordinator = User(
+            name="Second Coordinator",
+            email="coord2@example.com",
+            hashed_password=hash_password("testpassword123"),
+            role=UserRole.coordinator.value,
+        )
+        db_session.add(second_coordinator)
+        db_session.commit()
+
+        coord1_token = create_access_token(data={"sub": str(coordinator_user.id)})
+        coord2_token = create_access_token(data={"sub": str(second_coordinator.id)})
+
+        coord1_headers = {"Authorization": f"Bearer {coord1_token}"}
+        coord2_headers = {"Authorization": f"Bearer {coord2_token}"}
+
+        switch_data = {"user_id": str(member_user.id)}
+
+        # Make 5 requests as coordinator 1
+        for _ in range(5):
+            response = client.post("/auth/switch-user", json=switch_data, headers=coord1_headers)
+            assert response.status_code == 200
+
+        # Make 5 requests as coordinator 2 (same IP in test client)
+        for _ in range(5):
+            response = client.post("/auth/switch-user", json=switch_data, headers=coord2_headers)
+            assert response.status_code == 200
+
+        # 11th request from same IP should be rate limited regardless of user
+        response = client.post("/auth/switch-user", json=switch_data, headers=coord1_headers)
+        assert response.status_code == 429
