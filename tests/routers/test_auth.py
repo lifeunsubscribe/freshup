@@ -1752,3 +1752,229 @@ class TestAuditLogging:
         assert audit_log.ip_address is not None
         # Note: TestClient may not preserve custom User-Agent, but the field exists
         assert hasattr(audit_log, 'user_agent')
+
+
+class TestAuditLoggingTransactionAtomicity:
+    """Tests for transaction atomicity guarantees in audit logging.
+
+    These tests verify the core value proposition of the PR:
+    - Successful operations: audit log and data changes commit atomically together
+    - Failed operations: audit log commits independently before raising exception
+    """
+
+    def test_successful_registration_commits_user_and_audit_atomically(self, client, db_session):
+        """Successful registration commits both user and audit log in same transaction."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        registration_data = {
+            "name": "New User",
+            "email": "atomicuser@example.com",
+            "password": "SecurePass123!",
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+        assert response.status_code == 201
+
+        # Verify both user and audit log exist in database
+        user = db_session.query(User).filter_by(email="atomicuser@example.com").first()
+        assert user is not None
+
+        audit_log = db_session.query(AuthAuditLog).filter_by(
+            email="atomicuser@example.com",
+            event_type=AuthEventType.registration.value,
+            success=True
+        ).first()
+        assert audit_log is not None
+        assert audit_log.user_id == user.id
+
+    def test_successful_login_commits_lockout_reset_and_audit_atomically(self, client, test_user, db_session):
+        """Successful login commits lockout field updates and audit log atomically."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        # Set up user with some failed attempts
+        test_user.failed_login_attempts = 3
+        test_user.lockout_count = 1
+        db_session.commit()
+
+        # Count existing audit logs before login
+        initial_audit_count = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.login_success.value
+        ).count()
+
+        login_data = {
+            "email": test_user.email,
+            "password": "testpassword123",
+        }
+
+        response = client.post("/auth/login", json=login_data)
+        assert response.status_code == 200
+
+        # Verify user lockout fields were reset
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 0
+        assert test_user.lockout_count == 0
+        assert test_user.lockout_until is None
+
+        # Verify audit log was created
+        new_audit_count = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.login_success.value
+        ).count()
+        assert new_audit_count == initial_audit_count + 1
+
+    def test_failed_login_commits_lockout_increment_and_audit_atomically(self, client, test_user, db_session):
+        """Failed login commits failed_login_attempts increment and audit log atomically."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        # Verify initial state
+        assert test_user.failed_login_attempts == 0
+
+        login_data = {
+            "email": test_user.email,
+            "password": "wrongpassword",
+        }
+
+        response = client.post("/auth/login", json=login_data)
+        assert response.status_code == 401
+
+        # Verify failed_login_attempts was incremented
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 1
+
+        # Verify audit log exists
+        audit_log = db_session.query(AuthAuditLog).filter_by(
+            email=test_user.email,
+            event_type=AuthEventType.login_failure.value
+        ).first()
+        assert audit_log is not None
+        assert audit_log.success is False
+
+    def test_failed_registration_commits_audit_log_independently(self, client, test_user, db_session):
+        """Failed registration (duplicate email) commits audit log even though registration fails."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        # Count users before attempt
+        initial_user_count = db_session.query(User).count()
+
+        # Attempt to register with existing email
+        registration_data = {
+            "name": "Duplicate User",
+            "email": test_user.email,
+            "password": "SecurePass123!",
+        }
+
+        response = client.post("/auth/register", json=registration_data)
+        assert response.status_code == 400
+
+        # Verify no new user was created
+        final_user_count = db_session.query(User).count()
+        assert final_user_count == initial_user_count
+
+        # Verify audit log was still created (independent commit)
+        audit_log = db_session.query(AuthAuditLog).filter_by(
+            email=test_user.email,
+            event_type=AuthEventType.registration.value,
+            success=False,
+            failure_reason="email_already_exists"
+        ).first()
+        assert audit_log is not None
+
+    def test_profile_update_commits_changes_and_audit_atomically(self, client, test_user, auth_headers, db_session):
+        """Profile update commits field changes and audit log in same transaction."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        original_name = test_user.name
+
+        update_data = {
+            "name": "Atomically Updated Name",
+            "dietary_profile": ["vegan"],
+        }
+
+        response = client.put("/auth/me", json=update_data, headers=auth_headers)
+        assert response.status_code == 200
+
+        # Verify user was updated
+        db_session.refresh(test_user)
+        assert test_user.name == "Atomically Updated Name"
+        assert test_user.dietary_profile == ["vegan"]
+
+        # Verify audit log exists
+        audit_log = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.profile_update.value
+        ).first()
+        assert audit_log is not None
+        assert audit_log.success is True
+        assert "name" in audit_log.event_metadata["fields_updated"]
+
+    def test_account_lockout_commits_lockout_fields_and_audit_atomically(self, client, test_user, db_session):
+        """Account lockout (5th failed attempt) commits lockout fields and audit log atomically."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        # Make 4 failed attempts
+        for _ in range(4):
+            client.post("/auth/login", json={
+                "email": test_user.email,
+                "password": "wrongpassword"
+            })
+
+        # 5th attempt triggers lockout
+        response = client.post("/auth/login", json={
+            "email": test_user.email,
+            "password": "wrongpassword"
+        })
+        assert response.status_code == 401
+
+        # Verify lockout was applied
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 5
+        assert test_user.lockout_until is not None
+        assert test_user.lockout_count == 1
+
+        # Verify audit log exists for the 5th attempt
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            email=test_user.email,
+            event_type=AuthEventType.login_failure.value
+        ).all()
+        assert len(audit_logs) == 5
+
+    def test_locked_account_login_attempt_commits_audit_independently(self, client, test_user, db_session):
+        """Login attempt on locked account commits audit log even though login fails."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        # Lock the account
+        test_user.failed_login_attempts = 5
+        test_user.lockout_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+        db_session.commit()
+
+        # Count existing failed attempts in audit log
+        initial_audit_count = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.login_failure.value
+        ).count()
+
+        # Attempt login while locked
+        response = client.post("/auth/login", json={
+            "email": test_user.email,
+            "password": "testpassword123"  # Correct password but account is locked
+        })
+        assert response.status_code == 401
+
+        # Verify lockout state unchanged
+        db_session.refresh(test_user)
+        assert test_user.failed_login_attempts == 5
+
+        # Verify audit log was created (independent commit for failure case)
+        new_audit_count = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.login_failure.value
+        ).count()
+        assert new_audit_count == initial_audit_count + 1
+
+        # Verify the new audit log has correct failure reason
+        latest_audit = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.login_failure.value
+        ).order_by(AuthAuditLog.created_at.desc()).first()
+        assert latest_audit.failure_reason == "account_locked"

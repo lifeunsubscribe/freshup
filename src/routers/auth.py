@@ -106,11 +106,8 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
             db.rollback()
             logger.error("Database error during registration audit logging (email exists)")
             logger.debug(f"Database error details: {str(e)}")
-            # Still raise the original validation error
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered"
-            )
+            # Fall through to raise the original validation error
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
@@ -227,12 +224,7 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             db.rollback()
             logger.error("Database error during login audit logging (user not found)")
             logger.debug(f"Database error details: {str(e)}")
-            # Still raise the original authentication error to avoid leaking info
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            # Fall through to raise the original authentication error
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -276,12 +268,8 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             db.rollback()
             logger.error("Database error during login audit logging (account locked)")
             logger.debug(f"Database error details: {str(e)}")
-            # Still raise the original authentication error to avoid leaking info
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            # Fall through to raise the original authentication error
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
