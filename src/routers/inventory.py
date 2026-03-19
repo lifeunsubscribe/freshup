@@ -1010,7 +1010,7 @@ def consume_inventory_item(
     new_quantity = item.quantity - consumption_data.amount
 
     # Check if item should be deleted (using tolerance for float comparison)
-    if abs(new_quantity) < 1e-9 and consumption_data.delete_when_empty:
+    if new_quantity < 1e-9 and consumption_data.delete_when_empty:
         # Delete the item
         try:
             db.delete(item)
