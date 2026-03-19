@@ -62,6 +62,48 @@ def is_valid_ingredient_character(char: str) -> bool:
     return False
 
 
+def validate_ingredient_name(field_name: str, value: str) -> str:
+    """
+    Validate a single ingredient name with Unicode support.
+
+    Ensures ingredient name is not empty, normalizes Unicode (NFC),
+    blocks dangerous control/format characters, and validates allowed characters.
+
+    Args:
+        field_name: Name of the field being validated (for error messages)
+        value: The ingredient name to validate
+
+    Returns:
+        Normalized (NFC) ingredient name
+
+    Raises:
+        ValueError: If validation fails
+    """
+    if not value or not value.strip():
+        raise ValueError(f'{field_name} cannot be empty')
+
+    # Normalize to NFC form
+    normalized = unicodedata.normalize('NFC', value.strip())
+
+    # Check for blocked Unicode characters (security)
+    if contains_blocked_characters(normalized):
+        raise ValueError(
+            f'{field_name} cannot contain control or format characters'
+        )
+
+    # Validate each character
+    for char in normalized:
+        if not is_valid_ingredient_character(char):
+            char_name = unicodedata.name(char, f'U+{ord(char):04X}')
+            raise ValueError(
+                f'{field_name} can only contain letters, numbers, spaces, '
+                f'and common punctuation (- \' ( ) , . /). '
+                f'Invalid character: "{char}" ({char_name})'
+            )
+
+    return normalized
+
+
 def validate_string_list(
     field_name: str,
     values: Optional[list[str]],
