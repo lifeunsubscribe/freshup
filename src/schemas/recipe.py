@@ -139,3 +139,78 @@ class RecipeListResponse(BaseModel):
     tags: list
     times_cooked: int
     created_by: Optional[UUID]
+
+
+class RecipeIngredientCreate(BaseModel):
+    """Request schema for creating a new recipe ingredient."""
+
+    ingredient_name: str = Field(..., min_length=1, max_length=255, description="Ingredient name")
+    quantity: float = Field(..., gt=0, description="Ingredient quantity (must be positive)")
+    unit: str = Field(..., min_length=1, max_length=50, description="Unit of measurement")
+    variation_group: Optional[str] = Field(default=None, max_length=100, description="Variation group identifier")
+    variation_diet: Optional[str] = Field(default=None, max_length=50, description="Dietary variation identifier")
+    is_optional: bool = Field(default=False, description="Whether ingredient is optional")
+
+    @field_validator('ingredient_name', 'unit')
+    @classmethod
+    def strip_required_strings(cls, v: str) -> str:
+        """Strip whitespace from required string fields."""
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Field cannot be empty or only whitespace")
+        return stripped
+
+    @field_validator('variation_group', 'variation_diet')
+    @classmethod
+    def strip_optional_strings(cls, v: Optional[str]) -> Optional[str]:
+        """Strip whitespace from optional string fields."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped if stripped else None
+
+
+class RecipeIngredientUpdate(BaseModel):
+    """Request schema for updating a recipe ingredient (partial updates allowed)."""
+
+    ingredient_name: Optional[str] = Field(default=None, min_length=1, max_length=255, description="Ingredient name")
+    quantity: Optional[float] = Field(default=None, gt=0, description="Ingredient quantity (must be positive)")
+    unit: Optional[str] = Field(default=None, min_length=1, max_length=50, description="Unit of measurement")
+    variation_group: Optional[str] = Field(default=None, max_length=100, description="Variation group identifier")
+    variation_diet: Optional[str] = Field(default=None, max_length=50, description="Dietary variation identifier")
+    is_optional: Optional[bool] = Field(default=None, description="Whether ingredient is optional")
+
+    @field_validator('ingredient_name', 'unit')
+    @classmethod
+    def strip_required_strings(cls, v: Optional[str]) -> Optional[str]:
+        """Strip whitespace from string fields."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Field cannot be empty or only whitespace")
+        return stripped
+
+    @field_validator('variation_group', 'variation_diet')
+    @classmethod
+    def strip_optional_strings(cls, v: Optional[str]) -> Optional[str]:
+        """Strip whitespace from optional string fields."""
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped if stripped else None
+
+
+class RecipeIngredientResponse(BaseModel):
+    """Response schema for recipe ingredient data."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    recipe_id: UUID
+    ingredient_name: str
+    quantity: float
+    unit: str
+    variation_group: Optional[str]
+    variation_diet: Optional[str]
+    is_optional: bool

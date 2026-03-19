@@ -22,11 +22,15 @@ from sqlalchemy import func, or_, String
 from src.db.database import get_db
 from src.db.models.user import User
 from src.db.models.recipe import Recipe, SourceType
+from src.db.models.recipe_ingredient import RecipeIngredient
 from src.schemas.recipe import (
     RecipeCreate,
     RecipeUpdate,
     RecipeResponse,
     RecipeListResponse,
+    RecipeIngredientCreate,
+    RecipeIngredientUpdate,
+    RecipeIngredientResponse,
 )
 from src.middleware.auth import get_current_user
 
@@ -397,6 +401,305 @@ def delete_recipe(
     logger.info(
         f"Recipe deleted: user_id={current_user.id}, "
         f"recipe_id={recipe_id}"
+    )
+
+    return None
+
+
+@router.post("/{recipe_id}/ingredients", response_model=RecipeIngredientResponse, status_code=status.HTTP_201_CREATED)
+def add_recipe_ingredient(
+    recipe_id: UUID,
+    ingredient_data: RecipeIngredientCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Add a new ingredient to a recipe.
+
+    Creates a new RecipeIngredient entry for the specified recipe.
+    Only the recipe owner can add ingredients. System recipes (created_by is NULL)
+    cannot be modified.
+
+    Args:
+        recipe_id: UUID of the recipe to add ingredient to
+        ingredient_data: Ingredient data (name, quantity, unit, etc.)
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        RecipeIngredientResponse: Created ingredient
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(403): If recipe is a system recipe (created_by is NULL)
+        HTTPException(404): If recipe doesn't exist or belongs to another user
+        HTTPException(400): If data integrity violation occurs
+    """
+    # Query recipe with user ownership check
+    recipe = (
+        db.query(Recipe)
+        .filter(
+            Recipe.id == recipe_id,
+        )
+        .first()
+    )
+
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Check if recipe is a system recipe (cannot be modified)
+    if recipe.created_by is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot modify system recipes"
+        )
+
+    # Check if recipe belongs to current user
+    if recipe.created_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Create new ingredient
+    ingredient_dict = ingredient_data.model_dump()
+    new_ingredient = RecipeIngredient(
+        **ingredient_dict,
+        recipe_id=recipe_id,
+    )
+
+    db.add(new_ingredient)
+
+    try:
+        db.commit()
+        db.refresh(new_ingredient)
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error during ingredient creation for user {current_user.id}")
+        logger.debug(f"Integrity error occurred during ingredient creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ingredient creation failed due to data integrity violation"
+        )
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during ingredient creation for user {current_user.id}")
+        logger.debug(f"Database error occurred during ingredient creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while creating the ingredient"
+        )
+
+    logger.info(
+        f"Recipe ingredient created: user_id={current_user.id}, "
+        f"recipe_id={recipe_id}, ingredient_id={new_ingredient.id}"
+    )
+
+    return new_ingredient
+
+
+@router.put("/{recipe_id}/ingredients/{ingredient_id}", response_model=RecipeIngredientResponse)
+def update_recipe_ingredient(
+    recipe_id: UUID,
+    ingredient_id: UUID,
+    update_data: RecipeIngredientUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Update a recipe ingredient with partial data.
+
+    Allows partial updates - only provided fields will be updated.
+    Only the recipe owner can update ingredients. System recipes (created_by is NULL)
+    cannot be modified.
+
+    Args:
+        recipe_id: UUID of the recipe containing the ingredient
+        ingredient_id: UUID of the ingredient to update
+        update_data: Fields to update (all optional)
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        RecipeIngredientResponse: Updated ingredient
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(403): If recipe is a system recipe (created_by is NULL)
+        HTTPException(404): If recipe doesn't exist, belongs to another user, or ingredient not found
+        HTTPException(400): If data integrity violation occurs
+    """
+    # Query recipe with user ownership check
+    recipe = (
+        db.query(Recipe)
+        .filter(
+            Recipe.id == recipe_id,
+        )
+        .first()
+    )
+
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Check if recipe is a system recipe (cannot be modified)
+    if recipe.created_by is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot modify system recipes"
+        )
+
+    # Check if recipe belongs to current user
+    if recipe.created_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Query ingredient and verify it belongs to the recipe
+    ingredient = (
+        db.query(RecipeIngredient)
+        .filter(
+            RecipeIngredient.id == ingredient_id,
+            RecipeIngredient.recipe_id == recipe_id,
+        )
+        .first()
+    )
+
+    if not ingredient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ingredient not found"
+        )
+
+    # Update only the fields that were provided
+    update_dict = update_data.model_dump(exclude_unset=True)
+
+    # Apply updates
+    for field, value in update_dict.items():
+        setattr(ingredient, field, value)
+
+    try:
+        db.commit()
+        db.refresh(ingredient)
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error during ingredient update for user {current_user.id}")
+        logger.debug(f"Integrity error occurred during ingredient update: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ingredient update failed due to data integrity violation"
+        )
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during ingredient update for user {current_user.id}")
+        logger.debug(f"Database error occurred during ingredient update: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while updating the ingredient"
+        )
+
+    logger.info(
+        f"Recipe ingredient updated: user_id={current_user.id}, "
+        f"recipe_id={recipe_id}, ingredient_id={ingredient_id}"
+    )
+
+    return ingredient
+
+
+@router.delete("/{recipe_id}/ingredients/{ingredient_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_recipe_ingredient(
+    recipe_id: UUID,
+    ingredient_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Delete a recipe ingredient.
+
+    Removes the specified ingredient from a recipe.
+    Only the recipe owner can delete ingredients. System recipes (created_by is NULL)
+    cannot be modified.
+
+    Args:
+        recipe_id: UUID of the recipe containing the ingredient
+        ingredient_id: UUID of the ingredient to delete
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        None (204 No Content on success)
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(403): If recipe is a system recipe (created_by is NULL)
+        HTTPException(404): If recipe doesn't exist, belongs to another user, or ingredient not found
+    """
+    # Query recipe with user ownership check
+    recipe = (
+        db.query(Recipe)
+        .filter(
+            Recipe.id == recipe_id,
+        )
+        .first()
+    )
+
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Check if recipe is a system recipe (cannot be modified)
+    if recipe.created_by is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot modify system recipes"
+        )
+
+    # Check if recipe belongs to current user
+    if recipe.created_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Query ingredient and verify it belongs to the recipe
+    ingredient = (
+        db.query(RecipeIngredient)
+        .filter(
+            RecipeIngredient.id == ingredient_id,
+            RecipeIngredient.recipe_id == recipe_id,
+        )
+        .first()
+    )
+
+    if not ingredient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ingredient not found"
+        )
+
+    try:
+        db.delete(ingredient)
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during ingredient deletion for user {current_user.id}")
+        logger.debug(f"Database error occurred during ingredient deletion: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while deleting the ingredient"
+        )
+
+    logger.info(
+        f"Recipe ingredient deleted: user_id={current_user.id}, "
+        f"recipe_id={recipe_id}, ingredient_id={ingredient_id}"
     )
 
     return None
