@@ -1142,3 +1142,511 @@ class TestRecipeIngredientCRUD:
         assert response.status_code == 422
         detail = response.json()["detail"]
         assert any("quantity" in str(error).lower() for error in detail)
+
+
+class TestRecipeRatings:
+    """Test recipe rating endpoints."""
+
+    @pytest.fixture
+    def test_recipe(self, db_session, test_user):
+        """Create a test recipe for rating tests."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe for Ratings",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+        return recipe
+
+    def test_create_rating_success(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test creating a new rating for a recipe."""
+        rating_data = {
+            "rating": 4.5,
+            "is_favorite": True,
+            "notes": "Delicious recipe!",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] == 4.5
+        assert data["is_favorite"] is True
+        assert data["notes"] == "Delicious recipe!"
+        assert data["user_id"] == str(test_user.id)
+        assert data["recipe_id"] == str(test_recipe.id)
+        assert "id" in data
+
+    def test_create_rating_minimal_fields(self, client, auth_headers, test_recipe, test_user):
+        """Test creating rating with only is_favorite (no rating value or notes)."""
+        rating_data = {
+            "is_favorite": True,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] is None
+        assert data["is_favorite"] is True
+        assert data["notes"] is None
+
+    def test_update_rating_upsert(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test updating an existing rating (upsert behavior)."""
+        # Create initial rating
+        rating_data = {
+            "rating": 3.0,
+            "is_favorite": False,
+            "notes": "Initial note",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        initial_id = response.json()["id"]
+
+        # Update the rating (same endpoint, different data)
+        update_data = {
+            "rating": 5.0,
+            "is_favorite": True,
+            "notes": "Updated note - much better!",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == initial_id  # Same ID (updated, not created)
+        assert data["rating"] == 5.0
+        assert data["is_favorite"] is True
+        assert data["notes"] == "Updated note - much better!"
+
+        # Verify only one rating exists in database
+        from src.db.models.user_recipe import UserRecipeRating
+        ratings = db_session.query(UserRecipeRating).filter(
+            UserRecipeRating.user_id == test_user.id,
+            UserRecipeRating.recipe_id == test_recipe.id,
+        ).all()
+        assert len(ratings) == 1
+
+    def test_create_rating_recipe_not_found(self, client, auth_headers):
+        """Test creating rating for non-existent recipe returns 404."""
+        rating_data = {
+            "rating": 4.0,
+            "is_favorite": False,
+        }
+
+        fake_recipe_id = uuid4()
+        response = client.post(
+            f"/recipes/{fake_recipe_id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_create_rating_unauthenticated(self, client, test_recipe):
+        """Test creating rating without auth returns 401."""
+        rating_data = {
+            "rating": 4.0,
+            "is_favorite": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data
+        )
+
+        assert response.status_code == 401
+
+    def test_create_rating_out_of_range_high(self, client, auth_headers, test_recipe):
+        """Test creating rating with value > 5.0 fails validation."""
+        rating_data = {
+            "rating": 5.5,
+            "is_favorite": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail validation with message about range
+        assert any("rating" in str(error).lower() or "0.0" in str(error) or "5.0" in str(error) for error in detail)
+
+    def test_create_rating_out_of_range_low(self, client, auth_headers, test_recipe):
+        """Test creating rating with value < 0.0 fails validation."""
+        rating_data = {
+            "rating": -1.0,
+            "is_favorite": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("rating" in str(error).lower() or "0.0" in str(error) or "5.0" in str(error) for error in detail)
+
+    def test_create_rating_boundary_values(self, client, auth_headers, test_recipe, db_session):
+        """Test creating ratings with boundary values (0.0 and 5.0)."""
+        # Test 0.0 (minimum valid)
+        rating_data = {"rating": 0.0, "is_favorite": False}
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["rating"] == 0.0
+
+        # Test 5.0 (maximum valid) - updates existing rating
+        rating_data = {"rating": 5.0, "is_favorite": True}
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["rating"] == 5.0
+
+    def test_get_my_rating_success(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test getting user's own rating for a recipe."""
+        # Create a rating first
+        from src.db.models.user_recipe import UserRecipeRating
+        rating = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=4.0,
+            is_favorite=True,
+            notes="My rating",
+        )
+        db_session.add(rating)
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] == 4.0
+        assert data["is_favorite"] is True
+        assert data["notes"] == "My rating"
+        assert data["user_id"] == str(test_user.id)
+
+    def test_get_my_rating_not_found(self, client, auth_headers, test_recipe):
+        """Test getting rating when user hasn't rated returns 404."""
+        response = client.get(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Rating not found"
+
+    def test_get_my_rating_recipe_not_found(self, client, auth_headers):
+        """Test getting rating for non-existent recipe returns 404."""
+        fake_recipe_id = uuid4()
+        response = client.get(
+            f"/recipes/{fake_recipe_id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_get_my_rating_unauthenticated(self, client, test_recipe):
+        """Test getting rating without auth returns 401."""
+        response = client.get(f"/recipes/{test_recipe.id}/my-rating")
+
+        assert response.status_code == 401
+
+    def test_delete_my_rating_success(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test deleting user's rating successfully."""
+        # Create a rating first
+        from src.db.models.user_recipe import UserRecipeRating
+        rating = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=3.5,
+            is_favorite=False,
+        )
+        db_session.add(rating)
+        db_session.commit()
+        rating_id = rating.id
+
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 204
+
+        # Verify rating is deleted
+        deleted_rating = db_session.query(UserRecipeRating).filter(
+            UserRecipeRating.id == rating_id
+        ).first()
+        assert deleted_rating is None
+
+    def test_delete_my_rating_idempotent(self, client, auth_headers, test_recipe):
+        """Test deleting non-existent rating returns 204 (idempotent)."""
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 204
+
+    def test_delete_my_rating_recipe_not_found(self, client, auth_headers):
+        """Test deleting rating for non-existent recipe returns 404."""
+        fake_recipe_id = uuid4()
+        response = client.delete(
+            f"/recipes/{fake_recipe_id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_delete_my_rating_unauthenticated(self, client, test_recipe):
+        """Test deleting rating without auth returns 401."""
+        response = client.delete(f"/recipes/{test_recipe.id}/my-rating")
+
+        assert response.status_code == 401
+
+    def test_get_aggregate_ratings_no_ratings(self, client, auth_headers, test_recipe):
+        """Test aggregate ratings with no ratings returns zeros/null."""
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] is None
+        assert data["rating_count"] == 0
+        assert data["favorite_count"] == 0
+
+    def test_get_aggregate_ratings_single_rating(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test aggregate ratings with one rating."""
+        from src.db.models.user_recipe import UserRecipeRating
+        rating = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=4.0,
+            is_favorite=True,
+        )
+        db_session.add(rating)
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] == 4.0
+        assert data["rating_count"] == 1
+        assert data["favorite_count"] == 1
+
+    def test_get_aggregate_ratings_multiple_ratings(self, client, auth_headers, test_recipe, test_user, test_user2, db_session):
+        """Test aggregate ratings with multiple users' ratings."""
+        from src.db.models.user_recipe import UserRecipeRating
+
+        # User 1 rating
+        rating1 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=4.0,
+            is_favorite=True,
+        )
+
+        # User 2 rating
+        rating2 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user2.id,
+            recipe_id=test_recipe.id,
+            rating=5.0,
+            is_favorite=False,
+        )
+
+        db_session.add_all([rating1, rating2])
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] == 4.5  # (4.0 + 5.0) / 2
+        assert data["rating_count"] == 2
+        assert data["favorite_count"] == 1  # Only user1 favorited
+
+    def test_get_aggregate_ratings_favorite_only(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test aggregate ratings when user only favorited (no rating value)."""
+        from src.db.models.user_recipe import UserRecipeRating
+        rating = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=None,  # No rating value
+            is_favorite=True,
+        )
+        db_session.add(rating)
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] is None  # No numeric ratings
+        assert data["rating_count"] == 0  # Count only rows with rating values
+        assert data["favorite_count"] == 1
+
+    def test_get_aggregate_ratings_mixed_null_ratings(self, client, auth_headers, test_recipe, test_user, test_user2, db_session):
+        """Test aggregate ratings with mix of null and numeric ratings."""
+        from src.db.models.user_recipe import UserRecipeRating
+
+        # User 1: numeric rating
+        rating1 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=4.0,
+            is_favorite=False,
+        )
+
+        # User 2: favorite only (no rating)
+        rating2 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user2.id,
+            recipe_id=test_recipe.id,
+            rating=None,
+            is_favorite=True,
+        )
+
+        db_session.add_all([rating1, rating2])
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] == 4.0  # Only counts numeric ratings
+        assert data["rating_count"] == 1  # Only counts rows with rating values
+        assert data["favorite_count"] == 1  # User 2 favorited
+
+    def test_get_aggregate_ratings_recipe_not_found(self, client, auth_headers):
+        """Test aggregate ratings for non-existent recipe returns 404."""
+        fake_recipe_id = uuid4()
+        response = client.get(
+            f"/recipes/{fake_recipe_id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_get_aggregate_ratings_unauthenticated(self, client, test_recipe):
+        """Test aggregate ratings without auth returns 401."""
+        response = client.get(f"/recipes/{test_recipe.id}/ratings")
+
+        assert response.status_code == 401
+
+    def test_ratings_cross_user_isolation(self, client, auth_headers, auth_headers2, test_recipe, test_user, test_user2, db_session):
+        """Test that each user has separate ratings for the same recipe."""
+        from src.db.models.user_recipe import UserRecipeRating
+
+        # User 1 creates rating
+        rating_data = {
+            "rating": 3.0,
+            "is_favorite": False,
+            "notes": "User 1 note",
+        }
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+
+        # User 2 creates different rating
+        rating_data2 = {
+            "rating": 5.0,
+            "is_favorite": True,
+            "notes": "User 2 note",
+        }
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data2,
+            headers=auth_headers2
+        )
+        assert response.status_code == 200
+
+        # User 1 gets their rating
+        response = client.get(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] == 3.0
+        assert data["notes"] == "User 1 note"
+
+        # User 2 gets their rating
+        response = client.get(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers2
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] == 5.0
+        assert data["notes"] == "User 2 note"
+
+        # Verify two separate ratings exist in database
+        ratings = db_session.query(UserRecipeRating).filter(
+            UserRecipeRating.recipe_id == test_recipe.id
+        ).all()
+        assert len(ratings) == 2

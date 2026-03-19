@@ -214,3 +214,41 @@ class RecipeIngredientResponse(BaseModel):
     variation_group: Optional[str]
     variation_diet: Optional[str]
     is_optional: bool
+
+
+class UserRecipeRatingCreate(BaseModel):
+    """Request schema for creating or updating a recipe rating."""
+
+    rating: Optional[float] = Field(default=None, description="Rating value (0.0-5.0)")
+    is_favorite: bool = Field(default=False, description="Whether recipe is favorited")
+    notes: Optional[str] = Field(default=None, max_length=1000, description="Personal notes about the recipe")
+
+    @field_validator('rating')
+    @classmethod
+    def validate_rating_range(cls, v: Optional[float]) -> Optional[float]:
+        """Ensure rating is between 0.0 and 5.0 if provided."""
+        if v is not None:
+            if v < 0.0 or v > 5.0:
+                raise ValueError("Rating must be between 0.0 and 5.0")
+        return v
+
+
+class UserRecipeRatingResponse(BaseModel):
+    """Response schema for user recipe rating data."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    recipe_id: UUID
+    rating: Optional[float]
+    is_favorite: bool
+    notes: Optional[str]
+
+
+class RecipeAggregateRatingsResponse(BaseModel):
+    """Response schema for aggregate recipe ratings."""
+
+    average_rating: Optional[float] = Field(default=None, description="Average rating across all users (null if no ratings)")
+    rating_count: int = Field(..., description="Number of users who have rated this recipe")
+    favorite_count: int = Field(..., description="Number of users who favorited this recipe")
