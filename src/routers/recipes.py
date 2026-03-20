@@ -24,6 +24,7 @@ from src.db.models.user import User
 from src.db.models.recipe import Recipe, SourceType
 from src.db.models.recipe_ingredient import RecipeIngredient
 from src.db.models.user_recipe import UserRecipeRating
+from src.db.models.inventory_item import InventoryItem
 from src.schemas.recipe import (
     RecipeCreate,
     RecipeUpdate,
@@ -35,6 +36,7 @@ from src.schemas.recipe import (
     UserRecipeRatingCreate,
     UserRecipeRatingResponse,
     RecipeAggregateRatingsResponse,
+    AdHocRecipeCreate,
 )
 from src.middleware.auth import get_current_user
 
@@ -101,6 +103,137 @@ def create_recipe(
     logger.info(
         f"Recipe created: user_id={current_user.id}, "
         f"recipe_id={new_recipe.id}"
+    )
+
+    return new_recipe
+
+
+@router.post("/ad-hoc", response_model=RecipeResponse, status_code=status.HTTP_201_CREATED)
+def create_ad_hoc_recipe(
+    recipe_data: AdHocRecipeCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Create an ad-hoc recipe from selected inventory items.
+
+    Users can create recipes directly from what they just cooked by selecting
+    ingredients from current inventory. Recipe ingredients are populated from
+    inventory item names (canonical names, not inventory IDs). Optionally
+    decrements inventory when the recipe is saved.
+
+    The entire operation is atomic — if any validation fails, no recipe is
+    created and no inventory is decremented. Validation occurs before any
+    mutations to ensure data consistency.
+
+    Args:
+        recipe_data: Ad-hoc recipe data (name, steps, notes, tags, inventory_items, decrement_inventory)
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        RecipeResponse: Created recipe with source_type="ad_hoc"
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If any inventory_item_id not found or not owned by current user
+        HTTPException(400): If decrement would result in negative quantity
+        HTTPException(422): If validation fails (empty inventory_items list, etc.)
+    """
+    # Phase 1: Validate inventory item ownership and existence
+    # Fetch all inventory items in a single query for efficiency
+    inventory_item_ids = [item.inventory_item_id for item in recipe_data.inventory_items]
+    inventory_items = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.id.in_(inventory_item_ids),
+            InventoryItem.added_by == current_user.id,
+        )
+        .all()
+    )
+
+    # Create a lookup map for quick access
+    inventory_map = {item.id: item for item in inventory_items}
+
+    # Validate all items exist and belong to current user
+    for item_usage in recipe_data.inventory_items:
+        if item_usage.inventory_item_id not in inventory_map:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Inventory item {item_usage.inventory_item_id} not found or not owned by user"
+            )
+
+    # Phase 2: Validate quantity sufficiency (if decrement is requested)
+    # This happens BEFORE any mutations to ensure atomicity
+    if recipe_data.decrement_inventory:
+        for item_usage in recipe_data.inventory_items:
+            inventory_item = inventory_map[item_usage.inventory_item_id]
+            new_quantity = inventory_item.quantity - item_usage.quantity_used
+
+            # Check if decrement would result in negative quantity
+            if new_quantity < 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot use {item_usage.quantity_used} {item_usage.unit} of {inventory_item.name}. Only {inventory_item.quantity} {inventory_item.unit} available."
+                )
+
+    # Phase 3: Create recipe and optionally decrement inventory
+    # All validations passed — now perform mutations atomically
+    try:
+        # Create recipe with source_type="ad_hoc"
+        new_recipe = Recipe(
+            name=recipe_data.name,
+            source_type=SourceType.ad_hoc.value,
+            steps=recipe_data.steps,
+            notes=recipe_data.notes,
+            tags=recipe_data.tags,
+            created_by=current_user.id,
+        )
+        db.add(new_recipe)
+        db.flush()  # Generate recipe.id without committing
+
+        # Create recipe ingredients from inventory item names
+        for item_usage in recipe_data.inventory_items:
+            inventory_item = inventory_map[item_usage.inventory_item_id]
+
+            recipe_ingredient = RecipeIngredient(
+                recipe_id=new_recipe.id,
+                ingredient_name=inventory_item.name,  # Use canonical name from inventory
+                quantity=item_usage.quantity_used,
+                unit=item_usage.unit,
+            )
+            db.add(recipe_ingredient)
+
+        # Decrement inventory if requested
+        if recipe_data.decrement_inventory:
+            for item_usage in recipe_data.inventory_items:
+                inventory_item = inventory_map[item_usage.inventory_item_id]
+                inventory_item.quantity -= item_usage.quantity_used
+
+        # Commit all changes atomically
+        db.commit()
+        db.refresh(new_recipe)
+
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error during ad-hoc recipe creation for user {current_user.id}")
+        logger.debug(f"Integrity error occurred during ad-hoc recipe creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ad-hoc recipe creation failed due to data integrity violation"
+        )
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during ad-hoc recipe creation for user {current_user.id}")
+        logger.debug(f"Database error occurred during ad-hoc recipe creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while creating the ad-hoc recipe"
+        )
+
+    logger.info(
+        f"Ad-hoc recipe created: user_id={current_user.id}, "
+        f"recipe_id={new_recipe.id}, decrement_inventory={recipe_data.decrement_inventory}"
     )
 
     return new_recipe

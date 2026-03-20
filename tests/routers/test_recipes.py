@@ -1650,3 +1650,363 @@ class TestRecipeRatings:
             UserRecipeRating.recipe_id == test_recipe.id
         ).all()
         assert len(ratings) == 2
+
+
+class TestAdHocRecipeCreation:
+    """Tests for POST /recipes/ad-hoc endpoint."""
+
+    def test_create_ad_hoc_recipe_without_decrement(self, client, db_session, auth_headers, test_user):
+        """Test creating an ad-hoc recipe from inventory items without decrementing inventory."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create inventory items
+        item1 = InventoryItem(
+            id=uuid4(),
+            name="Tomatoes",
+            quantity=10.0,
+            unit="oz",
+            category="produce",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            id=uuid4(),
+            name="Onions",
+            quantity=5.0,
+            unit="count",
+            category="produce",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        # Create ad-hoc recipe
+        recipe_data = {
+            "name": "Quick Tomato Onion Soup",
+            "steps": ["Chop onions", "Dice tomatoes", "Simmer together"],
+            "notes": "Made this on the fly!",
+            "tags": ["quick", "soup"],
+            "inventory_items": [
+                {"inventory_item_id": str(item1.id), "quantity_used": 5.0, "unit": "oz"},
+                {"inventory_item_id": str(item2.id), "quantity_used": 2.0, "unit": "count"},
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify recipe created with correct attributes
+        assert data["name"] == "Quick Tomato Onion Soup"
+        assert data["source_type"] == "ad_hoc"
+        assert data["created_by"] == str(test_user.id)
+        assert data["steps"] == ["Chop onions", "Dice tomatoes", "Simmer together"]
+        assert data["notes"] == "Made this on the fly!"
+        assert "quick" in data["tags"]
+        assert "soup" in data["tags"]
+
+        # Verify recipe ingredients were created with inventory item names
+        from uuid import UUID
+        recipe_id = UUID(data["id"])
+        ingredients = db_session.query(RecipeIngredient).filter(
+            RecipeIngredient.recipe_id == recipe_id
+        ).all()
+        assert len(ingredients) == 2
+
+        ingredient_names = {ing.ingredient_name for ing in ingredients}
+        assert "Tomatoes" in ingredient_names
+        assert "Onions" in ingredient_names
+
+        # Verify inventory NOT decremented (decrement_inventory=False)
+        db_session.refresh(item1)
+        db_session.refresh(item2)
+        assert item1.quantity == 10.0
+        assert item2.quantity == 5.0
+
+    def test_create_ad_hoc_recipe_with_decrement(self, client, db_session, auth_headers, test_user):
+        """Test creating an ad-hoc recipe with inventory decrement."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create inventory items
+        item1 = InventoryItem(
+            id=uuid4(),
+            name="Pasta",
+            quantity=16.0,
+            unit="oz",
+            category="grain",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            id=uuid4(),
+            name="Marinara Sauce",
+            quantity=24.0,
+            unit="oz",
+            category="condiment",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        # Create ad-hoc recipe with decrement
+        recipe_data = {
+            "name": "Simple Pasta Marinara",
+            "steps": ["Boil pasta", "Heat sauce", "Combine"],
+            "inventory_items": [
+                {"inventory_item_id": str(item1.id), "quantity_used": 8.0, "unit": "oz"},
+                {"inventory_item_id": str(item2.id), "quantity_used": 12.0, "unit": "oz"},
+            ],
+            "decrement_inventory": True,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify recipe created
+        assert data["name"] == "Simple Pasta Marinara"
+        assert data["source_type"] == "ad_hoc"
+
+        # Verify recipe ingredients created
+        from uuid import UUID
+        recipe_id = UUID(data["id"])
+        ingredients = db_session.query(RecipeIngredient).filter(
+            RecipeIngredient.recipe_id == recipe_id
+        ).all()
+        assert len(ingredients) == 2
+
+        # Verify inventory WAS decremented (decrement_inventory=True)
+        db_session.refresh(item1)
+        db_session.refresh(item2)
+        assert item1.quantity == 8.0  # 16.0 - 8.0
+        assert item2.quantity == 12.0  # 24.0 - 12.0
+
+    def test_create_ad_hoc_recipe_invalid_inventory_id(self, client, auth_headers):
+        """Test creating ad-hoc recipe with invalid inventory item ID returns 404."""
+        fake_id = uuid4()
+
+        recipe_data = {
+            "name": "Ghost Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(fake_id), "quantity_used": 1.0, "unit": "oz"},
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 404
+        assert "not found or not owned by user" in response.json()["detail"]
+
+    def test_create_ad_hoc_recipe_cross_user_inventory_access_blocked(
+        self, client, db_session, auth_headers, test_user
+    ):
+        """Test that users cannot create ad-hoc recipes from other users' inventory items."""
+        from src.db.models.inventory_item import InventoryItem
+
+        # Create another user
+        other_user = User(
+            id=uuid4(),
+            name="Other User",
+            email="other@example.com",
+            hashed_password=hash_password("password123"),
+            role=UserRole.member.value,
+        )
+        db_session.add(other_user)
+
+        # Create inventory item owned by other user
+        other_item = InventoryItem(
+            id=uuid4(),
+            name="Secret Ingredient",
+            quantity=10.0,
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=other_user.id,
+        )
+        db_session.add(other_item)
+        db_session.commit()
+
+        # Try to create ad-hoc recipe using other user's inventory
+        recipe_data = {
+            "name": "Stolen Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(other_item.id), "quantity_used": 5.0, "unit": "oz"},
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 404
+        assert "not found or not owned by user" in response.json()["detail"]
+
+    def test_create_ad_hoc_recipe_insufficient_quantity(self, client, db_session, auth_headers, test_user):
+        """Test creating ad-hoc recipe with insufficient inventory quantity returns 400."""
+        from src.db.models.inventory_item import InventoryItem
+
+        # Create inventory item with limited quantity
+        item = InventoryItem(
+            id=uuid4(),
+            name="Rare Spice",
+            quantity=2.0,
+            unit="tsp",
+            category="spice",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        # Try to use more than available
+        recipe_data = {
+            "name": "Spicy Disaster",
+            "inventory_items": [
+                {"inventory_item_id": str(item.id), "quantity_used": 5.0, "unit": "tsp"},
+            ],
+            "decrement_inventory": True,  # Decrement is required to trigger validation
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 400
+        assert "Only 2.0 tsp available" in response.json()["detail"]
+
+        # Verify inventory was NOT decremented (atomic rollback)
+        db_session.refresh(item)
+        assert item.quantity == 2.0
+
+    def test_create_ad_hoc_recipe_atomic_rollback_on_error(
+        self, client, db_session, auth_headers, test_user
+    ):
+        """Test that ad-hoc recipe creation is atomic - if validation fails, nothing is created."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe import Recipe
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create two inventory items
+        item1 = InventoryItem(
+            id=uuid4(),
+            name="Item A",
+            quantity=10.0,
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            id=uuid4(),
+            name="Item B",
+            quantity=2.0,  # Intentionally low
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        # Count recipes and ingredients before
+        recipe_count_before = db_session.query(Recipe).count()
+        ingredient_count_before = db_session.query(RecipeIngredient).count()
+
+        # Try to create recipe that will fail on second item quantity check
+        recipe_data = {
+            "name": "Atomic Test Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(item1.id), "quantity_used": 5.0, "unit": "oz"},
+                {"inventory_item_id": str(item2.id), "quantity_used": 10.0, "unit": "oz"},  # Too much!
+            ],
+            "decrement_inventory": True,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 400
+
+        # Verify NO recipe was created
+        recipe_count_after = db_session.query(Recipe).count()
+        assert recipe_count_after == recipe_count_before
+
+        # Verify NO ingredients were created
+        ingredient_count_after = db_session.query(RecipeIngredient).count()
+        assert ingredient_count_after == ingredient_count_before
+
+        # Verify NO inventory was decremented
+        db_session.refresh(item1)
+        db_session.refresh(item2)
+        assert item1.quantity == 10.0
+        assert item2.quantity == 2.0
+
+    def test_create_ad_hoc_recipe_empty_inventory_items_validation(self, client, auth_headers):
+        """Test that empty inventory_items list is rejected by validation."""
+        recipe_data = {
+            "name": "Empty Recipe",
+            "inventory_items": [],  # Empty list
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 422  # Validation error
+        assert "inventory_items" in response.json()["detail"][0]["loc"]
+
+    def test_create_ad_hoc_recipe_unauthenticated(self, client):
+        """Test that unauthenticated requests are rejected."""
+        recipe_data = {
+            "name": "Unauthorized Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(uuid4()), "quantity_used": 1.0, "unit": "oz"},
+            ],
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data)
+        assert response.status_code == 401
+
+    def test_create_ad_hoc_recipe_with_multiple_items(self, client, db_session, auth_headers, test_user):
+        """Test creating ad-hoc recipe with multiple inventory items."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create multiple inventory items
+        items = [
+            InventoryItem(
+                id=uuid4(),
+                name=f"Ingredient {i}",
+                quantity=100.0,
+                unit="g",
+                category="other",
+                storage_location="pantry",
+                added_by=test_user.id,
+            )
+            for i in range(5)
+        ]
+        db_session.add_all(items)
+        db_session.commit()
+
+        # Create recipe using all items
+        recipe_data = {
+            "name": "Complex Multi-Ingredient Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(item.id), "quantity_used": 20.0, "unit": "g"}
+                for item in items
+            ],
+            "decrement_inventory": True,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify all ingredients were added
+        from uuid import UUID
+        recipe_id = UUID(data["id"])
+        ingredients = db_session.query(RecipeIngredient).filter(
+            RecipeIngredient.recipe_id == recipe_id
+        ).all()
+        assert len(ingredients) == 5
+
+        # Verify all inventory was decremented correctly
+        for item in items:
+            db_session.refresh(item)
+            assert item.quantity == 80.0  # 100.0 - 20.0
