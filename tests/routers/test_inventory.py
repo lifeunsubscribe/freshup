@@ -1981,16 +1981,16 @@ class TestFreezeThawActions:
         assert data["storage_location"] == "freezer"
         assert data["frozen_date"] is not None
         # Verify frozen_date is recent (within last minute)
-        from datetime import datetime, timezone, timedelta
-        frozen_date = datetime.fromisoformat(data["frozen_date"].replace('Z', '+00:00'))
-        now = datetime.now(timezone.utc)
+        from datetime import datetime, timedelta
+        frozen_date = datetime.fromisoformat(data["frozen_date"])
+        now = datetime.utcnow()
         assert (now - frozen_date) < timedelta(minutes=1)
 
     def test_freeze_item_already_frozen_is_idempotent(self, client, auth_headers, test_user, db_session):
         """Should update frozen_date when freezing already-frozen item (idempotent)."""
         # Create inventory item already frozen with old frozen_date
-        from datetime import datetime, timezone, timedelta
-        old_frozen_date = datetime.now(timezone.utc) - timedelta(days=5)
+        from datetime import datetime, timedelta
+        old_frozen_date = datetime.utcnow() - timedelta(days=5)
         item = InventoryItem(
             name="Frozen Pizza",
             quantity=1.0,
@@ -2011,8 +2011,8 @@ class TestFreezeThawActions:
         data = response.json()
         assert data["storage_location"] == "freezer"
         # Verify frozen_date is updated to recent time (not old date)
-        frozen_date = datetime.fromisoformat(data["frozen_date"].replace('Z', '+00:00'))
-        now = datetime.now(timezone.utc)
+        frozen_date = datetime.fromisoformat(data["frozen_date"])
+        now = datetime.utcnow()
         assert (now - frozen_date) < timedelta(minutes=1)
         assert frozen_date > old_frozen_date
 
