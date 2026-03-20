@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from src.db.database import Base, get_db
 from src.db import models
@@ -190,7 +190,6 @@ class TestRecipeCRUD:
         assert data["created_by"] == str(test_user.id)
 
         # Verify created_by in database matches authenticated user
-        from uuid import UUID
         recipe_id = UUID(data["id"])
         db_recipe = db_session.query(Recipe).filter(Recipe.id == recipe_id).first()
         assert db_recipe is not None
@@ -1822,7 +1821,6 @@ class TestAdHocRecipeCreation:
         assert "soup" in data["tags"]
 
         # Verify recipe ingredients were created with inventory item names
-        from uuid import UUID
         recipe_id = UUID(data["id"])
         ingredients = db_session.query(RecipeIngredient).filter(
             RecipeIngredient.recipe_id == recipe_id
@@ -1886,7 +1884,6 @@ class TestAdHocRecipeCreation:
         assert data["source_type"] == "ad_hoc"
 
         # Verify recipe ingredients created
-        from uuid import UUID
         recipe_id = UUID(data["id"])
         ingredients = db_session.query(RecipeIngredient).filter(
             RecipeIngredient.recipe_id == recipe_id
@@ -2112,7 +2109,6 @@ class TestAdHocRecipeCreation:
         data = response.json()
 
         # Verify all ingredients were added
-        from uuid import UUID
         recipe_id = UUID(data["id"])
         ingredients = db_session.query(RecipeIngredient).filter(
             RecipeIngredient.recipe_id == recipe_id
