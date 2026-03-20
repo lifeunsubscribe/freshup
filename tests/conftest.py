@@ -5,7 +5,23 @@ This module provides test infrastructure improvements, particularly for
 managing the settings cache to prevent test pollution.
 """
 
+import os
+
 import pytest
+
+
+def pytest_configure(config):
+    """Set required env vars before collection so module-level imports succeed.
+
+    rate_limit.py calls get_settings() at import time (to initialize the limiter).
+    Without these vars, collection fails with a pydantic ValidationError before
+    any fixtures have a chance to run.
+    """
+    os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only-min-32-chars")
+    os.environ.setdefault("JWT_ALGORITHM", "HS256")
+    os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+    os.environ.setdefault("ENVIRONMENT", "test")
+    os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "43200")
 
 
 @pytest.fixture(autouse=True)
