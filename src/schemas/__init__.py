@@ -7,10 +7,24 @@ from src.schemas.inventory import (
     InventoryItemResponse,
     InventoryItemListResponse,
 )
+from src.schemas.recipe import (
+    RecipeCreate,
+    RecipeUpdate,
+    RecipeResponse,
+    RecipeListResponse,
+    RecipeIngredientCreate,
+    RecipeIngredientResponse,
+)
 
 __all__ = [
     "InventoryItemCreate",
     "InventoryItemUpdate",
     "InventoryItemResponse",
     "InventoryItemListResponse",
+    "RecipeCreate",
+    "RecipeUpdate",
+    "RecipeResponse",
+    "RecipeListResponse",
+    "RecipeIngredientCreate",
+    "RecipeIngredientResponse",
 ]
