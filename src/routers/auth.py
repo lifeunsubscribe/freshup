@@ -532,7 +532,6 @@ def change_password(
         log_password_change(
             db=db,
             user_id=current_user.id,
-            email=current_user.email,
             request=request,
             success=False,
             failure_reason="invalid_old_password"
@@ -561,7 +560,6 @@ def change_password(
     log_password_change(
         db=db,
         user_id=current_user.id,
-        email=current_user.email,
         request=request,
         success=True
     )

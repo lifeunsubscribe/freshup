@@ -232,17 +232,26 @@ def list_inventory_items(
 
     # Apply category filter
     if category is not None:
-        validate_enum_value("category", category, Category)
+        try:
+            validate_enum_value("category", category, Category)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
         query = query.filter(InventoryItem.category == category)
 
     # Apply storage_location filter
     if storage_location is not None:
-        validate_enum_value("storage_location", storage_location, StorageLocation)
+        try:
+            validate_enum_value("storage_location", storage_location, StorageLocation)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
         query = query.filter(InventoryItem.storage_location == storage_location)
 
     # Apply shareability filter
     if shareability is not None:
-        validate_enum_value("shareability", shareability, Shareability)
+        try:
+            validate_enum_value("shareability", shareability, Shareability)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
         query = query.filter(InventoryItem.shareability == shareability)
 
     # Apply is_staple filter

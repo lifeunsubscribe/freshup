@@ -1097,19 +1097,19 @@ class TestFilterInventoryItems:
         """Should return 422 for invalid category."""
         response = client.get("/inventory?category=invalid_category", headers=auth_headers)
         assert response.status_code == 422
-        assert "Invalid category" in response.json()["detail"]
+        assert "category" in response.json()["detail"]
 
     def test_filter_invalid_storage_location(self, client, auth_headers):
         """Should return 422 for invalid storage_location."""
         response = client.get("/inventory?storage_location=invalid_location", headers=auth_headers)
         assert response.status_code == 422
-        assert "Invalid storage_location" in response.json()["detail"]
+        assert "storage_location" in response.json()["detail"]
 
     def test_filter_invalid_shareability(self, client, auth_headers):
         """Should return 422 for invalid shareability."""
         response = client.get("/inventory?shareability=invalid_share", headers=auth_headers)
         assert response.status_code == 422
-        assert "Invalid shareability" in response.json()["detail"]
+        assert "shareability" in response.json()["detail"]
 
     def test_filter_no_matches(self, client, auth_headers, test_user, db_session):
         """Should return empty list when no items match filters."""

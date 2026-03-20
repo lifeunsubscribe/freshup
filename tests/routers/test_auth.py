@@ -1875,12 +1875,11 @@ class TestAuditLoggingTransactionAtomicity:
         assert user is not None
 
         audit_log = db_session.query(AuthAuditLog).filter_by(
-            email="atomicuser@example.com",
+            user_id=user.id,
             event_type=AuthEventType.registration.value,
             success=True
         ).first()
         assert audit_log is not None
-        assert audit_log.user_id == user.id
 
     def test_successful_login_commits_lockout_reset_and_audit_atomically(self, client, test_user, db_session):
         """Successful login commits lockout field updates and audit log atomically."""
@@ -1937,9 +1936,8 @@ class TestAuditLoggingTransactionAtomicity:
         db_session.refresh(test_user)
         assert test_user.failed_login_attempts == 1
 
-        # Verify audit log exists
+        # Verify audit log exists (no user_id for failed login per OWASP - avoid user enumeration)
         audit_log = db_session.query(AuthAuditLog).filter_by(
-            email=test_user.email,
             event_type=AuthEventType.login_failure.value
         ).first()
         assert audit_log is not None
@@ -1966,9 +1964,8 @@ class TestAuditLoggingTransactionAtomicity:
         final_user_count = db_session.query(User).count()
         assert final_user_count == initial_user_count
 
-        # Verify audit log was still created (independent commit)
+        # Verify audit log was still created (independent commit; email not stored per data minimization)
         audit_log = db_session.query(AuthAuditLog).filter_by(
-            email=test_user.email,
             event_type=AuthEventType.registration.value,
             success=False,
             failure_reason="email_already_exists"
@@ -2029,7 +2026,6 @@ class TestAuditLoggingTransactionAtomicity:
 
         # Verify audit log exists for the 5th attempt
         audit_logs = db_session.query(AuthAuditLog).filter_by(
-            email=test_user.email,
             event_type=AuthEventType.login_failure.value
         ).all()
         assert len(audit_logs) == 5
@@ -2038,15 +2034,15 @@ class TestAuditLoggingTransactionAtomicity:
         """Login attempt on locked account commits audit log even though login fails."""
         from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
 
-        # Lock the account
+        # Lock the account (use naive datetime to match DB column without timezone=True)
         test_user.failed_login_attempts = 5
-        test_user.lockout_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+        test_user.lockout_until = datetime.utcnow() + timedelta(minutes=15)
         db_session.commit()
 
-        # Count existing failed attempts in audit log
+        # Count existing locked-account audit logs (no user_id per OWASP - avoid user enumeration)
         initial_audit_count = db_session.query(AuthAuditLog).filter_by(
-            user_id=test_user.id,
-            event_type=AuthEventType.login_failure.value
+            event_type=AuthEventType.login_failure.value,
+            failure_reason="account_locked"
         ).count()
 
         # Attempt login while locked
@@ -2062,16 +2058,17 @@ class TestAuditLoggingTransactionAtomicity:
 
         # Verify audit log was created (independent commit for failure case)
         new_audit_count = db_session.query(AuthAuditLog).filter_by(
-            user_id=test_user.id,
-            event_type=AuthEventType.login_failure.value
+            event_type=AuthEventType.login_failure.value,
+            failure_reason="account_locked"
         ).count()
         assert new_audit_count == initial_audit_count + 1
 
         # Verify the new audit log has correct failure reason
         latest_audit = db_session.query(AuthAuditLog).filter_by(
-            user_id=test_user.id,
-            event_type=AuthEventType.login_failure.value
+            event_type=AuthEventType.login_failure.value,
+            failure_reason="account_locked"
         ).order_by(AuthAuditLog.created_at.desc()).first()
+        assert latest_audit is not None
         assert latest_audit.failure_reason == "account_locked"
 
 
