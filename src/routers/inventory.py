@@ -16,7 +16,7 @@ from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.db.database import get_db
@@ -105,6 +105,18 @@ def create_inventory_item(
         f"item_id={new_item.id}"
     )
 
+    # Eagerly load relationships to prevent N+1 queries during serialization
+    db.expire(new_item)
+    new_item = (
+        db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
+        .filter(InventoryItem.id == new_item.id)
+        .first()
+    )
+
     return new_item
 
 
@@ -182,7 +194,19 @@ def create_inventory_items_bulk(
         f"items_created={len(created_items)}"
     )
 
-    return BulkInventoryItemResponse(items=created_items)
+    # Eagerly load relationships to prevent N+1 queries during serialization
+    item_ids = [item.id for item in created_items]
+    created_items_with_relations = (
+        db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
+        .filter(InventoryItem.id.in_(item_ids))
+        .all()
+    )
+
+    return BulkInventoryItemResponse(items=created_items_with_relations)
 
 
 @router.get("", response_model=list[InventoryItemListResponse])
@@ -318,6 +342,10 @@ def get_inventory_item(
     """
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -364,6 +392,10 @@ def update_inventory_item(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -509,6 +541,10 @@ def set_preferred_store(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -571,6 +607,10 @@ def clear_preferred_store(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -644,6 +684,10 @@ def add_available_store(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -723,6 +767,10 @@ def remove_available_store(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -854,6 +902,10 @@ def update_shareability(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -930,6 +982,10 @@ def freeze_inventory_item(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -994,6 +1050,10 @@ def thaw_inventory_item(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -1062,6 +1122,10 @@ def consume_inventory_item(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            joinedload(InventoryItem.available_at_stores),
+            joinedload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
