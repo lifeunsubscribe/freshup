@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
+from src.constants import FLOAT_COMPARISON_EPSILON
 from src.db.database import get_db
 from src.db.models.user import User
 from src.db.models.inventory_item import InventoryItem, Category, StorageLocation, Shareability
@@ -1086,7 +1087,7 @@ def consume_inventory_item(
     new_quantity = item.quantity - consumption_data.amount
 
     # Check if item should be deleted (using tolerance for float comparison)
-    if new_quantity < 1e-9 and consumption_data.delete_when_empty:
+    if new_quantity < FLOAT_COMPARISON_EPSILON and consumption_data.delete_when_empty:
         # Delete the item
         try:
             db.delete(item)
