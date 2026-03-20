@@ -37,6 +37,7 @@ from src.schemas.inventory import (
     BulkInventoryItemCreate,
     BulkInventoryItemResponse,
 )
+from src.schemas.validators import validate_enum_value
 from src.middleware.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -231,35 +232,17 @@ def list_inventory_items(
 
     # Apply category filter
     if category is not None:
-        # Validate category enum
-        valid_categories = [cat.value for cat in Category]
-        if category not in valid_categories:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}"
-            )
+        validate_enum_value("category", category, Category)
         query = query.filter(InventoryItem.category == category)
 
     # Apply storage_location filter
     if storage_location is not None:
-        # Validate storage_location enum
-        valid_locations = [loc.value for loc in StorageLocation]
-        if storage_location not in valid_locations:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Invalid storage_location. Must be one of: {', '.join(valid_locations)}"
-            )
+        validate_enum_value("storage_location", storage_location, StorageLocation)
         query = query.filter(InventoryItem.storage_location == storage_location)
 
     # Apply shareability filter
     if shareability is not None:
-        # Validate shareability enum
-        valid_shareability = [share.value for share in Shareability]
-        if shareability not in valid_shareability:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Invalid shareability. Must be one of: {', '.join(valid_shareability)}"
-            )
+        validate_enum_value("shareability", shareability, Shareability)
         query = query.filter(InventoryItem.shareability == shareability)
 
     # Apply is_staple filter

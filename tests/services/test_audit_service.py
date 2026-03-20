@@ -27,7 +27,8 @@ from src.services.audit_service import (
     log_authorization_failure,
     _extract_client_ip,
     _extract_user_agent,
-    _is_trusted_proxy
+    _is_trusted_proxy,
+    _sanitize_metadata
 )
 
 
@@ -75,6 +76,146 @@ def mock_request():
         "User-Agent": "Mozilla/5.0 (Test Browser)"
     }
     return request
+
+
+class TestMetadataSanitization:
+    """Tests for PII sanitization in metadata."""
+
+    def test_sanitize_none(self):
+        """Sanitize None metadata."""
+        assert _sanitize_metadata(None) is None
+
+    def test_sanitize_empty_dict(self):
+        """Sanitize empty dictionary."""
+        assert _sanitize_metadata({}) is None
+
+    def test_sanitize_removes_email_keys(self):
+        """Remove any keys containing 'email'."""
+        metadata = {
+            "user_id": "123",
+            "email": "user@example.com",
+            "original_email": "alice@example.com",
+            "target_email": "bob@example.com"
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == {"user_id": "123"}
+        assert "email" not in result
+        assert "original_email" not in result
+        assert "target_email" not in result
+
+    def test_sanitize_case_insensitive(self):
+        """Email key matching is case-insensitive."""
+        metadata = {
+            "user_id": "123",
+            "Email": "user@example.com",
+            "USER_EMAIL": "admin@example.com"
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == {"user_id": "123"}
+
+    def test_sanitize_nested_dict(self):
+        """Recursively sanitize nested dictionaries."""
+        metadata = {
+            "user_id": "123",
+            "context": {
+                "email": "user@example.com",
+                "role": "admin"
+            }
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == {
+            "user_id": "123",
+            "context": {"role": "admin"}
+        }
+
+    def test_sanitize_nested_dict_becomes_empty(self):
+        """Nested dict with only email keys should be omitted entirely."""
+        metadata = {
+            "user_id": "123",
+            "context": {
+                "email": "user@example.com",
+                "original_email": "old@example.com"
+            },
+            "action": "update"
+        }
+        result = _sanitize_metadata(metadata)
+        # The "context" key should be omitted entirely, not set to None
+        assert result == {
+            "user_id": "123",
+            "action": "update"
+        }
+        assert "context" not in result
+
+    def test_sanitize_preserves_non_email_keys(self):
+        """Keep all non-email keys."""
+        metadata = {
+            "user_id": "123",
+            "action": "login",
+            "timestamp": "2026-03-19T12:00:00Z",
+            "ip_address": "192.168.1.1"
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == metadata
+
+    def test_sanitize_email_only_metadata_returns_none(self):
+        """Return None when all keys are email-related (not empty dict)."""
+        metadata = {
+            "email": "user@example.com",
+            "old_email": "old@example.com",
+            "new_email": "new@example.com"
+        }
+        result = _sanitize_metadata(metadata)
+        assert result is None
+
+    def test_sanitize_list_with_dicts_containing_emails(self):
+        """Sanitize lists containing dicts with email keys."""
+        metadata = {
+            "user_id": "123",
+            "users": [
+                {"name": "Alice", "email": "alice@example.com", "role": "admin"},
+                {"name": "Bob", "email": "bob@example.com", "role": "member"}
+            ]
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == {
+            "user_id": "123",
+            "users": [
+                {"name": "Alice", "role": "admin"},
+                {"name": "Bob", "role": "member"}
+            ]
+        }
+
+    def test_sanitize_list_with_mixed_types(self):
+        """Sanitize lists with mixed types (dicts and primitives)."""
+        metadata = {
+            "tags": ["tag1", "tag2"],
+            "items": [
+                {"id": 1, "email": "test@example.com"},
+                "string_value",
+                123
+            ]
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == {
+            "tags": ["tag1", "tag2"],
+            "items": [
+                {"id": 1},
+                "string_value",
+                123
+            ]
+        }
+
+    def test_sanitize_list_all_email_dicts_removed(self):
+        """Return None for key when all list items are email-only dicts."""
+        metadata = {
+            "user_id": "123",
+            "emails": [
+                {"email": "user1@example.com"},
+                {"email": "user2@example.com"}
+            ]
+        }
+        result = _sanitize_metadata(metadata)
+        assert result == {"user_id": "123"}
 
 
 class TestTrustedProxyValidation:
@@ -281,19 +422,16 @@ class TestLogRegistration:
     def test_log_successful_registration(self, db_session, mock_request):
         """Log successful user registration."""
         user_id = uuid4()
-        email = "newuser@example.com"
 
         log_entry = log_registration(
             db=db_session,
             user_id=user_id,
-            email=email,
             request=mock_request,
             success=True,
             metadata={"role": "coordinator"}
         )
 
         assert log_entry.user_id == user_id
-        assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.registration.value
         assert log_entry.success is True
         assert log_entry.failure_reason is None
@@ -305,23 +443,19 @@ class TestLogRegistration:
         db_session.commit()
         db_log = db_session.query(AuthAuditLog).filter_by(id=log_entry.id).first()
         assert db_log is not None
-        assert db_log.email == email
+        assert db_log.user_id == user_id
 
     def test_log_failed_registration(self, db_session, mock_request):
         """Log failed registration attempt."""
-        email = "duplicate@example.com"
-
         log_entry = log_registration(
             db=db_session,
             user_id=None,
-            email=email,
             request=mock_request,
             success=False,
             failure_reason="email_already_exists"
         )
 
         assert log_entry.user_id is None
-        assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.registration.value
         assert log_entry.success is False
         assert log_entry.failure_reason == "email_already_exists"
@@ -333,18 +467,15 @@ class TestLogLoginAttempt:
     def test_log_successful_login(self, db_session, mock_request):
         """Log successful login."""
         user_id = uuid4()
-        email = "user@example.com"
 
         log_entry = log_login_attempt(
             db=db_session,
-            email=email,
             request=mock_request,
             success=True,
             user_id=user_id
         )
 
         assert log_entry.user_id == user_id
-        assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.login_success.value
         assert log_entry.success is True
         assert log_entry.failure_reason is None
@@ -352,11 +483,9 @@ class TestLogLoginAttempt:
     def test_log_failed_login_invalid_password(self, db_session, mock_request):
         """Log failed login with invalid password."""
         user_id = uuid4()
-        email = "user@example.com"
 
         log_entry = log_login_attempt(
             db=db_session,
-            email=email,
             request=mock_request,
             success=False,
             user_id=user_id,
@@ -364,18 +493,14 @@ class TestLogLoginAttempt:
         )
 
         assert log_entry.user_id == user_id
-        assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.login_failure.value
         assert log_entry.success is False
         assert log_entry.failure_reason == "invalid_credentials"
 
     def test_log_failed_login_user_not_found(self, db_session, mock_request):
         """Log failed login when user doesn't exist."""
-        email = "nonexistent@example.com"
-
         log_entry = log_login_attempt(
             db=db_session,
-            email=email,
             request=mock_request,
             success=False,
             user_id=None,
@@ -383,7 +508,6 @@ class TestLogLoginAttempt:
         )
 
         assert log_entry.user_id is None
-        assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.login_failure.value
         assert log_entry.success is False
 
@@ -394,19 +518,16 @@ class TestLogProfileUpdate:
     def test_log_profile_update(self, db_session, mock_request):
         """Log user profile update."""
         user_id = uuid4()
-        email = "user@example.com"
         fields_updated = ["name", "dietary_profile", "allergies"]
 
         log_entry = log_profile_update(
             db=db_session,
             user_id=user_id,
-            email=email,
             request=mock_request,
             fields_updated=fields_updated
         )
 
         assert log_entry.user_id == user_id
-        assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.profile_update.value
         assert log_entry.success is True
         assert log_entry.event_metadata["fields_updated"] == fields_updated
@@ -418,52 +539,43 @@ class TestLogUserSwitch:
     def test_log_successful_user_switch(self, db_session, mock_request):
         """Log successful user switch/impersonation."""
         original_user_id = uuid4()
-        original_email = "alice@example.com"
         target_user_id = uuid4()
-        target_email = "bob@example.com"
 
         log_entry = log_user_switch(
             db=db_session,
             original_user_id=original_user_id,
-            original_email=original_email,
             target_user_id=target_user_id,
-            target_email=target_email,
             request=mock_request,
             success=True
         )
 
         assert log_entry.user_id == original_user_id
-        assert log_entry.email == original_email
         assert log_entry.event_type == AuthEventType.user_switch.value
         assert log_entry.success is True
         assert log_entry.failure_reason is None
         assert log_entry.ip_address == "192.168.1.100"
         assert log_entry.user_agent == "Mozilla/5.0 (Test Browser)"
         assert log_entry.event_metadata["original_user_id"] == str(original_user_id)
-        assert log_entry.event_metadata["original_email"] == original_email
         assert log_entry.event_metadata["target_user_id"] == str(target_user_id)
-        assert log_entry.event_metadata["target_email"] == target_email
+        # Email addresses should NOT be in metadata (sanitized)
+        assert "original_email" not in log_entry.event_metadata
+        assert "target_email" not in log_entry.event_metadata
 
     def test_log_failed_user_switch(self, db_session, mock_request):
         """Log failed user switch attempt."""
         original_user_id = uuid4()
-        original_email = "alice@example.com"
         target_user_id = uuid4()
-        target_email = "charlie@example.com"
 
         log_entry = log_user_switch(
             db=db_session,
             original_user_id=original_user_id,
-            original_email=original_email,
             target_user_id=target_user_id,
-            target_email=target_email,
             request=mock_request,
             success=False,
             failure_reason="different_household"
         )
 
         assert log_entry.user_id == original_user_id
-        assert log_entry.email == original_email
         assert log_entry.event_type == AuthEventType.user_switch.value
         assert log_entry.success is False
         assert log_entry.failure_reason == "different_household"
@@ -475,18 +587,15 @@ class TestLogPasswordChange:
     def test_log_successful_password_change(self, db_session, mock_request):
         """Log successful password change."""
         user_id = uuid4()
-        email = "user@example.com"
 
         log_entry = log_password_change(
             db=db_session,
             user_id=user_id,
-            email=email,
             request=mock_request,
             success=True
         )
 
         assert log_entry.user_id == user_id
-        assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.password_change.value
         assert log_entry.success is True
         assert log_entry.failure_reason is None
@@ -496,19 +605,16 @@ class TestLogPasswordChange:
     def test_log_failed_password_change(self, db_session, mock_request):
         """Log failed password change attempt."""
         user_id = uuid4()
-        email = "user@example.com"
 
         log_entry = log_password_change(
             db=db_session,
             user_id=user_id,
-            email=email,
             request=mock_request,
             success=False,
             failure_reason="invalid_old_password"
         )
 
         assert log_entry.user_id == user_id
-        assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.password_change.value
         assert log_entry.success is False
         assert log_entry.failure_reason == "invalid_old_password"
@@ -520,21 +626,18 @@ class TestLogAuthorizationFailure:
     def test_log_authorization_failure(self, db_session, mock_request):
         """Log authorization failure (access denied)."""
         user_id = uuid4()
-        email = "user@example.com"
         resource = "meal_plan"
         action = "delete"
 
         log_entry = log_authorization_failure(
             db=db_session,
             user_id=user_id,
-            email=email,
             request=mock_request,
             resource=resource,
             action=action
         )
 
         assert log_entry.user_id == user_id
-        assert log_entry.email == email
         assert log_entry.event_type == AuthEventType.authorization_failure.value
         assert log_entry.success is False
         assert log_entry.failure_reason == f"unauthorized_access: {action} on {resource}"

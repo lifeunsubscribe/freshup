@@ -94,7 +94,6 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
         log_registration(
             db=db,
             user_id=None,
-            email=user_data.email,
             request=request,
             success=False,
             failure_reason="email_already_exists"
@@ -145,7 +144,6 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
     log_registration(
         db=db,
         user_id=new_user.id,
-        email=new_user.email,
         request=request,
         success=True,
         metadata={"role": assigned_role}
@@ -212,7 +210,6 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
         # Log failed login attempt (user not found)
         log_login_attempt(
             db=db,
-            email=login_data.email,
             request=request,
             success=False,
             failure_reason="invalid_credentials"
@@ -253,12 +250,11 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     # Check if account is still locked after expiry check
     if lockout_until and lockout_until > now:
         # Account is locked - return generic error to avoid leaking account status
+        # SECURITY: Do not include user_id to prevent user enumeration via timing attacks
         log_login_attempt(
             db=db,
-            email=login_data.email,
             request=request,
             success=False,
-            user_id=user.id,
             failure_reason="account_locked"
         )
         # Commit the audit log before raising exception
@@ -302,9 +298,9 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             )
 
         # Log failed login attempt (invalid password) - before commit so it's in same transaction
+        # SECURITY: Do not include user_id to prevent user enumeration via timing attacks
         log_login_attempt(
             db=db,
-            email=login_data.email,
             request=request,
             success=False,
             failure_reason="invalid_credentials"
@@ -335,7 +331,6 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     # Log successful login (before commit so it's in the same transaction)
     log_login_attempt(
         db=db,
-        email=login_data.email,
         request=request,
         success=True,
         user_id=user.id
@@ -454,7 +449,6 @@ def update_current_user_profile(
         log_profile_update(
             db=db,
             user_id=current_user.id,
-            email=current_user.email,
             request=request,
             fields_updated=fields_updated
         )
@@ -646,7 +640,6 @@ def switch_user(
         log_authorization_failure(
             db=db,
             user_id=current_user.id,
-            email=current_user.email,
             request=request,
             resource="user_switch",
             action="switch_to_user",
@@ -676,9 +669,7 @@ def switch_user(
         log_user_switch(
             db=db,
             original_user_id=current_user.id,
-            original_email=current_user.email,
             target_user_id=switch_data.user_id,
-            target_email=None,
             request=request,
             success=False,
             failure_reason="user_not_found"
@@ -704,9 +695,7 @@ def switch_user(
         log_user_switch(
             db=db,
             original_user_id=current_user.id,
-            original_email=current_user.email,
             target_user_id=target_user.id,
-            target_email=target_user.email,
             request=request,
             success=False,
             failure_reason="switch_to_self"
@@ -789,9 +778,7 @@ def switch_user(
     log_user_switch(
         db=db,
         original_user_id=current_user.id,
-        original_email=current_user.email,
         target_user_id=target_user.id,
-        target_email=target_user.email,
         request=request,
         success=True
     )

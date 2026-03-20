@@ -32,14 +32,19 @@ class AuthAuditLog(Base):
     compliance, and debugging. Follows OWASP logging best practices:
     - Logs both successful and failed authentication attempts
     - Includes contextual information (IP, user agent) for threat detection
-    - Never stores sensitive data (passwords, tokens)
+    - Never stores sensitive data (passwords, tokens, PII like email addresses)
     - Immutable records (no updates, only inserts)
+    - Data minimization: Only user_id is stored, not email (reduces PII exposure)
 
     Use cases:
     - Detect brute force attacks (multiple failed logins from same IP)
     - Track unauthorized access attempts
     - Audit trail for compliance requirements
     - Debug authentication issues
+
+    Privacy Note:
+    Email addresses are NOT stored in audit logs to minimize PII disclosure.
+    Use user_id to look up user details from the users table when investigating.
     """
     __tablename__ = "auth_audit_logs"
 
@@ -51,7 +56,6 @@ class AuthAuditLog(Base):
         nullable=True,
         index=True
     )
-    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
 
     # Event details
     event_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
