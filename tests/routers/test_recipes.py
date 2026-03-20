@@ -204,7 +204,7 @@ class TestRecipeCRUD:
         assert response.json() == []
 
     def test_list_recipes_with_data(self, client, auth_headers, test_user, db_session):
-        """Test listing recipes returns user's recipes."""
+        """Test listing recipes returns all recipes (global read)."""
         # Create test recipes
         recipe1 = Recipe(
             id=uuid4(),
@@ -264,8 +264,8 @@ class TestRecipeCRUD:
 
         assert response.status_code == 404
 
-    def test_get_recipe_cross_user_access_denied(self, client, auth_headers, auth_headers2, test_user2, db_session):
-        """Test user cannot access another user's recipe."""
+    def test_get_recipe_cross_user_access_allowed(self, client, auth_headers, auth_headers2, test_user2, db_session):
+        """Test user CAN access another user's recipe (global read)."""
         # Create recipe for user2
         recipe = Recipe(
             id=uuid4(),
@@ -278,10 +278,13 @@ class TestRecipeCRUD:
         db_session.add(recipe)
         db_session.commit()
 
-        # Try to access with user1's token
+        # Access with user1's token (global read should allow this)
         response = client.get(f"/recipes/{recipe.id}", headers=auth_headers)
 
-        assert response.status_code == 404
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "User2 Recipe"
+        assert data["created_by"] == str(test_user2.id)
 
     def test_update_recipe_success(self, client, auth_headers, test_user, db_session):
         """Test updating a recipe."""
@@ -308,6 +311,28 @@ class TestRecipeCRUD:
         assert data["name"] == "Updated Name"
         assert data["prep_time_minutes"] == 20
 
+    def test_update_recipe_cross_user_denied(self, client, auth_headers, auth_headers2, test_user2, db_session):
+        """Test user CANNOT update another user's recipe (ownership enforcement)."""
+        # Create recipe for user2
+        recipe = Recipe(
+            id=uuid4(),
+            name="User2 Recipe",
+            source_type="manual",
+            created_by=test_user2.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        update_data = {"name": "Hacked Name"}
+
+        # Try to update with user1's token (should fail)
+        response = client.put(f"/recipes/{recipe.id}", json=update_data, headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
     def test_delete_recipe_success(self, client, auth_headers, test_user, db_session):
         """Test deleting a recipe."""
         recipe = Recipe(
@@ -329,6 +354,72 @@ class TestRecipeCRUD:
         # Verify recipe is deleted
         deleted_recipe = db_session.query(Recipe).filter(Recipe.id == recipe_id).first()
         assert deleted_recipe is None
+
+    def test_delete_recipe_cross_user_denied(self, client, auth_headers, auth_headers2, test_user2, db_session):
+        """Test user CANNOT delete another user's recipe (ownership enforcement)."""
+        # Create recipe for user2
+        recipe = Recipe(
+            id=uuid4(),
+            name="User2 Recipe",
+            source_type="manual",
+            created_by=test_user2.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        recipe_id = recipe.id
+
+        # Try to delete with user1's token (should fail)
+        response = client.delete(f"/recipes/{recipe_id}", headers=auth_headers)
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+        # Verify recipe was NOT deleted
+        recipe_still_exists = db_session.query(Recipe).filter(Recipe.id == recipe_id).first()
+        assert recipe_still_exists is not None
+
+    def test_list_recipes_global_read(self, client, auth_headers, auth_headers2, test_user, test_user2, db_session):
+        """Test that users can see recipes from all users (global read)."""
+        # Create recipes for user1
+        recipe1 = Recipe(
+            id=uuid4(),
+            name="User1 Recipe",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=[],
+        )
+        # Create recipes for user2
+        recipe2 = Recipe(
+            id=uuid4(),
+            name="User2 Recipe",
+            source_type="manual",
+            created_by=test_user2.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add_all([recipe1, recipe2])
+        db_session.commit()
+
+        # User1 can see both recipes
+        response = client.get("/recipes", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        names = {r["name"] for r in data}
+        assert "User1 Recipe" in names
+        assert "User2 Recipe" in names
+
+        # User2 can also see both recipes
+        response = client.get("/recipes", headers=auth_headers2)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        names = {r["name"] for r in data}
+        assert "User1 Recipe" in names
+        assert "User2 Recipe" in names
 
 
 class TestRecipeFiltering:
