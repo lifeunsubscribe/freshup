@@ -3,6 +3,12 @@ InventoryItem CRUD endpoints for FreshUp.
 
 Provides endpoints for users to manage their kitchen inventory items.
 All endpoints are scoped to the authenticated user's inventory.
+
+Logging Policy:
+    User-provided item names are NOT logged as they may contain sensitive
+    health information (e.g., prescription names, dietary restrictions).
+    Logs include operational metadata (user_id, item_id, timestamps) for
+    debugging while protecting user privacy per OWASP recommendations.
 """
 
 import logging
@@ -96,7 +102,6 @@ def create_inventory_item(
 
     logger.info(
         f"Inventory item created: user_id={current_user.id}, "
-        f"item_name={item_data.name}, "
         f"item_id={new_item.id}"
     )
 
@@ -931,7 +936,7 @@ def freeze_inventory_item(
 
     # Update storage location and frozen date
     item.storage_location = StorageLocation.freezer.value
-    item.frozen_date = datetime.now(timezone.utc)
+    item.frozen_date = datetime.utcnow()
 
     try:
         db.commit()
@@ -947,7 +952,7 @@ def freeze_inventory_item(
 
     logger.info(
         f"Inventory item frozen: user_id={current_user.id}, "
-        f"item_id={item_id}, item_name={item.name}"
+        f"item_id={item_id}"
     )
 
     return item
@@ -1011,7 +1016,7 @@ def thaw_inventory_item(
 
     logger.info(
         f"Inventory item thawed: user_id={current_user.id}, "
-        f"item_id={item_id}, item_name={item.name}"
+        f"item_id={item_id}"
     )
 
     return item
@@ -1088,11 +1093,11 @@ def consume_inventory_item(
 
         logger.info(
             f"Inventory item consumed and deleted: user_id={current_user.id}, "
-            f"item_id={item_id}, item_name={item.name}, amount={consumption_data.amount}"
+            f"item_id={item_id}, amount={consumption_data.amount}"
         )
 
         return ConsumptionResponse(
-            message=f"Consumed {consumption_data.amount:.10g} {item.unit}. Item deleted (quantity reached 0).",
+            message=f"Consumed {consumption_data.amount} {item.unit}. Item deleted (quantity reached 0).",
             deleted=True,
             item=None
         )
@@ -1114,12 +1119,12 @@ def consume_inventory_item(
 
         logger.info(
             f"Inventory item consumed: user_id={current_user.id}, "
-            f"item_id={item_id}, item_name={item.name}, amount={consumption_data.amount}, "
+            f"item_id={item_id}, amount={consumption_data.amount}, "
             f"new_quantity={new_quantity}"
         )
 
         return ConsumptionResponse(
-            message=f"Consumed {consumption_data.amount:.10g} {item.unit}. {new_quantity:.10g} {item.unit} remaining.",
+            message=f"Consumed {consumption_data.amount} {item.unit}. {new_quantity} {item.unit} remaining.",
             deleted=False,
             item=item
         )

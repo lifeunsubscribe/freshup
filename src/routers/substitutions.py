@@ -3,6 +3,12 @@ SubstitutionPreference CRUD endpoints for FreshUp.
 
 Provides endpoints for users to manage their ingredient substitution preferences.
 All endpoints are scoped to the authenticated user (/users/me/substitutions).
+
+Logging Policy:
+    User-provided ingredient names are NOT logged as they may contain sensitive
+    health information (e.g., allergens, dietary restrictions, medical conditions).
+    Logs include operational metadata (user_id, preference_id, timestamps) for
+    debugging while protecting user privacy per OWASP recommendations.
 """
 
 import logging
@@ -88,7 +94,6 @@ def create_substitution_preference(
 
     logger.info(
         f"Substitution preference created: user_id={current_user.id}, "
-        f"original_ingredient={preference_data.original_ingredient}, "
         f"preference_id={new_preference.id}"
     )
 

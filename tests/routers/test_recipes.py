@@ -1,0 +1,2012 @@
+"""
+Integration tests for recipe endpoints.
+
+Tests cover:
+- POST /recipes: create recipes with validation
+- GET /recipes: list user recipes with filtering and pagination
+- GET /recipes/{id}: get single recipe
+- PUT /recipes/{id}: update recipes with partial data
+- DELETE /recipes/{id}: delete recipe
+- Filtering: source_type, tag, max_cook_time, max_prep_time, search, has_variation
+- Cross-user access prevention
+- Authentication requirements
+- Validation (source_type, times, servings, etc.)
+- Recipe ingredient CRUD operations with edge case validation
+"""
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from uuid import uuid4
+
+from src.db.database import Base, get_db
+from src.db import models
+from src.db.models.user import User, UserRole
+from src.db.models.recipe import Recipe
+from src.services.auth_service import hash_password, create_access_token
+
+from fastapi import FastAPI
+from src.routers import recipes as recipes_router
+
+# Create a test app without lifespan
+app = FastAPI(
+    title="FreshUp",
+    description="Privacy-first kitchen management system",
+    version="0.1.0",
+)
+
+# Register the recipes router
+app.include_router(recipes_router.router)
+
+
+# Create an in-memory SQLite database for testing
+TEST_DATABASE_URL = "sqlite:///:memory:"
+
+
+@pytest.fixture(autouse=True)
+def setup_test_env(monkeypatch):
+    """Set up test environment variables."""
+    from src.config import get_settings
+    get_settings.cache_clear()
+
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-for-testing-only-min-32-chars")
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("ACCESS_TOKEN_EXPIRE_MINUTES", "43200")
+
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def db_session():
+    """Create a fresh database session for each test."""
+    from sqlalchemy.pool import StaticPool
+
+    # Import models to ensure all SQLAlchemy model classes are registered
+    # with Base.metadata before create_all() is called
+    _ = models
+
+    engine = create_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+@pytest.fixture
+def client(db_session):
+    """Create a test client with database dependency override."""
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def test_user(db_session):
+    """Create a test user."""
+    user = User(
+        id=uuid4(),
+        email="test@example.com",
+        hashed_password=hash_password("testpassword123"),
+        name="Test User",
+        role=UserRole.member.value,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def test_user2(db_session):
+    """Create a second test user for cross-user access tests."""
+    user = User(
+        id=uuid4(),
+        email="test2@example.com",
+        hashed_password=hash_password("testpassword123"),
+        name="Test User 2",
+        role=UserRole.member.value,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def auth_headers(test_user):
+    """Generate authorization headers for test user."""
+    access_token = create_access_token({"sub": str(test_user.id)})
+    return {"Authorization": f"Bearer {access_token}"}
+
+
+@pytest.fixture
+def auth_headers2(test_user2):
+    """Generate authorization headers for test user 2."""
+    access_token = create_access_token({"sub": str(test_user2.id)})
+    return {"Authorization": f"Bearer {access_token}"}
+
+
+class TestRecipeCRUD:
+    """Test basic recipe CRUD operations."""
+
+    def test_create_recipe_success(self, client, auth_headers, test_user, db_session):
+        """Test creating a recipe successfully."""
+        recipe_data = {
+            "name": "Spaghetti Carbonara",
+            "source_type": "manual",
+            "prep_time_minutes": 10,
+            "cook_time_minutes": 20,
+            "base_servings": 4,
+            "tags": ["italian", "pasta"],
+            "steps": ["Cook pasta", "Make sauce", "Combine"],
+        }
+
+        response = client.post("/recipes", json=recipe_data, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Spaghetti Carbonara"
+        assert data["source_type"] == "manual"
+        assert data["prep_time_minutes"] == 10
+        assert data["cook_time_minutes"] == 20
+        assert data["base_servings"] == 4
+        assert data["tags"] == ["italian", "pasta"]
+        assert data["created_by"] == str(test_user.id)
+        assert "id" in data
+
+    def test_create_recipe_invalid_source_type(self, client, auth_headers):
+        """Test creating recipe with invalid source_type fails."""
+        recipe_data = {
+            "name": "Test Recipe",
+            "source_type": "invalid_source",
+        }
+
+        response = client.post("/recipes", json=recipe_data, headers=auth_headers)
+
+        assert response.status_code == 422
+
+    def test_create_recipe_unauthenticated(self, client):
+        """Test creating recipe without auth fails."""
+        recipe_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+        }
+
+        response = client.post("/recipes", json=recipe_data)
+
+        assert response.status_code == 401
+
+    def test_list_recipes_empty(self, client, auth_headers):
+        """Test listing recipes when user has none."""
+        response = client.get("/recipes", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_list_recipes_with_data(self, client, auth_headers, test_user, db_session):
+        """Test listing recipes returns user's recipes."""
+        # Create test recipes
+        recipe1 = Recipe(
+            id=uuid4(),
+            name="Recipe 1",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=["tag1"],
+            steps=[],
+        )
+        recipe2 = Recipe(
+            id=uuid4(),
+            name="Recipe 2",
+            source_type="hellofresh_card",
+            created_by=test_user.id,
+            tags=["tag2"],
+            steps=[],
+        )
+        db_session.add_all([recipe1, recipe2])
+        db_session.commit()
+
+        response = client.get("/recipes", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        assert any(r["name"] == "Recipe 1" for r in data)
+        assert any(r["name"] == "Recipe 2" for r in data)
+
+    def test_get_recipe_success(self, client, auth_headers, test_user, db_session):
+        """Test getting a single recipe by ID."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            created_by=test_user.id,
+            prep_time_minutes=15,
+            cook_time_minutes=30,
+            tags=["test"],
+            steps=["step1"],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        response = client.get(f"/recipes/{recipe.id}", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(recipe.id)
+        assert data["name"] == "Test Recipe"
+        assert data["prep_time_minutes"] == 15
+        assert data["cook_time_minutes"] == 30
+
+    def test_get_recipe_not_found(self, client, auth_headers):
+        """Test getting non-existent recipe returns 404."""
+        fake_id = uuid4()
+        response = client.get(f"/recipes/{fake_id}", headers=auth_headers)
+
+        assert response.status_code == 404
+
+    def test_get_recipe_cross_user_access_denied(self, client, auth_headers, auth_headers2, test_user2, db_session):
+        """Test user cannot access another user's recipe."""
+        # Create recipe for user2
+        recipe = Recipe(
+            id=uuid4(),
+            name="User2 Recipe",
+            source_type="manual",
+            created_by=test_user2.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        # Try to access with user1's token
+        response = client.get(f"/recipes/{recipe.id}", headers=auth_headers)
+
+        assert response.status_code == 404
+
+    def test_update_recipe_success(self, client, auth_headers, test_user, db_session):
+        """Test updating a recipe."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="Original Name",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        update_data = {
+            "name": "Updated Name",
+            "prep_time_minutes": 20,
+        }
+
+        response = client.put(f"/recipes/{recipe.id}", json=update_data, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Updated Name"
+        assert data["prep_time_minutes"] == 20
+
+    def test_delete_recipe_success(self, client, auth_headers, test_user, db_session):
+        """Test deleting a recipe."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="To Delete",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        recipe_id = recipe.id
+
+        response = client.delete(f"/recipes/{recipe_id}", headers=auth_headers)
+
+        assert response.status_code == 204
+
+        # Verify recipe is deleted
+        deleted_recipe = db_session.query(Recipe).filter(Recipe.id == recipe_id).first()
+        assert deleted_recipe is None
+
+
+class TestRecipeFiltering:
+    """Test recipe list filtering functionality."""
+
+    @pytest.fixture
+    def sample_recipes(self, test_user, db_session):
+        """Create sample recipes for filtering tests."""
+        recipes = [
+            Recipe(
+                id=uuid4(),
+                name="Quick Tacos",
+                source_type="manual",
+                created_by=test_user.id,
+                prep_time_minutes=10,
+                cook_time_minutes=15,
+                tags=["mexican", "quick"],
+                steps=["step1"],
+            ),
+            Recipe(
+                id=uuid4(),
+                name="Slow Curry",
+                source_type="hellofresh_card",
+                created_by=test_user.id,
+                prep_time_minutes=20,
+                cook_time_minutes=60,
+                tags=["indian", "curry"],
+                steps=["step1"],
+            ),
+            Recipe(
+                id=uuid4(),
+                name="Fast Pasta",
+                source_type="manual",
+                created_by=test_user.id,
+                prep_time_minutes=5,
+                cook_time_minutes=10,
+                tags=["italian", "pasta", "quick"],
+                steps=["step1"],
+            ),
+            Recipe(
+                id=uuid4(),
+                name="Curry Pizza",
+                source_type="url_import",
+                created_by=test_user.id,
+                prep_time_minutes=15,
+                cook_time_minutes=25,
+                tags=["fusion"],
+                steps=["step1"],
+                variation_groups={"size": ["small", "large"]},
+            ),
+            Recipe(
+                id=uuid4(),
+                name="Simple Salad",
+                source_type="manual",
+                created_by=test_user.id,
+                prep_time_minutes=10,
+                cook_time_minutes=None,  # No cooking required
+                tags=["healthy", "vegetarian"],
+                steps=["step1"],
+            ),
+        ]
+        db_session.add_all(recipes)
+        db_session.commit()
+        return recipes
+
+    def test_filter_by_source_type_manual(self, client, auth_headers, sample_recipes):
+        """Test filtering by source_type=manual."""
+        response = client.get("/recipes?source_type=manual", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 3  # Quick Tacos, Fast Pasta, Simple Salad
+        assert all(r["source_type"] == "manual" for r in data)
+
+    def test_filter_by_source_type_hellofresh(self, client, auth_headers, sample_recipes):
+        """Test filtering by source_type=hellofresh_card."""
+        response = client.get("/recipes?source_type=hellofresh_card", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1  # Slow Curry
+        assert data[0]["source_type"] == "hellofresh_card"
+
+    def test_filter_by_invalid_source_type(self, client, auth_headers, sample_recipes):
+        """Test filtering by invalid source_type returns 422."""
+        response = client.get("/recipes?source_type=invalid", headers=auth_headers)
+
+        assert response.status_code == 422
+        assert "Invalid source_type" in response.json()["detail"]
+
+    def test_filter_by_tag_mexican(self, client, auth_headers, sample_recipes):
+        """Test filtering by tag=mexican."""
+        response = client.get("/recipes?tag=mexican", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1  # Quick Tacos
+        assert "mexican" in data[0]["tags"]
+
+    def test_filter_by_tag_quick(self, client, auth_headers, sample_recipes):
+        """Test filtering by tag=quick (matches multiple)."""
+        response = client.get("/recipes?tag=quick", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2  # Quick Tacos, Fast Pasta
+        assert all("quick" in r["tags"] for r in data)
+
+    def test_filter_by_tag_case_insensitive(self, client, auth_headers, sample_recipes):
+        """Test tag filtering is case-insensitive."""
+        response = client.get("/recipes?tag=MEXICAN", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1  # Quick Tacos
+
+    def test_filter_by_max_cook_time(self, client, auth_headers, sample_recipes):
+        """Test filtering by max_cook_time=30."""
+        response = client.get("/recipes?max_cook_time=30", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should return: Quick Tacos (15), Fast Pasta (10), Curry Pizza (25)
+        # Should exclude: Slow Curry (60), Simple Salad (None)
+        assert len(data) == 3
+        assert all(r["cook_time_minutes"] is not None and r["cook_time_minutes"] <= 30 for r in data)
+
+    def test_filter_by_max_cook_time_15(self, client, auth_headers, sample_recipes):
+        """Test filtering by max_cook_time=15."""
+        response = client.get("/recipes?max_cook_time=15", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should return: Quick Tacos (15), Fast Pasta (10)
+        assert len(data) == 2
+
+    def test_filter_by_max_prep_time(self, client, auth_headers, sample_recipes):
+        """Test filtering by max_prep_time=15."""
+        response = client.get("/recipes?max_prep_time=15", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should return: Quick Tacos (10), Fast Pasta (5), Curry Pizza (15), Simple Salad (10)
+        assert len(data) == 4
+        assert all(r["prep_time_minutes"] is not None and r["prep_time_minutes"] <= 15 for r in data)
+
+    def test_filter_by_search_curry(self, client, auth_headers, sample_recipes):
+        """Test search by name=curry (case-insensitive partial match)."""
+        response = client.get("/recipes?search=curry", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should return: Slow Curry, Curry Pizza
+        assert len(data) == 2
+        assert all("curry" in r["name"].lower() for r in data)
+
+    def test_filter_by_search_case_insensitive(self, client, auth_headers, sample_recipes):
+        """Test search is case-insensitive."""
+        response = client.get("/recipes?search=PASTA", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1  # Fast Pasta
+        assert "pasta" in data[0]["name"].lower()
+
+    def test_filter_by_search_escapes_wildcards(self, client, auth_headers, test_user, db_session):
+        """Test search escapes LIKE wildcards to prevent DoS."""
+        # Create recipe with special chars in name
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test_Recipe%With%Special",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        # Search for literal % character (need at least 2 chars due to min_length validation)
+        response = client.get("/recipes?search=%25W", headers=auth_headers)  # %25 is URL-encoded %, search for "%W"
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should match the recipe with %W in name
+        assert len(data) == 1
+        assert "%W" in data[0]["name"]
+
+    def test_filter_by_search_minimum_length_validation(self, client, auth_headers, sample_recipes):
+        """Test search parameter requires minimum 2 characters."""
+        # Search with only 1 character should fail validation
+        response = client.get("/recipes?search=a", headers=auth_headers)
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # FastAPI validation error for min_length constraint
+        assert any("at least 2 characters" in str(error).lower() or "min_length" in str(error).lower()
+                   for error in detail)
+
+    def test_filter_by_has_variation_true(self, client, auth_headers, sample_recipes):
+        """Test filtering by has_variation=true."""
+        response = client.get("/recipes?has_variation=true", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        # Only Curry Pizza has variation_groups
+        assert len(data) == 1
+        assert data[0]["name"] == "Curry Pizza"
+
+    def test_filter_by_has_variation_false(self, client, auth_headers, sample_recipes):
+        """Test filtering by has_variation=false."""
+        response = client.get("/recipes?has_variation=false", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        # All except Curry Pizza
+        assert len(data) == 4
+
+    def test_combined_filters_and_logic(self, client, auth_headers, sample_recipes):
+        """Test multiple filters combine with AND logic."""
+        # Filter: source_type=manual AND tag=quick AND max_cook_time=20
+        response = client.get(
+            "/recipes?source_type=manual&tag=quick&max_cook_time=20",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should return: Quick Tacos (manual, quick, 15min), Fast Pasta (manual, quick, 10min)
+        assert len(data) == 2
+        assert all(r["source_type"] == "manual" for r in data)
+        assert all("quick" in r["tags"] for r in data)
+        assert all(r["cook_time_minutes"] <= 20 for r in data)
+
+    def test_combined_filters_narrow_results(self, client, auth_headers, sample_recipes):
+        """Test multiple filters narrow down results progressively."""
+        # Filter: tag=quick AND max_prep_time=8
+        response = client.get(
+            "/recipes?tag=quick&max_prep_time=8",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # Only Fast Pasta (quick, 5min prep)
+        assert len(data) == 1
+        assert data[0]["name"] == "Fast Pasta"
+
+    def test_pagination_with_filters(self, client, auth_headers, sample_recipes):
+        """Test pagination works with filters."""
+        response = client.get(
+            "/recipes?source_type=manual&limit=2&offset=0",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2  # First 2 of 3 manual recipes
+
+        # Get next page
+        response = client.get(
+            "/recipes?source_type=manual&limit=2&offset=2",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1  # Remaining 1 manual recipe
+
+
+class TestRecipeIngredientCRUD:
+    """Test recipe ingredient CRUD operations."""
+
+    @pytest.fixture
+    def test_recipe(self, db_session, test_user):
+        """Create a test recipe owned by test_user."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+        return recipe
+
+    @pytest.fixture
+    def system_recipe(self, db_session):
+        """Create a system recipe (created_by is NULL)."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="System Recipe",
+            source_type="manual",
+            created_by=None,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+        return recipe
+
+    @pytest.fixture
+    def test_ingredient(self, db_session, test_recipe):
+        """Create a test ingredient for test_recipe."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+        ingredient = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=test_recipe.id,
+            ingredient_name="Test Ingredient",
+            quantity=1.5,
+            unit="cups",
+            variation_group=None,
+            variation_diet=None,
+            is_optional=False,
+        )
+        db_session.add(ingredient)
+        db_session.commit()
+        db_session.refresh(ingredient)
+        return ingredient
+
+    def test_add_ingredient_success(self, client, auth_headers, test_recipe, db_session):
+        """Test adding an ingredient to a recipe successfully."""
+        ingredient_data = {
+            "ingredient_name": "Tomatoes",
+            "quantity": 2.0,
+            "unit": "lbs",
+            "is_optional": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["ingredient_name"] == "Tomatoes"
+        assert data["quantity"] == 2.0
+        assert data["unit"] == "lbs"
+        assert data["recipe_id"] == str(test_recipe.id)
+        assert data["is_optional"] is False
+        assert "id" in data
+
+    def test_add_ingredient_with_variations(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with variation fields."""
+        ingredient_data = {
+            "ingredient_name": "Chicken",
+            "quantity": 1.0,
+            "unit": "lb",
+            "variation_group": "protein",
+            "variation_diet": "non-vegetarian",
+            "is_optional": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["ingredient_name"] == "Chicken"
+        assert data["variation_group"] == "protein"
+        assert data["variation_diet"] == "non-vegetarian"
+
+    def test_add_ingredient_recipe_not_found(self, client, auth_headers):
+        """Test adding ingredient to non-existent recipe returns 404."""
+        ingredient_data = {
+            "ingredient_name": "Test",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        fake_recipe_id = uuid4()
+        response = client.post(
+            f"/recipes/{fake_recipe_id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_add_ingredient_recipe_not_owned(self, client, auth_headers2, test_recipe):
+        """Test adding ingredient to another user's recipe returns 404."""
+        ingredient_data = {
+            "ingredient_name": "Test",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers2
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_add_ingredient_system_recipe(self, client, auth_headers, system_recipe):
+        """Test adding ingredient to system recipe returns 403."""
+        ingredient_data = {
+            "ingredient_name": "Test",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{system_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Cannot modify system recipes"
+
+    def test_add_ingredient_unauthenticated(self, client, test_recipe):
+        """Test adding ingredient without auth returns 401."""
+        ingredient_data = {
+            "ingredient_name": "Test",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data
+        )
+
+        assert response.status_code == 401
+
+    def test_update_ingredient_success(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating an ingredient successfully."""
+        update_data = {
+            "quantity": 2.5,
+            "unit": "tablespoons",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["quantity"] == 2.5
+        assert data["unit"] == "tablespoons"
+        assert data["ingredient_name"] == "Test Ingredient"  # Unchanged
+
+    def test_update_ingredient_all_fields(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating all ingredient fields."""
+        update_data = {
+            "ingredient_name": "Updated Ingredient",
+            "quantity": 3.0,
+            "unit": "oz",
+            "variation_group": "base",
+            "variation_diet": "vegan",
+            "is_optional": True,
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ingredient_name"] == "Updated Ingredient"
+        assert data["quantity"] == 3.0
+        assert data["unit"] == "oz"
+        assert data["variation_group"] == "base"
+        assert data["variation_diet"] == "vegan"
+        assert data["is_optional"] is True
+
+    def test_update_ingredient_not_found(self, client, auth_headers, test_recipe):
+        """Test updating non-existent ingredient returns 404."""
+        update_data = {"quantity": 2.0}
+        fake_ingredient_id = uuid4()
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{fake_ingredient_id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Ingredient not found"
+
+    def test_update_ingredient_recipe_not_owned(self, client, auth_headers2, test_recipe, test_ingredient):
+        """Test updating ingredient on another user's recipe returns 404."""
+        update_data = {"quantity": 2.0}
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers2
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_update_ingredient_system_recipe(self, client, auth_headers, system_recipe, db_session):
+        """Test updating ingredient on system recipe returns 403."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+        # Create ingredient for system recipe
+        ingredient = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=system_recipe.id,
+            ingredient_name="System Ingredient",
+            quantity=1.0,
+            unit="cup",
+        )
+        db_session.add(ingredient)
+        db_session.commit()
+
+        update_data = {"quantity": 2.0}
+
+        response = client.put(
+            f"/recipes/{system_recipe.id}/ingredients/{ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Cannot modify system recipes"
+
+    def test_delete_ingredient_success(self, client, auth_headers, test_recipe, test_ingredient, db_session):
+        """Test deleting an ingredient successfully."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 204
+
+        # Verify ingredient is deleted
+        ingredient = db_session.query(RecipeIngredient).filter(
+            RecipeIngredient.id == test_ingredient.id
+        ).first()
+        assert ingredient is None
+
+    def test_delete_ingredient_not_found(self, client, auth_headers, test_recipe):
+        """Test deleting non-existent ingredient returns 404."""
+        fake_ingredient_id = uuid4()
+
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/ingredients/{fake_ingredient_id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Ingredient not found"
+
+    def test_delete_ingredient_recipe_not_owned(self, client, auth_headers2, test_recipe, test_ingredient):
+        """Test deleting ingredient from another user's recipe returns 404."""
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            headers=auth_headers2
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_delete_ingredient_system_recipe(self, client, auth_headers, system_recipe, db_session):
+        """Test deleting ingredient from system recipe returns 403."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+        # Create ingredient for system recipe
+        ingredient = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=system_recipe.id,
+            ingredient_name="System Ingredient",
+            quantity=1.0,
+            unit="cup",
+        )
+        db_session.add(ingredient)
+        db_session.commit()
+
+        response = client.delete(
+            f"/recipes/{system_recipe.id}/ingredients/{ingredient.id}",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Cannot modify system recipes"
+
+    def test_delete_ingredient_unauthenticated(self, client, test_recipe, test_ingredient):
+        """Test deleting ingredient without auth returns 401."""
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}"
+        )
+
+        assert response.status_code == 401
+
+    def test_add_ingredient_empty_name(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with empty name fails validation."""
+        ingredient_data = {
+            "ingredient_name": "",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail either min_length or whitespace validation
+        assert any("ingredient_name" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_whitespace_only_name(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with whitespace-only name fails validation."""
+        ingredient_data = {
+            "ingredient_name": "   ",
+            "quantity": 1.0,
+            "unit": "cup",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail whitespace validation
+        assert any("ingredient_name" in str(error).lower() or "empty" in str(error).lower() or "whitespace" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_empty_unit(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with empty unit fails validation."""
+        ingredient_data = {
+            "ingredient_name": "Salt",
+            "quantity": 1.0,
+            "unit": "",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail either min_length or whitespace validation
+        assert any("unit" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_whitespace_only_unit(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with whitespace-only unit fails validation."""
+        ingredient_data = {
+            "ingredient_name": "Salt",
+            "quantity": 1.0,
+            "unit": "   ",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail whitespace validation
+        assert any("unit" in str(error).lower() or "empty" in str(error).lower() or "whitespace" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_zero_quantity(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with zero quantity fails validation."""
+        ingredient_data = {
+            "ingredient_name": "Salt",
+            "quantity": 0,
+            "unit": "tsp",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail gt=0 validation
+        assert any("quantity" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_negative_quantity(self, client, auth_headers, test_recipe):
+        """Test adding ingredient with negative quantity fails validation."""
+        ingredient_data = {
+            "ingredient_name": "Salt",
+            "quantity": -1.5,
+            "unit": "tsp",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail gt=0 validation
+        assert any("quantity" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_empty_name(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with empty name fails validation."""
+        update_data = {
+            "ingredient_name": "",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("ingredient_name" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_whitespace_only_name(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with whitespace-only name fails validation."""
+        update_data = {
+            "ingredient_name": "   ",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("ingredient_name" in str(error).lower() or "empty" in str(error).lower() or "whitespace" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_empty_unit(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with empty unit fails validation."""
+        update_data = {
+            "unit": "",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("unit" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_whitespace_only_unit(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with whitespace-only unit fails validation."""
+        update_data = {
+            "unit": "   ",
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("unit" in str(error).lower() or "empty" in str(error).lower() or "whitespace" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_zero_quantity(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with zero quantity fails validation."""
+        update_data = {
+            "quantity": 0,
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("quantity" in str(error).lower() for error in detail)
+
+    def test_update_ingredient_negative_quantity(self, client, auth_headers, test_recipe, test_ingredient):
+        """Test updating ingredient with negative quantity fails validation."""
+        update_data = {
+            "quantity": -2.0,
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe.id}/ingredients/{test_ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("quantity" in str(error).lower() for error in detail)
+
+
+class TestRecipeRatings:
+    """Test recipe rating endpoints."""
+
+    @pytest.fixture
+    def test_recipe(self, db_session, test_user):
+        """Create a test recipe for rating tests."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe for Ratings",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+        return recipe
+
+    def test_create_rating_success(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test creating a new rating for a recipe."""
+        rating_data = {
+            "rating": 4.5,
+            "is_favorite": True,
+            "notes": "Delicious recipe!",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] == 4.5
+        assert data["is_favorite"] is True
+        assert data["notes"] == "Delicious recipe!"
+        assert data["user_id"] == str(test_user.id)
+        assert data["recipe_id"] == str(test_recipe.id)
+        assert "id" in data
+
+    def test_create_rating_minimal_fields(self, client, auth_headers, test_recipe, test_user):
+        """Test creating rating with only is_favorite (no rating value or notes)."""
+        rating_data = {
+            "is_favorite": True,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] is None
+        assert data["is_favorite"] is True
+        assert data["notes"] is None
+
+    def test_update_rating_upsert(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test updating an existing rating (upsert behavior)."""
+        # Create initial rating
+        rating_data = {
+            "rating": 3.0,
+            "is_favorite": False,
+            "notes": "Initial note",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        initial_id = response.json()["id"]
+
+        # Update the rating (same endpoint, different data)
+        update_data = {
+            "rating": 5.0,
+            "is_favorite": True,
+            "notes": "Updated note - much better!",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == initial_id  # Same ID (updated, not created)
+        assert data["rating"] == 5.0
+        assert data["is_favorite"] is True
+        assert data["notes"] == "Updated note - much better!"
+
+        # Verify only one rating exists in database
+        from src.db.models.user_recipe import UserRecipeRating
+        ratings = db_session.query(UserRecipeRating).filter(
+            UserRecipeRating.user_id == test_user.id,
+            UserRecipeRating.recipe_id == test_recipe.id,
+        ).all()
+        assert len(ratings) == 1
+
+    def test_create_rating_recipe_not_found(self, client, auth_headers):
+        """Test creating rating for non-existent recipe returns 404."""
+        rating_data = {
+            "rating": 4.0,
+            "is_favorite": False,
+        }
+
+        fake_recipe_id = uuid4()
+        response = client.post(
+            f"/recipes/{fake_recipe_id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_create_rating_unauthenticated(self, client, test_recipe):
+        """Test creating rating without auth returns 401."""
+        rating_data = {
+            "rating": 4.0,
+            "is_favorite": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data
+        )
+
+        assert response.status_code == 401
+
+    def test_create_rating_out_of_range_high(self, client, auth_headers, test_recipe):
+        """Test creating rating with value > 5.0 fails validation."""
+        rating_data = {
+            "rating": 5.5,
+            "is_favorite": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Should fail validation with message about range
+        assert any("rating" in str(error).lower() or "0.0" in str(error) or "5.0" in str(error) for error in detail)
+
+    def test_create_rating_out_of_range_low(self, client, auth_headers, test_recipe):
+        """Test creating rating with value < 0.0 fails validation."""
+        rating_data = {
+            "rating": -1.0,
+            "is_favorite": False,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("rating" in str(error).lower() or "0.0" in str(error) or "5.0" in str(error) for error in detail)
+
+    def test_create_rating_boundary_values(self, client, auth_headers, test_recipe, db_session):
+        """Test creating ratings with boundary values (0.0 and 5.0)."""
+        # Test 0.0 (minimum valid)
+        rating_data = {"rating": 0.0, "is_favorite": False}
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["rating"] == 0.0
+
+        # Test 5.0 (maximum valid) - updates existing rating
+        rating_data = {"rating": 5.0, "is_favorite": True}
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["rating"] == 5.0
+
+    def test_get_my_rating_success(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test getting user's own rating for a recipe."""
+        # Create a rating first
+        from src.db.models.user_recipe import UserRecipeRating
+        rating = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=4.0,
+            is_favorite=True,
+            notes="My rating",
+        )
+        db_session.add(rating)
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] == 4.0
+        assert data["is_favorite"] is True
+        assert data["notes"] == "My rating"
+        assert data["user_id"] == str(test_user.id)
+
+    def test_get_my_rating_not_found(self, client, auth_headers, test_recipe):
+        """Test getting rating when user hasn't rated returns 404."""
+        response = client.get(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Rating not found"
+
+    def test_get_my_rating_recipe_not_found(self, client, auth_headers):
+        """Test getting rating for non-existent recipe returns 404."""
+        fake_recipe_id = uuid4()
+        response = client.get(
+            f"/recipes/{fake_recipe_id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_get_my_rating_unauthenticated(self, client, test_recipe):
+        """Test getting rating without auth returns 401."""
+        response = client.get(f"/recipes/{test_recipe.id}/my-rating")
+
+        assert response.status_code == 401
+
+    def test_delete_my_rating_success(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test deleting user's rating successfully."""
+        # Create a rating first
+        from src.db.models.user_recipe import UserRecipeRating
+        rating = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=3.5,
+            is_favorite=False,
+        )
+        db_session.add(rating)
+        db_session.commit()
+        rating_id = rating.id
+
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 204
+
+        # Verify rating is deleted
+        deleted_rating = db_session.query(UserRecipeRating).filter(
+            UserRecipeRating.id == rating_id
+        ).first()
+        assert deleted_rating is None
+
+    def test_delete_my_rating_idempotent(self, client, auth_headers, test_recipe):
+        """Test deleting non-existent rating returns 204 (idempotent)."""
+        response = client.delete(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 204
+
+    def test_delete_my_rating_recipe_not_found(self, client, auth_headers):
+        """Test deleting rating for non-existent recipe returns 404."""
+        fake_recipe_id = uuid4()
+        response = client.delete(
+            f"/recipes/{fake_recipe_id}/my-rating",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_delete_my_rating_unauthenticated(self, client, test_recipe):
+        """Test deleting rating without auth returns 401."""
+        response = client.delete(f"/recipes/{test_recipe.id}/my-rating")
+
+        assert response.status_code == 401
+
+    def test_get_aggregate_ratings_no_ratings(self, client, auth_headers, test_recipe):
+        """Test aggregate ratings with no ratings returns zeros/null."""
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] is None
+        assert data["rating_count"] == 0
+        assert data["favorite_count"] == 0
+
+    def test_get_aggregate_ratings_single_rating(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test aggregate ratings with one rating."""
+        from src.db.models.user_recipe import UserRecipeRating
+        rating = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=4.0,
+            is_favorite=True,
+        )
+        db_session.add(rating)
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] == 4.0
+        assert data["rating_count"] == 1
+        assert data["favorite_count"] == 1
+
+    def test_get_aggregate_ratings_multiple_ratings(self, client, auth_headers, test_recipe, test_user, test_user2, db_session):
+        """Test aggregate ratings with multiple users' ratings."""
+        from src.db.models.user_recipe import UserRecipeRating
+
+        # User 1 rating
+        rating1 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=4.0,
+            is_favorite=True,
+        )
+
+        # User 2 rating
+        rating2 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user2.id,
+            recipe_id=test_recipe.id,
+            rating=5.0,
+            is_favorite=False,
+        )
+
+        db_session.add_all([rating1, rating2])
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] == 4.5  # (4.0 + 5.0) / 2
+        assert data["rating_count"] == 2
+        assert data["favorite_count"] == 1  # Only user1 favorited
+
+    def test_get_aggregate_ratings_favorite_only(self, client, auth_headers, test_recipe, test_user, db_session):
+        """Test aggregate ratings when user only favorited (no rating value)."""
+        from src.db.models.user_recipe import UserRecipeRating
+        rating = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=None,  # No rating value
+            is_favorite=True,
+        )
+        db_session.add(rating)
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] is None  # No numeric ratings
+        assert data["rating_count"] == 0  # Count only rows with rating values
+        assert data["favorite_count"] == 1
+
+    def test_get_aggregate_ratings_mixed_null_ratings(self, client, auth_headers, test_recipe, test_user, test_user2, db_session):
+        """Test aggregate ratings with mix of null and numeric ratings."""
+        from src.db.models.user_recipe import UserRecipeRating
+
+        # User 1: numeric rating
+        rating1 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+            rating=4.0,
+            is_favorite=False,
+        )
+
+        # User 2: favorite only (no rating)
+        rating2 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user2.id,
+            recipe_id=test_recipe.id,
+            rating=None,
+            is_favorite=True,
+        )
+
+        db_session.add_all([rating1, rating2])
+        db_session.commit()
+
+        response = client.get(
+            f"/recipes/{test_recipe.id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] == 4.0  # Only counts numeric ratings
+        assert data["rating_count"] == 1  # Only counts rows with rating values
+        assert data["favorite_count"] == 1  # User 2 favorited
+
+    def test_get_aggregate_ratings_recipe_not_found(self, client, auth_headers):
+        """Test aggregate ratings for non-existent recipe returns 404."""
+        fake_recipe_id = uuid4()
+        response = client.get(
+            f"/recipes/{fake_recipe_id}/ratings",
+            headers=auth_headers
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_get_aggregate_ratings_unauthenticated(self, client, test_recipe):
+        """Test aggregate ratings without auth returns 401."""
+        response = client.get(f"/recipes/{test_recipe.id}/ratings")
+
+        assert response.status_code == 401
+
+    def test_ratings_cross_user_isolation(self, client, auth_headers, auth_headers2, test_recipe, test_user, test_user2, db_session):
+        """Test that each user has separate ratings for the same recipe."""
+        from src.db.models.user_recipe import UserRecipeRating
+
+        # User 1 creates rating
+        rating_data = {
+            "rating": 3.0,
+            "is_favorite": False,
+            "notes": "User 1 note",
+        }
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+
+        # User 2 creates different rating
+        rating_data2 = {
+            "rating": 5.0,
+            "is_favorite": True,
+            "notes": "User 2 note",
+        }
+        response = client.post(
+            f"/recipes/{test_recipe.id}/rate",
+            json=rating_data2,
+            headers=auth_headers2
+        )
+        assert response.status_code == 200
+
+        # User 1 gets their rating
+        response = client.get(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] == 3.0
+        assert data["notes"] == "User 1 note"
+
+        # User 2 gets their rating
+        response = client.get(
+            f"/recipes/{test_recipe.id}/my-rating",
+            headers=auth_headers2
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rating"] == 5.0
+        assert data["notes"] == "User 2 note"
+
+        # Verify two separate ratings exist in database
+        ratings = db_session.query(UserRecipeRating).filter(
+            UserRecipeRating.recipe_id == test_recipe.id
+        ).all()
+        assert len(ratings) == 2
+
+
+class TestAdHocRecipeCreation:
+    """Tests for POST /recipes/ad-hoc endpoint."""
+
+    def test_create_ad_hoc_recipe_without_decrement(self, client, db_session, auth_headers, test_user):
+        """Test creating an ad-hoc recipe from inventory items without decrementing inventory."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create inventory items
+        item1 = InventoryItem(
+            id=uuid4(),
+            name="Tomatoes",
+            quantity=10.0,
+            unit="oz",
+            category="produce",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            id=uuid4(),
+            name="Onions",
+            quantity=5.0,
+            unit="count",
+            category="produce",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        # Create ad-hoc recipe
+        recipe_data = {
+            "name": "Quick Tomato Onion Soup",
+            "steps": ["Chop onions", "Dice tomatoes", "Simmer together"],
+            "notes": "Made this on the fly!",
+            "tags": ["quick", "soup"],
+            "inventory_items": [
+                {"inventory_item_id": str(item1.id), "quantity_used": 5.0, "unit": "oz"},
+                {"inventory_item_id": str(item2.id), "quantity_used": 2.0, "unit": "count"},
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify recipe created with correct attributes
+        assert data["name"] == "Quick Tomato Onion Soup"
+        assert data["source_type"] == "ad_hoc"
+        assert data["created_by"] == str(test_user.id)
+        assert data["steps"] == ["Chop onions", "Dice tomatoes", "Simmer together"]
+        assert data["notes"] == "Made this on the fly!"
+        assert "quick" in data["tags"]
+        assert "soup" in data["tags"]
+
+        # Verify recipe ingredients were created with inventory item names
+        from uuid import UUID
+        recipe_id = UUID(data["id"])
+        ingredients = db_session.query(RecipeIngredient).filter(
+            RecipeIngredient.recipe_id == recipe_id
+        ).all()
+        assert len(ingredients) == 2
+
+        ingredient_names = {ing.ingredient_name for ing in ingredients}
+        assert "Tomatoes" in ingredient_names
+        assert "Onions" in ingredient_names
+
+        # Verify inventory NOT decremented (decrement_inventory=False)
+        db_session.refresh(item1)
+        db_session.refresh(item2)
+        assert item1.quantity == 10.0
+        assert item2.quantity == 5.0
+
+    def test_create_ad_hoc_recipe_with_decrement(self, client, db_session, auth_headers, test_user):
+        """Test creating an ad-hoc recipe with inventory decrement."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create inventory items
+        item1 = InventoryItem(
+            id=uuid4(),
+            name="Pasta",
+            quantity=16.0,
+            unit="oz",
+            category="grain",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            id=uuid4(),
+            name="Marinara Sauce",
+            quantity=24.0,
+            unit="oz",
+            category="condiment",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        # Create ad-hoc recipe with decrement
+        recipe_data = {
+            "name": "Simple Pasta Marinara",
+            "steps": ["Boil pasta", "Heat sauce", "Combine"],
+            "inventory_items": [
+                {"inventory_item_id": str(item1.id), "quantity_used": 8.0, "unit": "oz"},
+                {"inventory_item_id": str(item2.id), "quantity_used": 12.0, "unit": "oz"},
+            ],
+            "decrement_inventory": True,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify recipe created
+        assert data["name"] == "Simple Pasta Marinara"
+        assert data["source_type"] == "ad_hoc"
+
+        # Verify recipe ingredients created
+        from uuid import UUID
+        recipe_id = UUID(data["id"])
+        ingredients = db_session.query(RecipeIngredient).filter(
+            RecipeIngredient.recipe_id == recipe_id
+        ).all()
+        assert len(ingredients) == 2
+
+        # Verify inventory WAS decremented (decrement_inventory=True)
+        db_session.refresh(item1)
+        db_session.refresh(item2)
+        assert item1.quantity == 8.0  # 16.0 - 8.0
+        assert item2.quantity == 12.0  # 24.0 - 12.0
+
+    def test_create_ad_hoc_recipe_invalid_inventory_id(self, client, auth_headers):
+        """Test creating ad-hoc recipe with invalid inventory item ID returns 404."""
+        fake_id = uuid4()
+
+        recipe_data = {
+            "name": "Ghost Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(fake_id), "quantity_used": 1.0, "unit": "oz"},
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 404
+        assert "not found or not owned by user" in response.json()["detail"]
+
+    def test_create_ad_hoc_recipe_cross_user_inventory_access_blocked(
+        self, client, db_session, auth_headers, test_user
+    ):
+        """Test that users cannot create ad-hoc recipes from other users' inventory items."""
+        from src.db.models.inventory_item import InventoryItem
+
+        # Create another user
+        other_user = User(
+            id=uuid4(),
+            name="Other User",
+            email="other@example.com",
+            hashed_password=hash_password("password123"),
+            role=UserRole.member.value,
+        )
+        db_session.add(other_user)
+
+        # Create inventory item owned by other user
+        other_item = InventoryItem(
+            id=uuid4(),
+            name="Secret Ingredient",
+            quantity=10.0,
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=other_user.id,
+        )
+        db_session.add(other_item)
+        db_session.commit()
+
+        # Try to create ad-hoc recipe using other user's inventory
+        recipe_data = {
+            "name": "Stolen Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(other_item.id), "quantity_used": 5.0, "unit": "oz"},
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 404
+        assert "not found or not owned by user" in response.json()["detail"]
+
+    def test_create_ad_hoc_recipe_insufficient_quantity(self, client, db_session, auth_headers, test_user):
+        """Test creating ad-hoc recipe with insufficient inventory quantity returns 400."""
+        from src.db.models.inventory_item import InventoryItem
+
+        # Create inventory item with limited quantity
+        item = InventoryItem(
+            id=uuid4(),
+            name="Rare Spice",
+            quantity=2.0,
+            unit="tsp",
+            category="spice",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        # Try to use more than available
+        recipe_data = {
+            "name": "Spicy Disaster",
+            "inventory_items": [
+                {"inventory_item_id": str(item.id), "quantity_used": 5.0, "unit": "tsp"},
+            ],
+            "decrement_inventory": True,  # Decrement is required to trigger validation
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 400
+        assert "Only 2.0 tsp available" in response.json()["detail"]
+
+        # Verify inventory was NOT decremented (atomic rollback)
+        db_session.refresh(item)
+        assert item.quantity == 2.0
+
+    def test_create_ad_hoc_recipe_atomic_rollback_on_error(
+        self, client, db_session, auth_headers, test_user
+    ):
+        """Test that ad-hoc recipe creation is atomic - if validation fails, nothing is created."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe import Recipe
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create two inventory items
+        item1 = InventoryItem(
+            id=uuid4(),
+            name="Item A",
+            quantity=10.0,
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            id=uuid4(),
+            name="Item B",
+            quantity=2.0,  # Intentionally low
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        # Count recipes and ingredients before
+        recipe_count_before = db_session.query(Recipe).count()
+        ingredient_count_before = db_session.query(RecipeIngredient).count()
+
+        # Try to create recipe that will fail on second item quantity check
+        recipe_data = {
+            "name": "Atomic Test Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(item1.id), "quantity_used": 5.0, "unit": "oz"},
+                {"inventory_item_id": str(item2.id), "quantity_used": 10.0, "unit": "oz"},  # Too much!
+            ],
+            "decrement_inventory": True,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 400
+
+        # Verify NO recipe was created
+        recipe_count_after = db_session.query(Recipe).count()
+        assert recipe_count_after == recipe_count_before
+
+        # Verify NO ingredients were created
+        ingredient_count_after = db_session.query(RecipeIngredient).count()
+        assert ingredient_count_after == ingredient_count_before
+
+        # Verify NO inventory was decremented
+        db_session.refresh(item1)
+        db_session.refresh(item2)
+        assert item1.quantity == 10.0
+        assert item2.quantity == 2.0
+
+    def test_create_ad_hoc_recipe_empty_inventory_items_validation(self, client, auth_headers):
+        """Test that empty inventory_items list is rejected by validation."""
+        recipe_data = {
+            "name": "Empty Recipe",
+            "inventory_items": [],  # Empty list
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 422  # Validation error
+        assert "inventory_items" in response.json()["detail"][0]["loc"]
+
+    def test_create_ad_hoc_recipe_unauthenticated(self, client):
+        """Test that unauthenticated requests are rejected."""
+        recipe_data = {
+            "name": "Unauthorized Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(uuid4()), "quantity_used": 1.0, "unit": "oz"},
+            ],
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data)
+        assert response.status_code == 401
+
+    def test_create_ad_hoc_recipe_with_multiple_items(self, client, db_session, auth_headers, test_user):
+        """Test creating ad-hoc recipe with multiple inventory items."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create multiple inventory items
+        items = [
+            InventoryItem(
+                id=uuid4(),
+                name=f"Ingredient {i}",
+                quantity=100.0,
+                unit="g",
+                category="other",
+                storage_location="pantry",
+                added_by=test_user.id,
+            )
+            for i in range(5)
+        ]
+        db_session.add_all(items)
+        db_session.commit()
+
+        # Create recipe using all items
+        recipe_data = {
+            "name": "Complex Multi-Ingredient Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(item.id), "quantity_used": 20.0, "unit": "g"}
+                for item in items
+            ],
+            "decrement_inventory": True,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify all ingredients were added
+        from uuid import UUID
+        recipe_id = UUID(data["id"])
+        ingredients = db_session.query(RecipeIngredient).filter(
+            RecipeIngredient.recipe_id == recipe_id
+        ).all()
+        assert len(ingredients) == 5
+
+        # Verify all inventory was decremented correctly
+        for item in items:
+            db_session.refresh(item)
+            assert item.quantity == 80.0  # 100.0 - 20.0

@@ -834,17 +834,16 @@ class TestSwitchUser:
 
         # Verify audit log contains correct information
         assert audit_log.user_id == coordinator_user.id  # Original user who initiated the switch
-        assert audit_log.email == coordinator_user.email
         assert audit_log.event_type == AuthEventType.user_switch.value
         assert audit_log.success is True
         assert audit_log.failure_reason is None
 
-        # Verify metadata contains switch context
+        # Verify metadata contains switch context (emails are stripped per data minimization policy)
         assert audit_log.event_metadata is not None
         assert audit_log.event_metadata["original_user_id"] == str(coordinator_user.id)
-        assert audit_log.event_metadata["original_email"] == coordinator_user.email
         assert audit_log.event_metadata["target_user_id"] == str(member_user.id)
-        assert audit_log.event_metadata["target_email"] == member_user.email
+        assert "original_email" not in audit_log.event_metadata
+        assert "target_email" not in audit_log.event_metadata
 
         # Verify timestamp is captured
         assert audit_log.created_at is not None
@@ -865,11 +864,11 @@ class TestSwitchUser:
         assert response.status_code == 403
         assert response.json()["detail"] == "Insufficient privileges to switch users"
 
-        # Verify audit log was created for failed attempt
+        # Verify authorization failure audit log was created
+        # (Changed from user_switch to authorization_failure to eliminate duplicate logging)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
             user_id=member_user.id,
-            event_type=AuthEventType.user_switch.value,
-            success=False
+            event_type=AuthEventType.authorization_failure.value
         ).all()
 
         assert len(audit_logs) == 1
@@ -877,16 +876,14 @@ class TestSwitchUser:
 
         # Verify audit log contains correct failure information
         assert audit_log.user_id == member_user.id
-        assert audit_log.email == member_user.email
-        assert audit_log.event_type == AuthEventType.user_switch.value
-        assert audit_log.success is False
-        assert audit_log.failure_reason == "unauthorized"
+        assert audit_log.event_type == AuthEventType.authorization_failure.value
 
         # Verify metadata contains attempted switch context
         assert audit_log.event_metadata is not None
-        assert audit_log.event_metadata["original_user_id"] == str(member_user.id)
-        assert audit_log.event_metadata["original_email"] == member_user.email
+        assert audit_log.event_metadata["resource"] == "user_switch"
+        assert audit_log.event_metadata["action"] == "switch_to_user"
         assert audit_log.event_metadata["target_user_id"] == str(coordinator_user.id)
+        assert audit_log.event_metadata["user_role"] == member_user.role
 
 
 class TestRegistrationDatabaseErrors:
@@ -1560,7 +1557,7 @@ class TestAccountLockout:
         assert test_user.lockout_count == 1
 
         # Verify lockout duration is approximately 15 minutes
-        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        lockout_duration = test_user.lockout_until - datetime.utcnow()
         # Allow 1-second tolerance for test execution time
         assert timedelta(minutes=14, seconds=59) <= lockout_duration <= timedelta(minutes=15, seconds=1)
 
@@ -1584,7 +1581,7 @@ class TestAccountLockout:
         assert test_user.lockout_count == 2
 
         # Verify lockout duration is approximately 30 minutes
-        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        lockout_duration = test_user.lockout_until - datetime.utcnow()
         assert timedelta(minutes=29, seconds=59) <= lockout_duration <= timedelta(minutes=30, seconds=1)
 
     def test_progressive_lockout_caps_at_240_minutes(self, client, test_user, db_session):
@@ -1603,7 +1600,7 @@ class TestAccountLockout:
         # Verify lockout uses maximum duration (cap)
         db_session.refresh(test_user)
         assert test_user.lockout_count == 5
-        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        lockout_duration = test_user.lockout_until - datetime.utcnow()
         assert timedelta(minutes=239, seconds=59) <= lockout_duration <= timedelta(minutes=240, seconds=1)
 
         # Trigger another lockout - should still use cap
@@ -1619,7 +1616,7 @@ class TestAccountLockout:
 
         db_session.refresh(test_user)
         assert test_user.lockout_count == 6  # Still incrementing
-        lockout_duration = test_user.lockout_until - datetime.now(timezone.utc)
+        lockout_duration = test_user.lockout_until - datetime.utcnow()
         assert timedelta(minutes=239, seconds=59) <= lockout_duration <= timedelta(minutes=240, seconds=1)
 
     def test_progressive_lockout_schedule_follows_exponential_pattern(self, client, db_session):
@@ -1650,7 +1647,7 @@ class TestAccountLockout:
             # Verify lockout duration
             db_session.refresh(user)
             assert user.lockout_count == lockout_num + 1
-            lockout_duration = user.lockout_until - datetime.now(timezone.utc)
+            lockout_duration = user.lockout_until - datetime.utcnow()
 
             # Allow 1-second tolerance
             min_duration = timedelta(minutes=expected_minutes, seconds=-1)
@@ -1717,9 +1714,8 @@ class TestAuditLogging:
         response = client.post("/auth/register", json=registration_data)
         assert response.status_code == 201
 
-        # Check audit log was created
+        # Check audit log was created (email is not stored per data minimization policy)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
-            email="newuser@example.com",
             event_type=AuthEventType.registration.value
         ).all()
 
@@ -1743,9 +1739,8 @@ class TestAuditLogging:
         response = client.post("/auth/register", json=registration_data)
         assert response.status_code == 400
 
-        # Check audit log was created for failure
+        # Check audit log was created for failure (email is not stored per data minimization policy)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
-            email=test_user.email,
             event_type=AuthEventType.registration.value,
             success=False
         ).all()
@@ -1767,9 +1762,9 @@ class TestAuditLogging:
         response = client.post("/auth/login", json=login_data)
         assert response.status_code == 200
 
-        # Check audit log was created
+        # Check audit log was created (email is not stored per data minimization policy)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
-            email=test_user.email,
+            user_id=test_user.id,
             event_type=AuthEventType.login_success.value
         ).all()
 
@@ -1791,9 +1786,8 @@ class TestAuditLogging:
         response = client.post("/auth/login", json=login_data)
         assert response.status_code == 401
 
-        # Check audit log was created for failure
+        # Check audit log was created for failure (email is not stored per data minimization policy)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
-            email=test_user.email,
             event_type=AuthEventType.login_failure.value
         ).all()
 
@@ -1823,7 +1817,6 @@ class TestAuditLogging:
         assert len(audit_logs) == 1
         log = audit_logs[0]
         assert log.success is True
-        assert log.email == test_user.email
         assert "name" in log.event_metadata["fields_updated"]
         assert "dietary_profile" in log.event_metadata["fields_updated"]
 
@@ -2210,3 +2203,265 @@ class TestSwitchUserRateLimiting:
         # 11th request from same IP should be rate limited regardless of user
         response = client.post("/auth/switch-user", json=switch_data, headers=coord1_headers)
         assert response.status_code == 429
+
+
+class TestChangePasswordRateLimiting:
+    """Tests for rate limiting on POST /change-password endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def reset_limiter(self):
+        """Reset rate limiter state before each test."""
+        from src.middleware.rate_limit import limiter
+        limiter.reset()
+        yield
+
+    def test_change_password_within_rate_limit(self, client, test_user, auth_headers):
+        """POST /auth/change-password succeeds for requests within rate limit (10/minute)."""
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+
+        # Make 10 requests (within limit)
+        for i in range(10):
+            response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+            # First request succeeds, subsequent ones fail due to incorrect old password
+            # (password was changed on first request)
+            if i == 0:
+                assert response.status_code == 200
+            else:
+                # After first success, old password is no longer valid
+                assert response.status_code == 401
+
+    def test_change_password_exceeds_rate_limit(self, client, test_user, auth_headers):
+        """POST /auth/change-password returns 429 when rate limit exceeded (>10/minute)."""
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+
+        # Make 10 requests (at limit)
+        for _ in range(10):
+            client.post("/auth/change-password", json=password_data, headers=auth_headers)
+
+        # 11th request should be rate limited
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 429
+        # Verify the error message contains rate limit info
+        assert "10 per 1 minute" in response.text or "detail" in response.json()
+
+    def test_change_password_rate_limit_response_format(self, client, test_user, auth_headers):
+        """POST /auth/change-password rate limit response includes error detail."""
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+
+        # Exhaust rate limit
+        for _ in range(10):
+            client.post("/auth/change-password", json=password_data, headers=auth_headers)
+
+        # Get rate limited response
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+
+        assert response.status_code == 429
+        # Verify response contains rate limit detail
+        assert response.json().get("detail") is not None
+
+    def test_change_password_rate_limit_per_ip(self, client, db_session):
+        """Rate limit is enforced per IP address for change-password endpoint."""
+        # Create two users to test that rate limit is IP-based, not user-based
+        user1 = User(
+            id=uuid4(),
+            name="User One",
+            email="user1@example.com",
+            hashed_password=hash_password("password123"),
+            role=UserRole.member.value,
+        )
+        user2 = User(
+            id=uuid4(),
+            name="User Two",
+            email="user2@example.com",
+            hashed_password=hash_password("password456"),
+            role=UserRole.member.value,
+        )
+        db_session.add(user1)
+        db_session.add(user2)
+        db_session.commit()
+
+        # Create tokens for both users
+        token1 = create_access_token(data={"sub": str(user1.id)})
+        token2 = create_access_token(data={"sub": str(user2.id)})
+
+        headers1 = {"Authorization": f"Bearer {token1}"}
+        headers2 = {"Authorization": f"Bearer {token2}"}
+
+        password_data1 = {
+            "old_password": "password123",
+            "new_password": "NewPass123!",
+        }
+        password_data2 = {
+            "old_password": "password456",
+            "new_password": "NewPass456!",
+        }
+
+        # Make 5 requests as user 1
+        for _ in range(5):
+            client.post("/auth/change-password", json=password_data1, headers=headers1)
+
+        # Make 5 requests as user 2 (same IP in test client)
+        for _ in range(5):
+            client.post("/auth/change-password", json=password_data2, headers=headers2)
+
+        # 11th request from same IP should be rate limited regardless of user
+        response = client.post("/auth/change-password", json=password_data1, headers=headers1)
+        assert response.status_code == 429
+
+    def test_change_password_rate_limit_protects_against_brute_force(self, client, test_user, auth_headers):
+        """Rate limit prevents rapid brute-force attempts on password verification."""
+        # Simulate attacker trying multiple old passwords
+        for i in range(10):
+            password_data = {
+                "old_password": f"guessedpass{i}",
+                "new_password": "NewSecurePass123!",
+            }
+            response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+            # All should fail with 401 (invalid old password) but not rate limited yet
+            assert response.status_code in [401, 429]  # Accept either until rate limit kicks in
+
+        # 11th attempt should be rate limited
+        password_data = {
+            "old_password": "anotherguess",
+            "new_password": "NewSecurePass123!",
+        }
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 429
+
+
+class TestChangePassword:
+    """Tests for core password change functionality on POST /auth/change-password endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def reset_limiter(self):
+        """Reset rate limiter state before each test."""
+        from src.middleware.rate_limit import limiter
+        limiter.reset()
+        yield
+
+    def test_change_password_success(self, client, test_user, auth_headers, db_session):
+        """POST /auth/change-password with correct old password successfully changes password."""
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json() == {"message": "Password changed successfully"}
+
+        # Verify password was actually changed by attempting login with new password
+        db_session.refresh(test_user)
+        from src.services.auth_service import verify_password
+        assert verify_password("NewSecurePass123!", test_user.hashed_password) is True
+        assert verify_password("testpassword123", test_user.hashed_password) is False
+
+    def test_change_password_with_incorrect_old_password(self, client, test_user, auth_headers):
+        """POST /auth/change-password with incorrect old password returns 401."""
+        password_data = {
+            "old_password": "wrongoldpassword",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Current password is incorrect"
+
+    def test_change_password_creates_audit_log_on_success(self, client, test_user, auth_headers, db_session):
+        """POST /auth/change-password with correct credentials creates success audit log."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 200
+
+        # Check audit log was created
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.password_change.value
+        ).all()
+
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
+        assert log.success is True
+        assert log.failure_reason is None
+
+    def test_change_password_creates_audit_log_on_failure(self, client, test_user, auth_headers, db_session):
+        """POST /auth/change-password with incorrect old password creates failure audit log."""
+        from src.db.models.auth_audit_log import AuthAuditLog, AuthEventType
+
+        password_data = {
+            "old_password": "wrongoldpassword",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 401
+
+        # Check audit log was created for failure
+        audit_logs = db_session.query(AuthAuditLog).filter_by(
+            user_id=test_user.id,
+            event_type=AuthEventType.password_change.value
+        ).all()
+
+        assert len(audit_logs) == 1
+        log = audit_logs[0]
+        assert log.success is False
+        assert log.failure_reason == "invalid_old_password"
+
+    def test_change_password_without_authentication(self, client):
+        """POST /auth/change-password without auth token returns 401."""
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+
+        response = client.post("/auth/change-password", json=password_data)
+        assert response.status_code == 401
+
+    def test_change_password_validates_new_password_length(self, client, test_user, auth_headers):
+        """POST /auth/change-password with short new password returns 422 validation error."""
+        password_data = {
+            "old_password": "testpassword123",
+            "new_password": "short",  # Too short (min 8 chars required)
+        }
+
+        response = client.post("/auth/change-password", json=password_data, headers=auth_headers)
+        assert response.status_code == 422
+        # Validation error for password length
+
+    def test_change_password_multiple_times(self, client, test_user, auth_headers, db_session):
+        """Password can be changed multiple times successfully."""
+        # First password change
+        password_data_1 = {
+            "old_password": "testpassword123",
+            "new_password": "NewSecurePass123!",
+        }
+        response = client.post("/auth/change-password", json=password_data_1, headers=auth_headers)
+        assert response.status_code == 200
+
+        # Second password change using the new password as old
+        password_data_2 = {
+            "old_password": "NewSecurePass123!",
+            "new_password": "AnotherSecurePass456!",
+        }
+        response = client.post("/auth/change-password", json=password_data_2, headers=auth_headers)
+        assert response.status_code == 200
+
+        # Verify the final password
+        db_session.refresh(test_user)
+        from src.services.auth_service import verify_password
+        assert verify_password("AnotherSecurePass456!", test_user.hashed_password) is True

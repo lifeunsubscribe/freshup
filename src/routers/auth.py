@@ -13,9 +13,9 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.db.database import get_db
 from src.db.models.user import User, UserRole
-from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate, SwitchUserRequest
+from src.schemas.auth import UserCreate, LoginRequest, UserResponse, TokenResponse, UserUpdate, SwitchUserRequest, PasswordChangeRequest
 from src.services.auth_service import hash_password, verify_password, create_access_token
-from src.services.audit_service import log_registration, log_login_attempt, log_profile_update, log_user_switch
+from src.services.audit_service import log_registration, log_login_attempt, log_profile_update, log_user_switch, log_authorization_failure, log_password_change
 from src.middleware.auth import get_current_user
 from src.middleware.rate_limit import limiter
 
@@ -94,7 +94,6 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
         log_registration(
             db=db,
             user_id=None,
-            email=user_data.email,
             request=request,
             success=False,
             failure_reason="email_already_exists"
@@ -145,7 +144,6 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
     log_registration(
         db=db,
         user_id=new_user.id,
-        email=new_user.email,
         request=request,
         success=True,
         metadata={"role": assigned_role}
@@ -212,7 +210,6 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
         # Log failed login attempt (user not found)
         log_login_attempt(
             db=db,
-            email=login_data.email,
             request=request,
             success=False,
             failure_reason="invalid_credentials"
@@ -253,12 +250,11 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     # Check if account is still locked after expiry check
     if lockout_until and lockout_until > now:
         # Account is locked - return generic error to avoid leaking account status
+        # SECURITY: Do not include user_id to prevent user enumeration via timing attacks
         log_login_attempt(
             db=db,
-            email=login_data.email,
             request=request,
             success=False,
-            user_id=user.id,
             failure_reason="account_locked"
         )
         # Commit the audit log before raising exception
@@ -302,9 +298,9 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
             )
 
         # Log failed login attempt (invalid password) - before commit so it's in same transaction
+        # SECURITY: Do not include user_id to prevent user enumeration via timing attacks
         log_login_attempt(
             db=db,
-            email=login_data.email,
             request=request,
             success=False,
             failure_reason="invalid_credentials"
@@ -335,7 +331,6 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     # Log successful login (before commit so it's in the same transaction)
     log_login_attempt(
         db=db,
-        email=login_data.email,
         request=request,
         success=True,
         user_id=user.id
@@ -454,7 +449,6 @@ def update_current_user_profile(
         log_profile_update(
             db=db,
             user_id=current_user.id,
-            email=current_user.email,
             request=request,
             fields_updated=fields_updated
         )
@@ -490,6 +484,106 @@ def update_current_user_profile(
     )
 
     return current_user
+
+
+@router.post("/change-password", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+def change_password(
+    password_data: PasswordChangeRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Change the authenticated user's password.
+
+    Requires the user to provide their current password for verification before
+    allowing the password change. This prevents unauthorized password changes if
+    a session is compromised. All password changes are logged to the audit trail.
+
+    Args:
+        password_data: Current and new password
+        request: FastAPI request object (for audit logging)
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException(401): If current password is incorrect
+        HTTPException(422): If new password doesn't meet complexity requirements
+        HTTPException(500): If database error occurs
+    """
+    # Verify current password
+    # Use constant-time comparison to prevent timing attacks
+    # Always call verify_password to avoid timing side-channel that reveals password existence
+    if current_user.hashed_password:
+        password_valid = verify_password(password_data.old_password, current_user.hashed_password)
+    else:
+        # No password set - call verify_password with dummy hash to maintain constant time
+        # This prevents timing attacks from distinguishing accounts with/without passwords
+        dummy_hash = hash_password("dummy")
+        verify_password(password_data.old_password, dummy_hash)
+        password_valid = False
+
+    if not password_valid:
+        # Log failed password change attempt (incorrect old password)
+        log_password_change(
+            db=db,
+            user_id=current_user.id,
+            email=current_user.email,
+            request=request,
+            success=False,
+            failure_reason="invalid_old_password"
+        )
+        # Commit the audit log before raising exception
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error("Database error during password change audit logging (invalid old password)")
+            logger.debug(f"Database error details: {str(e)}")
+            # Fall through to raise the original error
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect"
+        )
+
+    # Hash the new password
+    new_hashed_password = hash_password(password_data.new_password)
+
+    # Update the password
+    current_user.hashed_password = new_hashed_password
+
+    # Log successful password change (before commit so it's in the same transaction)
+    log_password_change(
+        db=db,
+        user_id=current_user.id,
+        email=current_user.email,
+        request=request,
+        success=True
+    )
+
+    try:
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during password change for user {current_user.id}")
+        logger.debug(f"Database error details: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while changing the password"
+        )
+
+    logger.info(
+        "Password changed successfully for user %s (email: %s)",
+        current_user.id,
+        current_user.email
+    )
+
+    return {"message": "Password changed successfully"}
 
 
 @router.post("/switch-user", response_model=TokenResponse)
@@ -542,16 +636,14 @@ def switch_user(
             current_user.id,
             current_user.role
         )
-        # Log failed user switch attempt (unauthorized)
-        log_user_switch(
+        # Log authorization failure for security monitoring
+        log_authorization_failure(
             db=db,
-            original_user_id=current_user.id,
-            original_email=current_user.email,
-            target_user_id=switch_data.user_id,
-            target_email=None,
+            user_id=current_user.id,
             request=request,
-            success=False,
-            failure_reason="unauthorized"
+            resource="user_switch",
+            action="switch_to_user",
+            metadata={"target_user_id": str(switch_data.user_id), "user_role": current_user.role}
         )
         # Commit the audit log before raising exception
         try:
@@ -577,9 +669,7 @@ def switch_user(
         log_user_switch(
             db=db,
             original_user_id=current_user.id,
-            original_email=current_user.email,
             target_user_id=switch_data.user_id,
-            target_email=None,
             request=request,
             success=False,
             failure_reason="user_not_found"
@@ -605,9 +695,7 @@ def switch_user(
         log_user_switch(
             db=db,
             original_user_id=current_user.id,
-            original_email=current_user.email,
             target_user_id=target_user.id,
-            target_email=target_user.email,
             request=request,
             success=False,
             failure_reason="switch_to_self"
@@ -690,9 +778,7 @@ def switch_user(
     log_user_switch(
         db=db,
         original_user_id=current_user.id,
-        original_email=current_user.email,
         target_user_id=target_user.id,
-        target_email=target_user.email,
         request=request,
         success=True
     )

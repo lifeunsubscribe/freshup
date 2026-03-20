@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # Empty string = trust NO proxies (fail-secure default, X-Forwarded-For will be ignored)
     trusted_proxies: str = ""
 
+    # Redis Configuration (for distributed rate limiting)
+    # Optional: If not set, rate limiter falls back to in-memory storage
+    # Format: redis://host:port/db or redis://host:port (defaults to db 0)
+    redis_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
