@@ -23,6 +23,7 @@ from src.db.database import get_db
 from src.db.models.user import User
 from src.db.models.recipe import Recipe, SourceType
 from src.db.models.recipe_ingredient import RecipeIngredient
+from src.db.models.user_recipe import UserRecipeRating
 from src.schemas.recipe import (
     RecipeCreate,
     RecipeUpdate,
@@ -31,6 +32,9 @@ from src.schemas.recipe import (
     RecipeIngredientCreate,
     RecipeIngredientUpdate,
     RecipeIngredientResponse,
+    UserRecipeRatingCreate,
+    UserRecipeRatingResponse,
+    RecipeAggregateRatingsResponse,
 )
 from src.middleware.auth import get_current_user
 
@@ -703,3 +707,282 @@ def delete_recipe_ingredient(
     )
 
     return None
+
+
+@router.post("/{recipe_id}/rate", response_model=UserRecipeRatingResponse, status_code=status.HTTP_200_OK)
+def rate_recipe(
+    recipe_id: UUID,
+    rating_data: UserRecipeRatingCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Create or update a rating for a recipe (upsert behavior).
+
+    Each user can have only one rating per recipe. If a rating already exists,
+    this endpoint will update it. Otherwise, it creates a new rating.
+
+    Args:
+        recipe_id: UUID of the recipe to rate
+        rating_data: Rating data (rating value, is_favorite, notes)
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        UserRecipeRatingResponse: Created or updated rating
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If recipe doesn't exist
+        HTTPException(422): If rating value is out of range (0.0-5.0)
+    """
+    # Verify recipe exists (no ownership check - any user can rate any recipe)
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Check if user already has a rating for this recipe
+    existing_rating = (
+        db.query(UserRecipeRating)
+        .filter(
+            UserRecipeRating.user_id == current_user.id,
+            UserRecipeRating.recipe_id == recipe_id,
+        )
+        .first()
+    )
+
+    if existing_rating:
+        # Update existing rating
+        update_dict = rating_data.model_dump()
+        for field, value in update_dict.items():
+            setattr(existing_rating, field, value)
+
+        try:
+            db.commit()
+            db.refresh(existing_rating)
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database error during rating update for user {current_user.id}")
+            logger.debug(f"Database error occurred during rating update: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while updating the rating"
+            )
+
+        logger.info(
+            f"Recipe rating updated: user_id={current_user.id}, "
+            f"recipe_id={recipe_id}, rating_id={existing_rating.id}"
+        )
+        return existing_rating
+    else:
+        # Create new rating
+        new_rating = UserRecipeRating(
+            user_id=current_user.id,
+            recipe_id=recipe_id,
+            **rating_data.model_dump()
+        )
+        db.add(new_rating)
+
+        try:
+            db.commit()
+            db.refresh(new_rating)
+        except IntegrityError as e:
+            db.rollback()
+            logger.error(f"Integrity error during rating creation for user {current_user.id}")
+            logger.debug(f"Integrity error occurred during rating creation: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Rating creation failed due to data integrity violation"
+            )
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database error during rating creation for user {current_user.id}")
+            logger.debug(f"Database error occurred during rating creation: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while creating the rating"
+            )
+
+        logger.info(
+            f"Recipe rating created: user_id={current_user.id}, "
+            f"recipe_id={recipe_id}, rating_id={new_rating.id}"
+        )
+        return new_rating
+
+
+@router.get("/{recipe_id}/my-rating", response_model=UserRecipeRatingResponse)
+def get_my_rating(
+    recipe_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get the current user's rating for a recipe.
+
+    Returns the authenticated user's rating for the specified recipe.
+    Returns 404 if the user hasn't rated this recipe yet.
+
+    Args:
+        recipe_id: UUID of the recipe
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        UserRecipeRatingResponse: User's rating for this recipe
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If recipe doesn't exist or user hasn't rated it
+    """
+    # Verify recipe exists
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Get user's rating
+    rating = (
+        db.query(UserRecipeRating)
+        .filter(
+            UserRecipeRating.user_id == current_user.id,
+            UserRecipeRating.recipe_id == recipe_id,
+        )
+        .first()
+    )
+
+    if not rating:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Rating not found"
+        )
+
+    return rating
+
+
+@router.delete("/{recipe_id}/my-rating", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_rating(
+    recipe_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Delete the current user's rating for a recipe.
+
+    Removes the authenticated user's rating for the specified recipe.
+    Returns 204 even if no rating exists (idempotent behavior).
+
+    Args:
+        recipe_id: UUID of the recipe
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        None (204 No Content on success)
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If recipe doesn't exist
+    """
+    # Verify recipe exists
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Get user's rating (if exists)
+    rating = (
+        db.query(UserRecipeRating)
+        .filter(
+            UserRecipeRating.user_id == current_user.id,
+            UserRecipeRating.recipe_id == recipe_id,
+        )
+        .first()
+    )
+
+    if rating:
+        try:
+            db.delete(rating)
+            db.commit()
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database error during rating deletion for user {current_user.id}")
+            logger.debug(f"Database error occurred during rating deletion: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while deleting the rating"
+            )
+
+        logger.info(
+            f"Recipe rating deleted: user_id={current_user.id}, "
+            f"recipe_id={recipe_id}"
+        )
+
+    return None
+
+
+@router.get("/{recipe_id}/ratings", response_model=RecipeAggregateRatingsResponse)
+def get_recipe_ratings(
+    recipe_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get aggregate rating statistics for a recipe.
+
+    Returns the average rating, total rating count, and favorite count
+    across all users who have rated this recipe. This is a shared read
+    endpoint - all users can see aggregate stats for any recipe.
+
+    Args:
+        recipe_id: UUID of the recipe
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        RecipeAggregateRatingsResponse: Aggregate rating statistics
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If recipe doesn't exist
+    """
+    # Verify recipe exists
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+
+    # Calculate aggregate statistics across all users
+    # - average_rating: Average of all non-null rating values (func.avg automatically excludes nulls)
+    # - rating_count: Count of rows where rating is not None (users who provided numeric ratings)
+    # - favorite_count: Count of rows where is_favorite is True (users who favorited)
+    # Note: Users can favorite without rating (rating=None), so favorite_count may exceed rating_count
+    stats = (
+        db.query(
+            func.avg(UserRecipeRating.rating).label('average_rating'),
+            func.count(UserRecipeRating.id).filter(UserRecipeRating.rating.isnot(None)).label('rating_count'),
+            func.count(UserRecipeRating.id).filter(UserRecipeRating.is_favorite.is_(True)).label('favorite_count'),
+        )
+        .filter(UserRecipeRating.recipe_id == recipe_id)
+        .first()
+    )
+
+    # Extract values (handle None for average when no ratings)
+    # Note: count() always returns an integer (0 if no matches), never None
+    average_rating = stats.average_rating if stats.average_rating is not None else None
+    rating_count = stats.rating_count
+    favorite_count = stats.favorite_count
+
+    return RecipeAggregateRatingsResponse(
+        average_rating=average_rating,
+        rating_count=rating_count,
+        favorite_count=favorite_count,
+    )
