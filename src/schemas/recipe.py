@@ -252,3 +252,40 @@ class RecipeAggregateRatingsResponse(BaseModel):
     average_rating: Optional[float] = Field(default=None, description="Average rating across all users (null if no ratings)")
     rating_count: int = Field(..., description="Number of users who have rated this recipe")
     favorite_count: int = Field(..., description="Number of users who favorited this recipe")
+
+
+class InventoryItemUsage(BaseModel):
+    """Schema for inventory item usage in ad-hoc recipe creation."""
+
+    inventory_item_id: UUID = Field(..., description="ID of the inventory item to use")
+    quantity_used: float = Field(..., gt=0, description="Quantity to use from inventory (must be positive)")
+    unit: str = Field(..., min_length=1, max_length=50, description="Unit of measurement")
+
+    @field_validator('unit')
+    @classmethod
+    def strip_unit(cls, v: str) -> str:
+        """Strip whitespace from unit field."""
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Unit cannot be empty or only whitespace")
+        return stripped
+
+
+class AdHocRecipeCreate(BaseModel):
+    """Request schema for creating an ad-hoc recipe from inventory items."""
+
+    name: str = Field(..., min_length=1, max_length=255, description="Recipe name")
+    steps: Optional[list] = Field(default_factory=list, description="Cooking steps (JSON array)")
+    notes: Optional[str] = Field(default=None, description="Recipe notes")
+    tags: Optional[list] = Field(default_factory=list, description="Recipe tags (JSON array)")
+    inventory_items: list[InventoryItemUsage] = Field(..., min_length=1, description="List of inventory items used in this recipe")
+    decrement_inventory: bool = Field(default=False, description="Whether to decrement inventory quantities")
+
+    @field_validator('name')
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        """Strip whitespace from name field."""
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Name cannot be empty or only whitespace")
+        return stripped
