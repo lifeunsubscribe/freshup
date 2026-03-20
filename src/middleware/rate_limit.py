@@ -3,12 +3,25 @@ Rate limiting middleware for FreshUp API endpoints.
 
 Uses slowapi (FastAPI-compatible rate limiting library) to protect
 security-sensitive endpoints from abuse and brute force attacks.
+
+Supports distributed rate limiting via Redis for multi-instance deployments.
+Falls back to in-memory storage if Redis is not configured.
 """
+
+import logging
+from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import Request
 from slowapi import Limiter
 
+from src.config import get_settings
 from src.services.audit_service import _extract_client_ip
+
+logger = logging.getLogger(__name__)
+
+# Global limiter instance - initialized once at module load
+limiter: Optional[Limiter] = None
 
 
 def get_client_ip_for_rate_limit(request: Request) -> str:
@@ -40,9 +53,95 @@ def get_client_ip_for_rate_limit(request: Request) -> str:
     return ip if ip else "unknown"
 
 
-# Rate limiter instance configured with proxy-aware IP-based key function
-# Uses in-memory storage suitable for single-instance deployment
-limiter = Limiter(key_func=get_client_ip_for_rate_limit)
+def _sanitize_redis_url(redis_url: str) -> str:
+    """
+    Sanitize Redis URL for logging by removing password.
+
+    Args:
+        redis_url: Full Redis URL potentially containing password
+
+    Returns:
+        str: Sanitized URL safe for logging
+    """
+    parsed = urlparse(redis_url)
+    if parsed.port:
+        return f"{parsed.scheme}://{parsed.hostname}:{parsed.port}{parsed.path}"
+    return f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
+
+
+def _create_limiter() -> Limiter:
+    """
+    Create and configure the rate limiter instance.
+
+    Attempts to use Redis for distributed rate limiting if redis_url is configured.
+    Falls back to in-memory storage if Redis is not configured or connection fails.
+
+    Returns:
+        Limiter: Configured slowapi Limiter instance with Redis or in-memory storage
+    """
+    settings = get_settings()
+
+    # Attempt Redis-backed distributed rate limiting
+    if settings.redis_url:
+        try:
+            import redis
+
+            redis_client = redis.from_url(
+                settings.redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
+
+            # Test Redis connection
+            redis_client.ping()
+            # Close test connection - Limiter will create its own connection pool
+            redis_client.close()
+
+            logger.info(
+                "Rate limiter initialized with Redis backend (distributed mode): %s",
+                _sanitize_redis_url(settings.redis_url)
+            )
+
+            return Limiter(
+                key_func=get_client_ip_for_rate_limit,
+                storage_uri=settings.redis_url,
+            )
+
+        except ImportError:
+            logger.warning(
+                "Redis library not installed. Rate limiter falling back to in-memory storage. "
+                "Install redis package for distributed rate limiting: pip install redis"
+            )
+        except redis.exceptions.ConnectionError as e:
+            logger.warning(
+                "Failed to connect to Redis at %s: %s. "
+                "Rate limiter falling back to in-memory storage. "
+                "This is acceptable for single-instance deployments but will not work correctly "
+                "for multi-instance deployments.",
+                _sanitize_redis_url(settings.redis_url),
+                str(e)
+            )
+        except redis.exceptions.RedisError as e:
+            logger.warning(
+                "Redis error during rate limiter initialization: %s. "
+                "Rate limiter falling back to in-memory storage.",
+                str(e)
+            )
+        except Exception as e:
+            logger.error(
+                "Unexpected error initializing Redis rate limiter: %s. "
+                "Rate limiter falling back to in-memory storage.",
+                str(e)
+            )
+
+    # Fall back to in-memory storage
+    logger.info(
+        "Rate limiter initialized with in-memory storage (single-instance mode). "
+        "For multi-instance deployments, configure REDIS_URL in environment."
+    )
+    return Limiter(key_func=get_client_ip_for_rate_limit)
 
 
 def get_limiter() -> Limiter:
@@ -52,4 +151,7 @@ def get_limiter() -> Limiter:
     Returns:
         Limiter: Configured slowapi Limiter instance
     """
+    global limiter
+    if limiter is None:
+        limiter = _create_limiter()
     return limiter
