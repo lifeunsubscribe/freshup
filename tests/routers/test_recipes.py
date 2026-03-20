@@ -174,6 +174,28 @@ class TestRecipeCRUD:
         assert data["created_by"] == str(test_user.id)
         assert "id" in data
 
+    def test_create_recipe_sets_created_by_to_authenticated_user(self, client, auth_headers, test_user, db_session):
+        """Test that created_by is correctly set to authenticated user on recipe creation."""
+        recipe_data = {
+            "name": "Ownership Test Recipe",
+            "source_type": "manual",
+        }
+
+        response = client.post("/recipes", json=recipe_data, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+
+        # Verify created_by in response matches authenticated user
+        assert data["created_by"] == str(test_user.id)
+
+        # Verify created_by in database matches authenticated user
+        from uuid import UUID
+        recipe_id = UUID(data["id"])
+        db_recipe = db_session.query(Recipe).filter(Recipe.id == recipe_id).first()
+        assert db_recipe is not None
+        assert db_recipe.created_by == test_user.id
+
     def test_create_recipe_invalid_source_type(self, client, auth_headers):
         """Test creating recipe with invalid source_type fails."""
         recipe_data = {
