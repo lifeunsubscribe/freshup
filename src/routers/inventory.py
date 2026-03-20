@@ -16,7 +16,7 @@ from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.db.database import get_db
@@ -83,6 +83,8 @@ def create_inventory_item(
     try:
         db.commit()
         db.refresh(new_item)
+        # Eager load relationships to prevent N+1 queries in response serialization
+        db.refresh(new_item, attribute_names=['available_at_stores', 'preferred_store_rel'])
     except IntegrityError as e:
         db.rollback()
         logger.error(f"Integrity error during inventory item creation for user {current_user.id}")
@@ -156,9 +158,11 @@ def create_inventory_items_bulk(
         # Commit all items atomically
         db.commit()
 
-        # Refresh all items to get generated IDs
+        # Refresh all items to get generated IDs and eager load relationships
         for item in created_items:
             db.refresh(item)
+            # Eager load relationships to prevent N+1 queries in response serialization
+            db.refresh(item, attribute_names=['available_at_stores', 'preferred_store_rel'])
 
     except IntegrityError as e:
         db.rollback()
@@ -316,8 +320,13 @@ def get_inventory_item(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
     """
+    # Eager load relationships to prevent N+1 queries
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -361,9 +370,13 @@ def update_inventory_item(
         HTTPException(404): If item doesn't exist or belongs to another user
         HTTPException(422): If validation fails (invalid unit, category, etc.)
     """
-    # Query item with user ownership check
+    # Query item with user ownership check and eager load relationships
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -506,9 +519,13 @@ def set_preferred_store(
             detail="Store not found"
         )
 
-    # Query item with user ownership check
+    # Query item with user ownership check and eager load relationships
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -568,9 +585,13 @@ def clear_preferred_store(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
     """
-    # Query item with user ownership check
+    # Query item with user ownership check and eager load relationships
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -641,9 +662,13 @@ def add_available_store(
             detail="Store not found"
         )
 
-    # Query item with user ownership check
+    # Query item with user ownership check and eager load relationships
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -720,9 +745,13 @@ def remove_available_store(
             detail="Store not found"
         )
 
-    # Query item with user ownership check
+    # Query item with user ownership check and eager load relationships
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -851,9 +880,13 @@ def update_shareability(
         HTTPException(404): If item doesn't exist or belongs to another user
         HTTPException(422): If shareability is invalid or reserved_note exceeds 500 chars
     """
-    # Query item with user ownership check
+    # Query item with user ownership check and eager load relationships
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -927,9 +960,13 @@ def freeze_inventory_item(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
     """
-    # Query item with user ownership check
+    # Query item with user ownership check and eager load relationships
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -991,9 +1028,13 @@ def thaw_inventory_item(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
     """
-    # Query item with user ownership check
+    # Query item with user ownership check and eager load relationships
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -1059,9 +1100,13 @@ def consume_inventory_item(
         HTTPException(400): If consumption amount exceeds available quantity
         HTTPException(422): If amount is negative or zero
     """
-    # Query item with user ownership check
+    # Query item with user ownership check and eager load relationships
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
