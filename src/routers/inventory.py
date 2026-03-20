@@ -953,7 +953,7 @@ def freeze_inventory_item(
 
     # Update storage location and frozen date
     item.storage_location = StorageLocation.freezer.value
-    item.frozen_date = datetime.now(timezone.utc)
+    item.frozen_date = datetime.utcnow()
 
     try:
         db.commit()
@@ -1114,7 +1114,7 @@ def consume_inventory_item(
         )
 
         return ConsumptionResponse(
-            message=f"Consumed {consumption_data.amount:.10g} {item.unit}. Item deleted (quantity reached 0).",
+            message=f"Consumed {consumption_data.amount} {item.unit}. Item deleted (quantity reached 0).",
             deleted=True,
             item=None
         )
@@ -1141,7 +1141,7 @@ def consume_inventory_item(
         )
 
         return ConsumptionResponse(
-            message=f"Consumed {consumption_data.amount:.10g} {item.unit}. {new_quantity:.10g} {item.unit} remaining.",
+            message=f"Consumed {consumption_data.amount} {item.unit}. {new_quantity} {item.unit} remaining.",
             deleted=False,
             item=item
         )
