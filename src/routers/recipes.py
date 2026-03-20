@@ -253,12 +253,15 @@ def list_recipes(
     has_variation: Optional[bool] = Query(default=None, description="Filter by variation groups presence (true/false)"),
 ):
     """
-    List recipes for the authenticated user with filtering and pagination.
+    List all recipes with filtering and pagination.
 
-    Returns recipes created by the current user, ordered by most recently added first.
+    Returns all recipes in the system (global read), ordered by most recently added first.
     Supports pagination via limit and offset query parameters.
     Supports filtering by source_type, tag, cook time, prep time, name search, and
     variation presence. Multiple filters combine with AND logic.
+
+    This endpoint provides global read access - all users can see all recipes.
+    Only recipe creators can modify/delete their own recipes via PUT/DELETE endpoints.
 
     Args:
         current_user: Authenticated user (injected by get_current_user dependency)
@@ -273,14 +276,14 @@ def list_recipes(
         has_variation: Filter by variation groups presence (true for recipes with variations, false for none)
 
     Returns:
-        list[RecipeListResponse]: List of user's recipes matching filters
+        list[RecipeListResponse]: List of all recipes matching filters
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(422): If invalid enum value provided for source_type
     """
-    # Start with base query filtering by user
-    query = db.query(Recipe).filter(Recipe.created_by == current_user.id)
+    # Start with base query (global read - no user filter)
+    query = db.query(Recipe)
 
     # Apply source_type filter
     if source_type is not None:
@@ -372,8 +375,9 @@ def get_recipe(
     """
     Get a single recipe by ID.
 
-    Retrieves a specific recipe. Returns 404 if the recipe doesn't exist
-    or belongs to a different user (preventing cross-user access).
+    Retrieves a specific recipe. Returns 404 if the recipe doesn't exist.
+    This endpoint provides global read access - any authenticated user can
+    view any recipe. Only the recipe creator can modify/delete via PUT/DELETE.
 
     Args:
         recipe_id: UUID of the recipe to retrieve
@@ -385,14 +389,11 @@ def get_recipe(
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
-        HTTPException(404): If recipe doesn't exist or belongs to another user
+        HTTPException(404): If recipe doesn't exist
     """
     recipe = (
         db.query(Recipe)
-        .filter(
-            Recipe.id == recipe_id,
-            Recipe.created_by == current_user.id,
-        )
+        .filter(Recipe.id == recipe_id)
         .first()
     )
 
