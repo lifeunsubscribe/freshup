@@ -834,17 +834,16 @@ class TestSwitchUser:
 
         # Verify audit log contains correct information
         assert audit_log.user_id == coordinator_user.id  # Original user who initiated the switch
-        assert audit_log.email == coordinator_user.email
         assert audit_log.event_type == AuthEventType.user_switch.value
         assert audit_log.success is True
         assert audit_log.failure_reason is None
 
-        # Verify metadata contains switch context
+        # Verify metadata contains switch context (emails are stripped per data minimization policy)
         assert audit_log.event_metadata is not None
         assert audit_log.event_metadata["original_user_id"] == str(coordinator_user.id)
-        assert audit_log.event_metadata["original_email"] == coordinator_user.email
         assert audit_log.event_metadata["target_user_id"] == str(member_user.id)
-        assert audit_log.event_metadata["target_email"] == member_user.email
+        assert "original_email" not in audit_log.event_metadata
+        assert "target_email" not in audit_log.event_metadata
 
         # Verify timestamp is captured
         assert audit_log.created_at is not None
@@ -877,7 +876,6 @@ class TestSwitchUser:
 
         # Verify audit log contains correct failure information
         assert audit_log.user_id == member_user.id
-        assert audit_log.email == member_user.email
         assert audit_log.event_type == AuthEventType.authorization_failure.value
 
         # Verify metadata contains attempted switch context
@@ -1716,9 +1714,8 @@ class TestAuditLogging:
         response = client.post("/auth/register", json=registration_data)
         assert response.status_code == 201
 
-        # Check audit log was created
+        # Check audit log was created (email is not stored per data minimization policy)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
-            email="newuser@example.com",
             event_type=AuthEventType.registration.value
         ).all()
 
@@ -1742,9 +1739,8 @@ class TestAuditLogging:
         response = client.post("/auth/register", json=registration_data)
         assert response.status_code == 400
 
-        # Check audit log was created for failure
+        # Check audit log was created for failure (email is not stored per data minimization policy)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
-            email=test_user.email,
             event_type=AuthEventType.registration.value,
             success=False
         ).all()
@@ -1766,9 +1762,9 @@ class TestAuditLogging:
         response = client.post("/auth/login", json=login_data)
         assert response.status_code == 200
 
-        # Check audit log was created
+        # Check audit log was created (email is not stored per data minimization policy)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
-            email=test_user.email,
+            user_id=test_user.id,
             event_type=AuthEventType.login_success.value
         ).all()
 
@@ -1790,9 +1786,8 @@ class TestAuditLogging:
         response = client.post("/auth/login", json=login_data)
         assert response.status_code == 401
 
-        # Check audit log was created for failure
+        # Check audit log was created for failure (email is not stored per data minimization policy)
         audit_logs = db_session.query(AuthAuditLog).filter_by(
-            email=test_user.email,
             event_type=AuthEventType.login_failure.value
         ).all()
 
@@ -1822,7 +1817,6 @@ class TestAuditLogging:
         assert len(audit_logs) == 1
         log = audit_logs[0]
         assert log.success is True
-        assert log.email == test_user.email
         assert "name" in log.event_metadata["fields_updated"]
         assert "dietary_profile" in log.event_metadata["fields_updated"]
 
@@ -2403,7 +2397,6 @@ class TestChangePassword:
         assert len(audit_logs) == 1
         log = audit_logs[0]
         assert log.success is True
-        assert log.email == test_user.email
         assert log.failure_reason is None
 
     def test_change_password_creates_audit_log_on_failure(self, client, test_user, auth_headers, db_session):
