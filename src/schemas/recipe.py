@@ -275,9 +275,9 @@ class AdHocRecipeCreate(BaseModel):
     """Request schema for creating an ad-hoc recipe from inventory items."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Recipe name")
-    steps: Optional[list] = Field(default_factory=list, description="Cooking steps (JSON array)")
+    steps: Optional[list[str]] = Field(default_factory=list, description="Cooking steps (JSON array)")
     notes: Optional[str] = Field(default=None, description="Recipe notes")
-    tags: Optional[list] = Field(default_factory=list, description="Recipe tags (JSON array)")
+    tags: Optional[list[str]] = Field(default_factory=list, description="Recipe tags (JSON array)")
     inventory_items: list[InventoryItemUsage] = Field(..., min_length=1, description="List of inventory items used in this recipe")
     decrement_inventory: bool = Field(default=False, description="Whether to decrement inventory quantities")
 
