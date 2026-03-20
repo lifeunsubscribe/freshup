@@ -20,8 +20,9 @@ from src.services.audit_service import _extract_client_ip
 
 logger = logging.getLogger(__name__)
 
-# Global limiter instance - initialized once at module load
-limiter: Optional[Limiter] = None
+# Global limiter instance - initialized at module load
+# Must be a valid Limiter at import time: auth.py uses @limiter.limit() decorators
+limiter: Limiter = None  # type: ignore[assignment] — set by _init_limiter() below
 
 
 def get_client_ip_for_rate_limit(request: Request) -> str:
@@ -151,7 +152,9 @@ def get_limiter() -> Limiter:
     Returns:
         Limiter: Configured slowapi Limiter instance
     """
-    global limiter
-    if limiter is None:
-        limiter = _create_limiter()
     return limiter
+
+
+# Initialize at module load — must happen before auth.py imports this module,
+# as @limiter.limit() decorators are evaluated at import time.
+limiter = _create_limiter()
