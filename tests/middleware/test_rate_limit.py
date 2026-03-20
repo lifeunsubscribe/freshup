@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import Mock
 from fastapi import Request
 
-from src.middleware.rate_limit import get_client_ip_for_rate_limit, limiter
+from src.middleware.rate_limit import get_client_ip_for_rate_limit, get_limiter
 
 
 class TestGetClientIpForRateLimit:
@@ -221,4 +221,4 @@ class TestLimiterConfiguration:
         This ensures that the rate limiter will respect the X-Forwarded-For
         configuration for all rate-limited endpoints.
         """
-        assert limiter._key_func == get_client_ip_for_rate_limit
+        assert get_limiter()._key_func == get_client_ip_for_rate_limit
