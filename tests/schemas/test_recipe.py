@@ -260,3 +260,227 @@ class TestNotesValidationConsistency:
         assert create_max == 10000, f"RecipeCreate notes max_length should be 10000, got {create_max}"
         assert update_max == 10000, f"RecipeUpdate notes max_length should be 10000, got {update_max}"
         assert adhoc_max == 10000, f"AdHocRecipeCreate notes max_length should be 10000, got {adhoc_max}"
+
+
+class TestRecipeCreateTagsAndStepsValidation:
+    """Test tags and steps field validation for RecipeCreate schema."""
+
+    def test_create_recipe_with_valid_tags(self):
+        """Test creating a recipe with valid tags."""
+        valid_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+            "tags": ["vegetarian", "quick", "easy"]
+        }
+        recipe = RecipeCreate(**valid_data)
+        assert recipe.tags == ["vegetarian", "quick", "easy"]
+
+    def test_create_recipe_with_valid_steps(self):
+        """Test creating a recipe with valid steps."""
+        valid_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+            "steps": ["Preheat oven to 350F", "Mix ingredients", "Bake for 30 minutes"]
+        }
+        recipe = RecipeCreate(**valid_data)
+        assert recipe.steps == ["Preheat oven to 350F", "Mix ingredients", "Bake for 30 minutes"]
+
+    def test_create_recipe_with_unicode_tags(self):
+        """Test that tags with Unicode characters are normalized and accepted."""
+        valid_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+            "tags": ["café-style", "jalapeño", "crème fraîche"]
+        }
+        recipe = RecipeCreate(**valid_data)
+        assert "café-style" in recipe.tags
+        assert "jalapeño" in recipe.tags
+        assert "crème fraîche" in recipe.tags
+
+    def test_create_recipe_with_empty_tags_list(self):
+        """Test creating a recipe with an empty tags list."""
+        valid_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+            "tags": []
+        }
+        recipe = RecipeCreate(**valid_data)
+        assert recipe.tags == []
+
+    def test_create_recipe_with_whitespace_in_tags(self):
+        """Test that whitespace is stripped from tags and empty strings are filtered."""
+        valid_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+            "tags": ["  vegetarian  ", "quick", "  ", ""]
+        }
+        recipe = RecipeCreate(**valid_data)
+        # Empty strings and whitespace-only strings should be filtered out
+        assert recipe.tags == ["vegetarian", "quick"]
+
+    def test_create_recipe_with_tag_exceeding_max_length(self):
+        """Test that tags exceeding max item length raise a validation error."""
+        long_tag = "a" * 101  # Exceeds MAX_LIST_ITEM_LENGTH (100)
+        invalid_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+            "tags": [long_tag]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            RecipeCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("tags",)
+        assert "cannot exceed 100 characters" in str(errors[0]["msg"])
+
+    def test_create_recipe_with_too_many_tags(self):
+        """Test that tags list exceeding max size raises a validation error."""
+        invalid_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+            "tags": [f"tag{i}" for i in range(101)]  # Exceeds MAX_LIST_SIZE (100)
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            RecipeCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("tags",)
+        assert "cannot contain more than 100 items" in str(errors[0]["msg"])
+
+    def test_create_recipe_with_invalid_characters_in_tags(self):
+        """Test that tags with invalid characters raise a validation error."""
+        invalid_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+            "tags": ["valid-tag", "invalid@tag"]  # @ is not allowed
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            RecipeCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("tags",)
+        assert "can only contain letters, numbers, spaces, and common punctuation" in str(errors[0]["msg"])
+
+    def test_create_recipe_with_control_characters_in_steps(self):
+        """Test that steps with Unicode control characters are blocked."""
+        invalid_data = {
+            "name": "Test Recipe",
+            "source_type": "manual",
+            "steps": ["Valid step", "Step with\x00control char"]  # Null byte
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            RecipeCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("steps",)
+        assert "cannot contain control or format characters" in str(errors[0]["msg"])
+
+
+class TestRecipeUpdateTagsAndStepsValidation:
+    """Test tags and steps field validation for RecipeUpdate schema."""
+
+    def test_update_recipe_with_valid_tags(self):
+        """Test updating a recipe with valid tags."""
+        valid_data = {
+            "tags": ["vegan", "gluten-free"]
+        }
+        recipe = RecipeUpdate(**valid_data)
+        assert recipe.tags == ["vegan", "gluten-free"]
+
+    def test_update_recipe_with_valid_steps(self):
+        """Test updating a recipe with valid steps."""
+        valid_data = {
+            "steps": ["Step 1", "Step 2", "Step 3"]
+        }
+        recipe = RecipeUpdate(**valid_data)
+        assert recipe.steps == ["Step 1", "Step 2", "Step 3"]
+
+    def test_update_recipe_with_none_tags(self):
+        """Test updating a recipe with None tags (should be valid)."""
+        valid_data = {
+            "tags": None
+        }
+        recipe = RecipeUpdate(**valid_data)
+        assert recipe.tags is None
+
+    def test_update_recipe_with_tag_exceeding_max_length(self):
+        """Test that tags exceeding max item length raise a validation error."""
+        long_tag = "b" * 101
+        invalid_data = {
+            "tags": [long_tag]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            RecipeUpdate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("tags",)
+        assert "cannot exceed 100 characters" in str(errors[0]["msg"])
+
+
+class TestAdHocRecipeCreateTagsAndStepsValidation:
+    """Test tags and steps field validation for AdHocRecipeCreate schema."""
+
+    def test_create_adhoc_recipe_with_valid_tags_and_steps(self):
+        """Test creating an ad-hoc recipe with valid tags and steps."""
+        inventory_item_id = uuid4()
+        valid_data = {
+            "name": "Ad-Hoc Recipe",
+            "tags": ["leftover", "quick"],
+            "steps": ["Mix everything", "Cook"],
+            "inventory_items": [
+                {
+                    "inventory_item_id": inventory_item_id,
+                    "quantity_used": 2.0,
+                    "unit": "cups"
+                }
+            ]
+        }
+        recipe = AdHocRecipeCreate(**valid_data)
+        assert recipe.tags == ["leftover", "quick"]
+        assert recipe.steps == ["Mix everything", "Cook"]
+
+    def test_create_adhoc_recipe_with_empty_tags_and_steps(self):
+        """Test creating an ad-hoc recipe with empty tags and steps lists."""
+        inventory_item_id = uuid4()
+        valid_data = {
+            "name": "Ad-Hoc Recipe",
+            "tags": [],
+            "steps": [],
+            "inventory_items": [
+                {
+                    "inventory_item_id": inventory_item_id,
+                    "quantity_used": 1.0,
+                    "unit": "cup"
+                }
+            ]
+        }
+        recipe = AdHocRecipeCreate(**valid_data)
+        assert recipe.tags == []
+        assert recipe.steps == []
+
+    def test_create_adhoc_recipe_with_invalid_step(self):
+        """Test that steps with invalid characters raise a validation error."""
+        inventory_item_id = uuid4()
+        invalid_data = {
+            "name": "Ad-Hoc Recipe",
+            "steps": ["Valid step", "Invalid # step"],  # # is not allowed
+            "inventory_items": [
+                {
+                    "inventory_item_id": inventory_item_id,
+                    "quantity_used": 1.0,
+                    "unit": "cup"
+                }
+            ]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            AdHocRecipeCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("steps",)
+        assert "can only contain letters, numbers, spaces, and common punctuation" in str(errors[0]["msg"])
