@@ -141,7 +141,7 @@ def create_ad_hoc_recipe(
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If any inventory_item_id not found or not owned by current user
-        HTTPException(400): If decrement would result in negative quantity
+        HTTPException(400): If units mismatch between recipe and inventory, or if decrement would result in negative quantity
         HTTPException(422): If validation fails (empty inventory_items list, etc.)
     """
     # Phase 1: Validate inventory item ownership and existence
@@ -167,7 +167,19 @@ def create_ad_hoc_recipe(
                 detail=f"Inventory item {item_usage.inventory_item_id} not found or not owned by user"
             )
 
-    # Phase 2: Validate quantity sufficiency (if decrement is requested)
+    # Phase 2: Validate unit consistency and quantity sufficiency
+    # Validate units match between recipe and inventory (prevents data corruption)
+    for item_usage in recipe_data.inventory_items:
+        inventory_item = inventory_map[item_usage.inventory_item_id]
+
+        # Check unit mismatch (case-sensitive comparison)
+        if item_usage.unit != inventory_item.unit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unit mismatch for {inventory_item.name}: recipe uses \"{item_usage.unit}\" but inventory has \"{inventory_item.unit}\""
+            )
+
+    # Validate quantity sufficiency (if decrement is requested)
     # This happens BEFORE any mutations to ensure atomicity
     if recipe_data.decrement_inventory:
         for item_usage in recipe_data.inventory_items:
