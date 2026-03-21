@@ -207,10 +207,7 @@ def update_item(
     item_id: UUID,
     current_user: User,
     db: Session,
-    item_name: Optional[str] = None,
-    quantity: Optional[float] = None,
-    unit: Optional[str] = None,
-    target_store: Optional[UUID] = None,
+    **update_fields,
 ) -> GroceryListItem:
     """
     Update a grocery item with partial data.
@@ -218,14 +215,13 @@ def update_item(
     Allows partial updates - only provided fields will be updated. Returns 404
     if the item doesn't exist or is not owned by the current user (owner-restricted writes).
 
+    Supports explicitly clearing optional fields by setting them to None.
+
     Args:
         item_id: UUID of the grocery item to update
         current_user: Authenticated user performing the update
         db: Database session
-        item_name: Optional new item name
-        quantity: Optional new quantity
-        unit: Optional new unit
-        target_store: Optional new target store ID
+        **update_fields: Fields to update (item_name, quantity, unit, target_store)
 
     Returns:
         GroceryListItem: Updated grocery item
@@ -245,14 +241,15 @@ def update_item(
         )
 
     # Update only the fields that were provided
-    if item_name is not None:
-        item.item_name = item_name
-    if quantity is not None:
-        item.quantity = quantity
-    if unit is not None:
-        item.unit = unit
-    if target_store is not None:
-        item.target_store = target_store
+    # Using 'in' operator allows distinguishing between "not provided" and "explicitly set to None"
+    if 'item_name' in update_fields:
+        item.item_name = update_fields['item_name']
+    if 'quantity' in update_fields:
+        item.quantity = update_fields['quantity']
+    if 'unit' in update_fields:
+        item.unit = update_fields['unit']
+    if 'target_store' in update_fields:
+        item.target_store = update_fields['target_store']
 
     try:
         db.commit()
