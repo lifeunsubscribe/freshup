@@ -1102,7 +1102,8 @@ def consume_inventory_item(
         )
 
     # Validate consumption amount doesn't exceed available quantity
-    if consumption_data.amount > item.quantity:
+    # Use tolerance to handle floating-point precision issues
+    if consumption_data.amount > item.quantity + FLOAT_COMPARISON_TOLERANCE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot consume {consumption_data.amount} {item.unit}. Only {item.quantity} {item.unit} available."
