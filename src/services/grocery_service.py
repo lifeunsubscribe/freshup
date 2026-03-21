@@ -20,6 +20,9 @@ from src.db.models.inventory_item import InventoryItem, UnitType
 
 logger = logging.getLogger(__name__)
 
+# Pre-computed set of valid inventory units for cross-domain validation
+_VALID_INVENTORY_UNITS = {unit_type.value for unit_type in UnitType}
+
 
 def _validate_unit_for_inventory(unit: str, item_name: str) -> None:
     """
@@ -36,11 +39,10 @@ def _validate_unit_for_inventory(unit: str, item_name: str) -> None:
     Raises:
         HTTPException(422): If the unit is not a valid UnitType enum value
     """
-    valid_units = {unit_type.value for unit_type in UnitType}
-    if unit not in valid_units:
+    if unit not in _VALID_INVENTORY_UNITS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Cannot create inventory item for '{item_name}': unit '{unit}' is not valid for inventory. Valid units: {', '.join(sorted(valid_units))}"
+            detail=f"Cannot create inventory item for '{item_name}': unit '{unit}' is not valid for inventory. Valid units: {', '.join(sorted(_VALID_INVENTORY_UNITS))}"
         )
 
 
