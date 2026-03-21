@@ -181,12 +181,15 @@ def validate_name_not_empty(value: Optional[str], strip: bool = True) -> Optiona
     """
     Validate that a name field is not empty or whitespace-only.
 
+    Normalizes Unicode to NFC form to prevent duplicate names with different
+    Unicode representations (e.g., "café" with composed vs decomposed accents).
+
     Args:
         value: The name to validate
         strip: Whether to strip whitespace from the result (default: True)
 
     Returns:
-        Stripped name if valid, or None if input was None
+        Stripped and NFC-normalized name if valid, or None if input was None
 
     Raises:
         ValueError: If name is empty or whitespace-only
@@ -197,7 +200,10 @@ def validate_name_not_empty(value: Optional[str], strip: bool = True) -> Optiona
     if not value or not value.strip():
         raise ValueError('Name cannot be empty')
 
-    return value.strip() if strip else value
+    # Normalize to NFC form for consistent Unicode representation
+    # Strip whitespace only if requested
+    to_normalize = value.strip() if strip else value
+    return unicodedata.normalize('NFC', to_normalize)
 
 
 def validate_enum_value(

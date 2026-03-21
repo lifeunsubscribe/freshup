@@ -53,6 +53,52 @@ class TestValidateNameNotEmpty:
         result = validate_name_not_empty("A")
         assert result == "A"
 
+    def test_unicode_normalization_nfc(self):
+        """Test that Unicode is normalized to NFC form."""
+        # "café" with decomposed é (U+0065 U+0301)
+        decomposed = "cafe\u0301"
+        # "café" with composed é (U+00E9)
+        composed = "caf\u00e9"
+
+        result = validate_name_not_empty(decomposed)
+        # Result should be normalized to composed form (NFC)
+        assert result == composed
+        assert result == "café"
+
+    def test_unicode_normalization_with_multiple_accents(self):
+        """Test normalization with multiple accented characters."""
+        # "crème fraîche" with decomposed accents
+        decomposed = "cre\u0300me frai\u0302che"
+        # "crème fraîche" with composed accents
+        composed = "cr\u00e8me fra\u00eeche"
+
+        result = validate_name_not_empty(decomposed)
+        assert result == composed
+        assert result == "crème fraîche"
+
+    def test_unicode_normalization_preserves_non_latin(self):
+        """Test that normalization works with non-Latin scripts."""
+        # Japanese characters (should be unaffected by NFC as they're already normalized)
+        japanese = "寿司"
+        result = validate_name_not_empty(japanese)
+        assert result == japanese
+
+        # Arabic characters
+        arabic = "مرحبا"
+        result = validate_name_not_empty(arabic)
+        assert result == arabic
+
+    def test_unicode_normalization_without_strip(self):
+        """Test that normalization works when strip=False."""
+        # "café" with decomposed é and surrounding whitespace
+        decomposed = "  cafe\u0301  "
+        composed = "caf\u00e9"
+
+        result = validate_name_not_empty(decomposed, strip=False)
+        # Should normalize but preserve original spacing (not strip)
+        assert result == f"  {composed}  "
+        assert result == "  café  "
+
 
 class TestValidateEnumValue:
     """Tests for validate_enum_value function."""

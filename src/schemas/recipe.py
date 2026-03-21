@@ -9,7 +9,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from src.db.models.recipe import SourceType
-from src.schemas.validators import validate_enum_value, validate_non_negative
+from src.schemas.validators import validate_enum_value, validate_non_negative, validate_name_not_empty
 
 
 class RecipeCreate(BaseModel):
@@ -30,6 +30,13 @@ class RecipeCreate(BaseModel):
     nutritional_info: Optional[dict] = Field(default=None, description="Nutritional information (JSON)")
     notes: Optional[str] = Field(default=None, description="Recipe notes")
     created_by: Optional[UUID] = Field(default=None, description="User ID who created the recipe")
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Ensure name is not empty and apply Unicode normalization."""
+        result = validate_name_not_empty(v)
+        return result  # type: ignore
 
     @field_validator('source_type')
     @classmethod
@@ -74,6 +81,12 @@ class RecipeUpdate(BaseModel):
     tags: Optional[list] = Field(default=None, description="Recipe tags (JSON array)")
     nutritional_info: Optional[dict] = Field(default=None, description="Nutritional information (JSON)")
     notes: Optional[str] = Field(default=None, description="Recipe notes")
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        """Ensure name is not empty and apply Unicode normalization if provided."""
+        return validate_name_not_empty(v)
 
     @field_validator('source_type')
     @classmethod
@@ -283,9 +296,7 @@ class AdHocRecipeCreate(BaseModel):
 
     @field_validator('name')
     @classmethod
-    def strip_name(cls, v: str) -> str:
-        """Strip whitespace from name field."""
-        stripped = v.strip()
-        if not stripped:
-            raise ValueError("Name cannot be empty or only whitespace")
-        return stripped
+    def validate_name(cls, v: str) -> str:
+        """Ensure name is not empty and apply Unicode normalization."""
+        result = validate_name_not_empty(v)
+        return result  # type: ignore
