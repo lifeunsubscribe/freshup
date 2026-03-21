@@ -201,9 +201,9 @@ def validate_name_not_empty(value: Optional[str], strip: bool = True) -> Optiona
         raise ValueError('Name cannot be empty')
 
     # Normalize to NFC form for consistent Unicode representation
-    normalized = unicodedata.normalize('NFC', value.strip())
-
-    return normalized if strip else unicodedata.normalize('NFC', value)
+    # Strip whitespace only if requested
+    to_normalize = value.strip() if strip else value
+    return unicodedata.normalize('NFC', to_normalize)
 
 
 def validate_enum_value(
