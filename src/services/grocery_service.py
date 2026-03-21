@@ -163,7 +163,7 @@ def list_items(
     # Apply ordering and pagination
     items = (
         query
-        .order_by(GroceryListItem.id.desc())  # Most recently added first
+        .order_by(GroceryListItem.created_at.desc())  # Most recently added first (chronological)
         .limit(limit)
         .offset(offset)
         .all()
@@ -560,7 +560,7 @@ def get_items_by_store(
     unpurchased items (include_purchased=False).
 
     Uses eager loading (selectinload) to avoid N+1 queries when accessing
-    store relationships. Items are ordered by ID descending (most recent first)
+    store relationships. Items are ordered by created_at descending (most recent first)
     within each store group.
 
     Args:
@@ -583,8 +583,8 @@ def get_items_by_store(
     if not include_purchased:
         query = query.filter(GroceryListItem.purchased.is_(False))
 
-    # Order by most recent first
-    items = query.order_by(GroceryListItem.id.desc()).all()
+    # Order by most recent first (chronological order using created_at timestamp)
+    items = query.order_by(GroceryListItem.created_at.desc()).all()
 
     # Group items by store
     # Use dict to track stores: {store_id: {"store_id": UUID, "store_name": str, "items": [...]}}
