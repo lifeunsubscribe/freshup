@@ -88,12 +88,17 @@ def _create_limiter() -> Limiter:
             import redis
 
             # Test Redis connection with the configured pool settings
+            # Use full pool configuration to validate all settings work correctly
             redis_client = redis.from_url(
                 settings.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
+                max_connections=settings.redis_max_connections,
                 socket_connect_timeout=settings.redis_socket_connect_timeout,
                 socket_timeout=settings.redis_socket_timeout,
+                socket_keepalive=settings.redis_socket_keepalive,
+                health_check_interval=settings.redis_health_check_interval,
+                retry_on_timeout=settings.redis_retry_on_timeout,
             )
 
             # Test Redis connection

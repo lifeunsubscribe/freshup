@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from functools import lru_cache
 
 
@@ -37,11 +38,11 @@ class Settings(BaseSettings):
     # Redis Connection Pool Configuration
     # These settings tune the Redis connection pool for performance and reliability
     # Defaults are conservative; adjust based on load testing and production metrics
-    redis_max_connections: int = 50  # Max connections in pool (redis-py default)
-    redis_socket_connect_timeout: float = 5.0  # Timeout for new connections (seconds)
-    redis_socket_timeout: float = 5.0  # Timeout for socket operations (seconds)
+    redis_max_connections: int = Field(default=50, gt=0)  # Max connections in pool (redis-py default)
+    redis_socket_connect_timeout: float = Field(default=5.0, gt=0)  # Timeout for new connections (seconds)
+    redis_socket_timeout: float = Field(default=5.0, gt=0)  # Timeout for socket operations (seconds)
     redis_socket_keepalive: bool = True  # Enable TCP keepalive
-    redis_health_check_interval: int = 30  # Health check interval (seconds, 0=disabled)
+    redis_health_check_interval: int = Field(default=30, ge=0)  # Health check interval (seconds, 0=disabled)
     redis_retry_on_timeout: bool = True  # Retry operations that timeout
 
 
