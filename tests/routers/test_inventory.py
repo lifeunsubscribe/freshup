@@ -2929,6 +2929,142 @@ class TestConsumeInventoryItem:
         assert response3.status_code == 200
         assert response3.json()["deleted"] is True
 
+    def test_consume_floating_point_edge_case_tiny_positive_value(self, client, auth_headers, test_user, db_session):
+        """Should delete item when result is tiny positive value (effectively zero) with auto-delete."""
+        # Create item with a quantity that will result in a very small positive value after consumption
+        # due to floating-point arithmetic (e.g., 1.0 - 0.9999999999 = ~1e-10)
+        item = InventoryItem(
+            name="Precision Test Item",
+            quantity=1.0,
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        # Consume an amount that leaves a tiny residual due to floating-point precision
+        # Using 0.9999999999 which should leave ~1e-10
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 0.9999999999, "delete_when_empty": True}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should delete because remaining quantity is within tolerance of zero
+        assert data["deleted"] is True
+        assert "Item deleted (quantity reached 0)" in data["message"]
+        assert data["item"] is None
+
+        # Verify item is deleted from database
+        db_session.expire_all()
+        deleted_item = db_session.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        assert deleted_item is None
+
+    def test_consume_floating_point_edge_case_exactly_tolerance(self, client, auth_headers, test_user, db_session):
+        """Should keep item when result is just above tolerance threshold without auto-delete."""
+        # Create item with quantity that will result in a value just above the tolerance (1e-9)
+        item = InventoryItem(
+            name="Tolerance Boundary Item",
+            quantity=1.0,
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        # Consume amount leaving exactly 2e-9 (above tolerance of 1e-9)
+        # This should NOT be deleted
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 1.0 - 2e-9, "delete_when_empty": False}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # Should NOT delete because remaining is above tolerance
+        assert data["deleted"] is False
+        assert data["item"] is not None
+        # Verify the small remaining quantity is preserved
+        assert data["item"]["quantity"] > 0
+
+        # Verify item still exists in database
+        db_session.expire_all()
+        kept_item = db_session.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        assert kept_item is not None
+
+    def test_consume_floating_point_edge_case_multiple_operations(self, client, auth_headers, test_user, db_session):
+        """Should handle multiple floating-point operations correctly."""
+        # Test multiple consumption operations that accumulate floating-point errors
+        item = InventoryItem(
+            name="Multi-Op Item",
+            quantity=10.0,
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        # Perform multiple consumptions with decimal amounts that are known to
+        # accumulate floating-point rounding errors
+        amounts = [0.1] * 100  # Consume 0.1 oz 100 times = 10.0 oz total
+
+        for amount in amounts:
+            response = client.post(
+                f"/inventory/{item_id}/consume",
+                headers=auth_headers,
+                json={"amount": amount, "delete_when_empty": True}
+            )
+            assert response.status_code == 200
+
+        # After all consumptions, item should be deleted (total consumed = 10.0)
+        # despite potential floating-point rounding errors
+        db_session.expire_all()
+        deleted_item = db_session.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        assert deleted_item is None
+
+    def test_consume_floating_point_edge_case_overconsumption_validation(self, client, auth_headers, test_user, db_session):
+        """Should prevent overconsumption even with floating-point edge cases."""
+        # Test that validation still works correctly with floating-point values
+        item = InventoryItem(
+            name="Validation Test Item",
+            quantity=0.3,  # A value that's difficult to represent exactly in binary
+            unit="oz",
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        item_id = item.id
+
+        # Try to consume slightly more than available
+        response = client.post(
+            f"/inventory/{item_id}/consume",
+            headers=auth_headers,
+            json={"amount": 0.30000001}
+        )
+
+        # Should reject overconsumption
+        assert response.status_code == 400
+        assert "Cannot consume" in response.json()["detail"]
+
+        # Verify quantity unchanged
+        db_session.expire_all()
+        unchanged_item = db_session.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        assert unchanged_item.quantity == 0.3
+
 
 class TestBulkCreateInventoryItems:
     """Test suite for bulk inventory item creation endpoint."""
