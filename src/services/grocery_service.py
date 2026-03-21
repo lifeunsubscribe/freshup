@@ -148,7 +148,7 @@ def list_items(
     # rather than a historical log of all grocery items
     if purchased is None:
         # Default behavior: show only unpurchased items
-        query = query.filter(GroceryListItem.purchased == False)
+        query = query.filter(GroceryListItem.purchased.is_(False))
     else:
         # Explicit filter: show items matching the purchased status
         # Use purchased=true to see completed items, purchased=false for active items
@@ -581,7 +581,7 @@ def get_items_by_store(
 
     # Apply purchased filter
     if not include_purchased:
-        query = query.filter(GroceryListItem.purchased == False)
+        query = query.filter(GroceryListItem.purchased.is_(False))
 
     # Order by most recent first
     items = query.order_by(GroceryListItem.id.desc()).all()
