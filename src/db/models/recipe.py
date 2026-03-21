@@ -4,7 +4,7 @@ from enum import Enum as PyEnum
 from uuid import UUID, uuid4
 from typing import Optional
 
-from sqlalchemy import String, Integer, JSON, Text, ForeignKey
+from sqlalchemy import String, Integer, JSON, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -37,7 +37,7 @@ class Recipe(Base):
     nutritional_info: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     times_cooked: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(String(10000), nullable=True)
 
     # Relationships
     created_by_user: Mapped[Optional["User"]] = relationship(back_populates="recipes_created")
