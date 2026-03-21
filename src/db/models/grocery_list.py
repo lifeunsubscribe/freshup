@@ -35,6 +35,7 @@ class GroceryListItem(Base):
     purchased: Mapped[bool] = mapped_column(Boolean, default=False)
     purchased_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
     purchased_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Relationships
     added_by_user: Mapped["User"] = relationship(
