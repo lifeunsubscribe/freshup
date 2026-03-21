@@ -1,9 +1,9 @@
 """
 Grocery list service for FreshUp.
 
-Provides business logic for grocery list purchase operations,
-including single item and bulk purchase actions with optional
-inventory item creation.
+Provides business logic for grocery list CRUD operations and
+purchase actions, including single item and bulk purchase actions
+with optional inventory item creation.
 """
 
 import logging
@@ -11,7 +11,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from fastapi import HTTPException, status
 
 from src.db.models.user import User
@@ -44,6 +44,296 @@ def _validate_unit_for_inventory(unit: str, item_name: str) -> None:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Cannot create inventory item for '{item_name}': unit '{unit}' is not valid for inventory. Valid units: {', '.join(sorted(_VALID_INVENTORY_UNITS))}"
         )
+
+
+def create_item(
+    item_name: str,
+    quantity: float,
+    unit: str,
+    source: str,
+    current_user: User,
+    db: Session,
+    target_store: Optional[UUID] = None,
+    notes: Optional[str] = None,
+) -> GroceryListItem:
+    """
+    Create a new grocery list item.
+
+    The added_by field is automatically set to the current user's ID,
+    ignoring any value provided in the request body for security.
+
+    Args:
+        item_name: Name of the grocery item
+        quantity: Quantity of the item (must be positive)
+        unit: Unit of measurement
+        source: Source of the grocery item (e.g., "manual")
+        current_user: Authenticated user creating the item
+        db: Database session
+        target_store: Optional target store ID
+        notes: Optional notes about the item
+
+    Returns:
+        GroceryListItem: Created grocery item
+
+    Raises:
+        HTTPException(400): If data integrity violation occurs
+        HTTPException(500): If database error occurs
+    """
+    new_item = GroceryListItem(
+        item_name=item_name,
+        quantity=quantity,
+        unit=unit,
+        source=source,
+        added_by=current_user.id,
+        target_store=target_store,
+    )
+
+    db.add(new_item)
+
+    try:
+        db.commit()
+        db.refresh(new_item)
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error during grocery item creation for user {current_user.id}")
+        logger.debug(f"Integrity error occurred during grocery item creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Grocery item creation failed due to data integrity violation"
+        )
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during grocery item creation for user {current_user.id}")
+        logger.debug(f"Database error occurred during grocery item creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while creating the grocery item"
+        )
+
+    logger.info(
+        f"Grocery item created: user_id={current_user.id}, "
+        f"item_id={new_item.id}"
+    )
+
+    return new_item
+
+
+def list_items(
+    db: Session,
+    limit: int = 50,
+    offset: int = 0,
+    purchased: Optional[bool] = None,
+    search: Optional[str] = None,
+) -> list[GroceryListItem]:
+    """
+    List grocery items with filtering and pagination.
+
+    Returns ALL grocery items (shared/global reads), ordered by most recently
+    added first. Supports pagination via limit and offset. Supports filtering
+    by purchased status and name search.
+
+    Args:
+        db: Database session
+        limit: Maximum number of items to return (1-100)
+        offset: Number of items to skip
+        purchased: Filter by purchased status (None returns unpurchased only by default)
+        search: Search items by name (case-insensitive partial match)
+
+    Returns:
+        list[GroceryListItem]: List of grocery items matching filters
+    """
+    # Start with base query - NO user filter (shared/global reads)
+    query = db.query(GroceryListItem)
+
+    # Apply purchased filter (default: unpurchased only)
+    # This default behavior makes the grocery list focused on "what to buy"
+    # rather than a historical log of all grocery items
+    if purchased is None:
+        # Default behavior: show only unpurchased items
+        query = query.filter(GroceryListItem.purchased == False)
+    else:
+        # Explicit filter: show items matching the purchased status
+        # Use purchased=true to see completed items, purchased=false for active items
+        query = query.filter(GroceryListItem.purchased == purchased)
+
+    # Apply name search filter (case-insensitive partial match)
+    if search is not None:
+        # Escape LIKE wildcards to prevent DoS via expensive pattern matching
+        escaped_search = search.replace('%', r'\%').replace('_', r'\_')
+        query = query.filter(GroceryListItem.item_name.ilike(f"%{escaped_search}%", escape='\\'))
+
+    # Apply ordering and pagination
+    items = (
+        query
+        .order_by(GroceryListItem.id.desc())  # Most recently added first
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+
+    return items
+
+
+def get_item_by_id(
+    item_id: UUID,
+    db: Session,
+) -> GroceryListItem:
+    """
+    Get a single grocery item by ID.
+
+    Retrieves a specific grocery item. Returns 404 if the item doesn't exist.
+    Any authenticated user can read any item (shared/global reads).
+
+    Args:
+        item_id: UUID of the grocery item to retrieve
+        db: Database session
+
+    Returns:
+        GroceryListItem: Requested grocery item
+
+    Raises:
+        HTTPException(404): If item doesn't exist
+    """
+    item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Grocery item not found"
+        )
+
+    return item
+
+
+def update_item(
+    item_id: UUID,
+    current_user: User,
+    db: Session,
+    item_name: Optional[str] = None,
+    quantity: Optional[float] = None,
+    unit: Optional[str] = None,
+    target_store: Optional[UUID] = None,
+    notes: Optional[str] = None,
+) -> GroceryListItem:
+    """
+    Update a grocery item with partial data.
+
+    Allows partial updates - only provided fields will be updated. Returns 404
+    if the item doesn't exist or is not owned by the current user (owner-restricted writes).
+
+    Args:
+        item_id: UUID of the grocery item to update
+        current_user: Authenticated user performing the update
+        db: Database session
+        item_name: Optional new item name
+        quantity: Optional new quantity
+        unit: Optional new unit
+        target_store: Optional new target store ID
+        notes: Optional new notes
+
+    Returns:
+        GroceryListItem: Updated grocery item
+
+    Raises:
+        HTTPException(404): If item doesn't exist or is not owned by current user
+        HTTPException(422): If validation fails
+        HTTPException(500): If database error occurs
+    """
+    item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
+
+    # Return 404 if item doesn't exist OR is not owned by current user
+    if not item or item.added_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Grocery item not found"
+        )
+
+    # Update only the fields that were provided
+    if item_name is not None:
+        item.item_name = item_name
+    if quantity is not None:
+        item.quantity = quantity
+    if unit is not None:
+        item.unit = unit
+    if target_store is not None:
+        item.target_store = target_store
+    if notes is not None:
+        # Note: notes field doesn't exist in the model yet, but included for future-proofing
+        pass
+
+    try:
+        db.commit()
+        db.refresh(item)
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error during grocery item update for user {current_user.id}")
+        logger.debug(f"Integrity error occurred during grocery item update: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Grocery item update failed due to data integrity violation"
+        )
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during grocery item update for user {current_user.id}")
+        logger.debug(f"Database error occurred during grocery item update: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while updating the grocery item"
+        )
+
+    logger.info(
+        f"Grocery item updated: user_id={current_user.id}, "
+        f"item_id={item_id}"
+    )
+
+    return item
+
+
+def delete_item(
+    item_id: UUID,
+    current_user: User,
+    db: Session,
+) -> None:
+    """
+    Delete a grocery item.
+
+    Removes the specified grocery item. Returns 404 if the item doesn't exist
+    or is not owned by the current user (owner-restricted writes).
+
+    Args:
+        item_id: UUID of the grocery item to delete
+        current_user: Authenticated user performing the deletion
+        db: Database session
+
+    Raises:
+        HTTPException(404): If item doesn't exist or is not owned by current user
+        HTTPException(500): If database error occurs
+    """
+    item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
+
+    # Return 404 if item doesn't exist OR is not owned by current user
+    if not item or item.added_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Grocery item not found"
+        )
+
+    try:
+        db.delete(item)
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during grocery item deletion for user {current_user.id}")
+        logger.debug(f"Database error occurred during grocery item deletion: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while deleting the grocery item"
+        )
+
+    logger.info(
+        f"Grocery item deleted: user_id={current_user.id}, "
+        f"item_id={item_id}"
+    )
 
 
 def mark_purchased(
