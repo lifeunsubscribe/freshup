@@ -8,7 +8,7 @@ store-grouped responses for the by-store endpoint.
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 from src.db.models.grocery_list import GrocerySource
 from src.db.models.inventory_item import Category, UnitType, StorageLocation
@@ -146,3 +146,20 @@ class BulkPurchaseRequest(BaseModel):
     def validate_category_field(cls, v: Optional[str]) -> Optional[str]:
         """Ensure category is a valid Category enum value if provided."""
         return validate_enum_value('Category', v, Category, allow_none=True)
+
+    @model_validator(mode='after')
+    def validate_conditional_fields(self):
+        """Ensure storage_location and category are required when create_inventory_item is true."""
+        if self.create_inventory_item:
+            if self.storage_location is None:
+                raise ValueError('storage_location is required when create_inventory_item is true')
+            if self.category is None:
+                raise ValueError('category is required when create_inventory_item is true')
+        return self
+
+
+class BulkPurchaseResponse(BaseModel):
+    """Response schema for bulk purchase endpoint."""
+
+    items: list[GroceryItemResponse] = Field(..., description="List of updated grocery items")
+    inventory_items_created: int = Field(default=0, description="Number of inventory items created")

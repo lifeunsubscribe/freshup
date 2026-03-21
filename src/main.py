@@ -8,7 +8,7 @@ from slowapi.errors import RateLimitExceeded
 
 from src.config import get_settings
 from src.db.database import Base, init_engine, get_engine, get_session_factory
-from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router
+from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router
 from src.middleware.rate_limit import limiter
 
 settings = get_settings()
@@ -76,6 +76,7 @@ app.include_router(users_router)
 app.include_router(substitutions_router)
 app.include_router(inventory_router)
 app.include_router(recipes_router)
+app.include_router(grocery_router)
 
 
 @app.get("/health")
