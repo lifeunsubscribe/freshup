@@ -183,14 +183,17 @@ def bulk_purchase(
 
         # Mark all items as purchased
         for item in items:
+            # Track if item was already purchased (to prevent duplicate inventory creation)
+            was_already_purchased = item.purchased
+
             item.purchased = True
             item.purchased_by = current_user.id
             item.purchased_date = purchase_time
 
             updated_items.append(item)
 
-            # Optionally create inventory item
-            if create_inventory_item:
+            # Optionally create inventory item (only if not already purchased)
+            if create_inventory_item and not was_already_purchased:
                 # Create inventory item from grocery item
                 inventory_item = InventoryItem(
                     name=item.item_name,
