@@ -16,9 +16,34 @@ from fastapi import HTTPException, status
 
 from src.db.models.user import User
 from src.db.models.grocery_list import GroceryListItem
-from src.db.models.inventory_item import InventoryItem
+from src.db.models.inventory_item import InventoryItem, UnitType
 
 logger = logging.getLogger(__name__)
+
+# Pre-computed set of valid inventory units for cross-domain validation
+_VALID_INVENTORY_UNITS = {unit_type.value for unit_type in UnitType}
+
+
+def _validate_unit_for_inventory(unit: str, item_name: str) -> None:
+    """
+    Validate that a unit value is compatible with the inventory domain's UnitType enum.
+
+    This function provides cross-domain validation at the boundary between grocery
+    and inventory domains, ensuring data integrity when converting grocery items
+    to inventory items.
+
+    Args:
+        unit: The unit string to validate
+        item_name: Name of the item (for error messages)
+
+    Raises:
+        HTTPException(422): If the unit is not a valid UnitType enum value
+    """
+    if unit not in _VALID_INVENTORY_UNITS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot create inventory item for '{item_name}': unit '{unit}' is not valid for inventory. Valid units: {', '.join(sorted(_VALID_INVENTORY_UNITS))}"
+        )
 
 
 def mark_purchased(
@@ -181,6 +206,13 @@ def bulk_purchase(
                 detail=f"Grocery item not found: {missing_ids[0]}"
             )
 
+        # Pre-validate all units before making any modifications (ensures atomic all-or-nothing)
+        if create_inventory_item:
+            for item in items:
+                # Only validate items that will actually create inventory (not already purchased)
+                if not item.purchased:
+                    _validate_unit_for_inventory(item.unit, item.item_name)
+
         # Mark all items as purchased
         for item in items:
             # Track if item was already purchased (to prevent duplicate inventory creation)
@@ -195,6 +227,7 @@ def bulk_purchase(
             # Optionally create inventory item (only if not already purchased)
             if create_inventory_item and not was_already_purchased:
                 # Create inventory item from grocery item
+                # (unit already validated in pre-validation phase above)
                 inventory_item = InventoryItem(
                     name=item.item_name,
                     quantity=item.quantity,
