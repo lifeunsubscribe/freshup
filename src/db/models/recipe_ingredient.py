@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from uuid import UUID, uuid4
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Float, Boolean, ForeignKey
+from sqlalchemy import String, Float, Boolean, ForeignKey, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -20,6 +21,7 @@ class RecipeIngredient(Base):
     variation_group: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     variation_diet: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     is_optional: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Relationships
     recipe_rel: Mapped["Recipe"] = relationship(back_populates="ingredients")
