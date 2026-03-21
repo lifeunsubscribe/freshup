@@ -32,6 +32,7 @@ from src.schemas.grocery import (
     GroceryItemResponse,
     BulkPurchaseRequest,
     BulkPurchaseResponse,
+    StoreGroupedGroceryResponse,
 )
 from src.middleware.auth import get_current_user
 from src.services import grocery_service
@@ -116,6 +117,39 @@ def list_grocery_items(
         offset=offset,
         purchased=purchased,
         search=search,
+    )
+
+
+@router.get("/by-store", response_model=StoreGroupedGroceryResponse)
+def get_grocery_items_by_store(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    include_purchased: bool = Query(default=False, description="Include purchased items (default: false - unpurchased only)"),
+):
+    """
+    Get grocery items grouped by target store for per-store shopping lists.
+
+    Returns ALL grocery items (shared/global reads) organized by their target
+    store. Items without a target_store appear in the "unassigned" array.
+    Empty stores (stores with no grocery items) are not included.
+
+    Default behavior: Returns only unpurchased items (include_purchased=false).
+    Use include_purchased=true to see all items including purchased ones.
+
+    Args:
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+        include_purchased: Include purchased items (default: false)
+
+    Returns:
+        StoreGroupedGroceryResponse: Items grouped by store with unassigned items
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+    """
+    return grocery_service.get_items_by_store(
+        db=db,
+        include_purchased=include_purchased,
     )
 
 
