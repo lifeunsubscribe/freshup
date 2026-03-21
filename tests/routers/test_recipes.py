@@ -2323,3 +2323,75 @@ class TestAdHocRecipeCreation:
         db_session.refresh(item2)
         assert item1.quantity == 1000.0
         assert item2.quantity == 500.0
+
+    def test_create_ad_hoc_recipe_none_unit_behavior_documentation(self, client, db_session, auth_headers, test_user):
+        """
+        Document the defensive None unit handling behavior in src/routers/recipes.py:175-184.
+
+        The code contains defensive logic to handle None units:
+        ```python
+        recipe_unit = item_usage.unit.lower() if item_usage.unit is not None else None
+        inventory_unit = inventory_item.unit.lower() if inventory_item.unit is not None else None
+        if recipe_unit != inventory_unit:
+            raise HTTPException(...)
+        ```
+
+        This defensive code would allow None == None matching for unitless items. However:
+        1. The database has a NOT NULL constraint on inventory_items.unit
+        2. Pydantic schema requires unit to be a non-empty string
+        3. Therefore, None units cannot actually occur in practice
+
+        This test documents that the database prevents None units, making the defensive
+        None-handling code unreachable but serving as good defensive programming practice
+        for potential future schema changes.
+        """
+        from src.db.models.inventory_item import InventoryItem
+        from sqlalchemy.exc import IntegrityError
+
+        # Attempt to create inventory item with None unit fails at database level
+        item = InventoryItem(
+            id=uuid4(),
+            name="Test Item",
+            quantity=10.0,
+            unit=None,  # This violates NOT NULL constraint
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+
+        # Database enforces NOT NULL constraint on unit field
+        try:
+            db_session.commit()
+            assert False, "Expected IntegrityError for NOT NULL constraint violation"
+        except IntegrityError as e:
+            assert "NOT NULL constraint failed: inventory_items.unit" in str(e)
+            db_session.rollback()
+
+    def test_create_ad_hoc_recipe_none_unit_rejected_by_schema_validation(self, client, auth_headers, test_user):
+        """
+        Test that Pydantic schema validation rejects None units in API requests.
+
+        Even though the code has defensive None-handling logic (recipes.py:175-184),
+        the Pydantic schema (InventoryItemUsage) requires unit to be a non-empty string,
+        preventing None values from reaching the business logic layer.
+
+        This is defense-in-depth: both schema validation AND the business logic
+        can handle None units safely.
+        """
+        # Try to create recipe with None unit - rejected by Pydantic validation
+        recipe_data = {
+            "name": "Null Unit Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(uuid4()), "quantity_used": 1.0, "unit": None},
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+
+        # Pydantic validation prevents None units from reaching business logic
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Verify it's a validation error on the unit field
+        assert any("unit" in str(error).lower() for error in detail)

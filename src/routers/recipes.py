@@ -174,6 +174,12 @@ def create_ad_hoc_recipe(
 
         # Check unit mismatch (case-insensitive comparison for better UX)
         # Handle None values to prevent AttributeError on .lower()
+        # Note: This is defensive programming - the database has a NOT NULL constraint
+        # on inventory_items.unit and Pydantic schema requires non-empty strings,
+        # so None units cannot occur in practice. However, this defensive check ensures
+        # safe handling if constraints change in the future. If both units are None,
+        # they match (None == None evaluates to True), allowing unitless items.
+        # See tests: test_create_ad_hoc_recipe_none_unit_behavior_documentation
         recipe_unit = item_usage.unit.lower() if item_usage.unit is not None else None
         inventory_unit = inventory_item.unit.lower() if inventory_item.unit is not None else None
 
