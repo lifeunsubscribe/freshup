@@ -37,7 +37,6 @@ class TestGroceryItemCreate:
         assert item.unit == "gallon"
         assert item.source == "manual"  # Default value
         assert item.target_store is None
-        assert item.notes is None
 
     def test_source_defaults_to_manual(self):
         """Test that source field defaults to 'manual'."""
@@ -57,7 +56,6 @@ class TestGroceryItemCreate:
             "quantity": 2.5,
             "unit": "lb",
             "target_store": store_id,
-            "notes": "Get organic if available",
             "source": "manual",
         }
         item = GroceryItemCreate(**item_data)
@@ -65,7 +63,6 @@ class TestGroceryItemCreate:
         assert item.quantity == 2.5
         assert item.unit == "lb"
         assert item.target_store == store_id
-        assert item.notes == "Get organic if available"
         assert item.source == "manual"
 
     def test_quantity_must_be_positive(self):
@@ -188,12 +185,10 @@ class TestGroceryItemUpdate:
         update_data = {
             "quantity": 3.0,
             "target_store": store_id,
-            "notes": "Updated notes",
         }
         update = GroceryItemUpdate(**update_data)
         assert update.quantity == 3.0
         assert update.target_store == store_id
-        assert update.notes == "Updated notes"
 
     def test_update_quantity_must_be_positive(self):
         """Test that quantity must be greater than 0 in updates."""

@@ -74,7 +74,6 @@ def create_grocery_item(
         current_user=current_user,
         db=db,
         target_store=item_data.target_store,
-        notes=item_data.notes,
     )
 
 

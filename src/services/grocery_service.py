@@ -54,7 +54,6 @@ def create_item(
     current_user: User,
     db: Session,
     target_store: Optional[UUID] = None,
-    notes: Optional[str] = None,
 ) -> GroceryListItem:
     """
     Create a new grocery list item.
@@ -70,7 +69,6 @@ def create_item(
         current_user: Authenticated user creating the item
         db: Database session
         target_store: Optional target store ID
-        notes: Optional notes about the item
 
     Returns:
         GroceryListItem: Created grocery item
@@ -213,7 +211,6 @@ def update_item(
     quantity: Optional[float] = None,
     unit: Optional[str] = None,
     target_store: Optional[UUID] = None,
-    notes: Optional[str] = None,
 ) -> GroceryListItem:
     """
     Update a grocery item with partial data.
@@ -229,7 +226,6 @@ def update_item(
         quantity: Optional new quantity
         unit: Optional new unit
         target_store: Optional new target store ID
-        notes: Optional new notes
 
     Returns:
         GroceryListItem: Updated grocery item
@@ -257,9 +253,6 @@ def update_item(
         item.unit = unit
     if target_store is not None:
         item.target_store = target_store
-    if notes is not None:
-        # Note: notes field doesn't exist in the model yet, but included for future-proofing
-        pass
 
     try:
         db.commit()

@@ -25,7 +25,6 @@ class GroceryItemCreate(BaseModel):
     quantity: float = Field(..., gt=0, description="Quantity of the item (must be positive)")
     unit: str = Field(..., description="Unit of measurement")
     target_store: Optional[UUID] = Field(default=None, description="Target store ID")
-    notes: Optional[str] = Field(default=None, max_length=500, description="Optional notes")
     source: str = Field(default="manual", description="Source of the grocery item (Phase 1: only 'manual' allowed)")
 
     @field_validator('quantity')
@@ -71,7 +70,6 @@ class GroceryItemUpdate(BaseModel):
     quantity: Optional[float] = Field(default=None, gt=0, description="Quantity of the item (must be positive)")
     unit: Optional[str] = Field(default=None, description="Unit of measurement")
     target_store: Optional[UUID] = Field(default=None, description="Target store ID")
-    notes: Optional[str] = Field(default=None, max_length=500, description="Optional notes")
     # source is excluded - it's system-managed
 
     @field_validator('quantity')
