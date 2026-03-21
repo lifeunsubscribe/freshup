@@ -173,7 +173,11 @@ def create_ad_hoc_recipe(
         inventory_item = inventory_map[item_usage.inventory_item_id]
 
         # Check unit mismatch (case-insensitive comparison for better UX)
-        if item_usage.unit.lower() != inventory_item.unit.lower():
+        # Handle None values to prevent AttributeError on .lower()
+        recipe_unit = item_usage.unit.lower() if item_usage.unit is not None else None
+        inventory_unit = inventory_item.unit.lower() if inventory_item.unit is not None else None
+
+        if recipe_unit != inventory_unit:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unit mismatch for {inventory_item.name}: recipe uses \"{item_usage.unit}\" but inventory has \"{inventory_item.unit}\""
