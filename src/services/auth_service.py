@@ -75,7 +75,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
     try:
         return pwd_context.verify(plain_password, hashed_password)
-    except Exception:
+    except (ValueError, TypeError):
+        # ValueError: Invalid hash format, password size issues, or unknown hash algorithm
+        # TypeError: Type mismatch in password/hash arguments
+        # Fail closed: return False for any verification errors (security best practice)
         return False
 
 

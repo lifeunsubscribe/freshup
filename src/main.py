@@ -3,6 +3,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError, DatabaseError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -95,9 +96,16 @@ async def health_check():
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         checks["database"] = "connected"
-    except Exception as e:
+    except (OperationalError, DatabaseError) as e:
+        # OperationalError: Connection failures, server errors, query execution issues
+        # DatabaseError: Base class for database-related errors
         checks["database"] = "unreachable"
         issues.append(f"db_connect: {e}")
+    except Exception as e:
+        # Unexpected errors (e.g., configuration issues, driver problems)
+        # Health check should never crash, so catch-all is acceptable here
+        checks["database"] = "unreachable"
+        issues.append(f"db_connect_unexpected: {e}")
 
     # 2. Schema completeness — are all expected tables present?
     if checks["database"] == "connected":
@@ -110,9 +118,14 @@ async def health_check():
                 issues.append(f"missing_tables: {sorted(missing)}")
             else:
                 checks["schema"] = "ok"
-        except Exception as e:
+        except (OperationalError, DatabaseError) as e:
+            # Database errors during schema inspection
             checks["schema"] = "error"
             issues.append(f"schema_check: {e}")
+        except Exception as e:
+            # Unexpected errors during inspection (e.g., reflection issues)
+            checks["schema"] = "error"
+            issues.append(f"schema_check_unexpected: {e}")
 
     # 3. Migration status — is the DB at the Alembic head?
     if checks["database"] == "connected":
@@ -125,9 +138,14 @@ async def health_check():
                 issues.append(
                     f"migration: at {migration['current_revision']}, head is {migration['head_revision']}"
                 )
-        except Exception as e:
+        except (OperationalError, DatabaseError) as e:
+            # Database errors during migration status check
             checks["migrations"] = "error"
             issues.append(f"migration_check: {e}")
+        except Exception as e:
+            # Alembic errors (e.g., missing alembic_version table, config issues)
+            checks["migrations"] = "error"
+            issues.append(f"migration_check_unexpected: {e}")
 
     if issues:
         checks["status"] = "degraded"
