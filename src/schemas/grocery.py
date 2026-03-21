@@ -130,7 +130,7 @@ class StoreGroupedGroceryResponse(BaseModel):
 class BulkPurchaseRequest(BaseModel):
     """Request schema for bulk purchasing grocery items."""
 
-    item_ids: list[UUID] = Field(..., min_length=1, description="List of grocery item IDs to mark as purchased")
+    item_ids: list[UUID] = Field(..., min_length=1, max_length=100, description="List of grocery item IDs to mark as purchased")
     create_inventory_item: bool = Field(default=False, description="Whether to create inventory items from purchased groceries")
     storage_location: Optional[str] = Field(default=None, description="Storage location for created inventory items")
     category: Optional[str] = Field(default=None, description="Category for created inventory items")

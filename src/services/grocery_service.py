@@ -168,19 +168,21 @@ def bulk_purchase(
     purchase_time = datetime.now(timezone.utc)
 
     try:
-        # Atomic transaction: fetch all items first, fail entire batch if any not found
+        # Atomic transaction: fetch all items in a single query
         # This ensures all-or-nothing semantics - either all items are purchased or none are
-        for item_id in item_ids:
-            item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
+        items = db.query(GroceryListItem).filter(GroceryListItem.id.in_(item_ids)).all()
 
-            if not item:
-                # Rollback and fail entire batch
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Grocery item not found: {item_id}"
-                )
+        # Verify all requested items were found
+        if len(items) != len(item_ids):
+            found_ids = {item.id for item in items}
+            missing_ids = [item_id for item_id in item_ids if item_id not in found_ids]
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Grocery item not found: {missing_ids[0]}"
+            )
 
-            # Mark as purchased
+        # Mark all items as purchased
+        for item in items:
             item.purchased = True
             item.purchased_by = current_user.id
             item.purchased_date = purchase_time

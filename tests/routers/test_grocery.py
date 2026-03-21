@@ -547,3 +547,15 @@ class TestBulkPurchase:
         response = client.post("/grocery/bulk-purchase", json=payload)
 
         assert response.status_code == 401
+
+    def test_bulk_purchase_exceeds_max_batch_size(self, client, auth_headers):
+        """Should return 422 if item_ids list exceeds maximum batch size of 100."""
+        # Create a list with 101 items (exceeds max_length=100)
+        payload = {
+            "item_ids": [str(uuid4()) for _ in range(101)],
+            "create_inventory_item": False,
+        }
+
+        response = client.post("/grocery/bulk-purchase", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
