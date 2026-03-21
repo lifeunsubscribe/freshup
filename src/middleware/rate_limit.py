@@ -87,12 +87,13 @@ def _create_limiter() -> Limiter:
         try:
             import redis
 
+            # Test Redis connection with the configured pool settings
             redis_client = redis.from_url(
                 settings.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
+                socket_connect_timeout=settings.redis_socket_connect_timeout,
+                socket_timeout=settings.redis_socket_timeout,
             )
 
             # Test Redis connection
@@ -100,14 +101,32 @@ def _create_limiter() -> Limiter:
             # Close test connection - Limiter will create its own connection pool
             redis_client.close()
 
+            # Configure connection pool options for slowapi/limits storage
+            # These options are passed through to redis.Redis via limits.storage.RedisStorage
+            storage_options = {
+                "max_connections": settings.redis_max_connections,
+                "socket_connect_timeout": settings.redis_socket_connect_timeout,
+                "socket_timeout": settings.redis_socket_timeout,
+                "socket_keepalive": settings.redis_socket_keepalive,
+                "health_check_interval": settings.redis_health_check_interval,
+                "retry_on_timeout": settings.redis_retry_on_timeout,
+                "encoding": "utf-8",
+                "decode_responses": True,
+            }
+
             logger.info(
-                "Rate limiter initialized with Redis backend (distributed mode): %s",
-                _sanitize_redis_url(settings.redis_url)
+                "Rate limiter initialized with Redis backend (distributed mode): %s "
+                "(pool: max_connections=%d, socket_timeout=%.1fs, health_check_interval=%ds)",
+                _sanitize_redis_url(settings.redis_url),
+                settings.redis_max_connections,
+                settings.redis_socket_timeout,
+                settings.redis_health_check_interval,
             )
 
             return Limiter(
                 key_func=get_client_ip_for_rate_limit,
                 storage_uri=settings.redis_url,
+                storage_options=storage_options,
             )
 
         except ImportError:
