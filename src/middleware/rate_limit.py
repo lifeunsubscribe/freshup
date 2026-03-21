@@ -155,6 +155,10 @@ def _create_limiter() -> Limiter:
                 str(e)
             )
         except Exception as e:
+            # Broad catch-all for unexpected errors during Redis initialization
+            # (e.g., network issues, SSL errors, configuration problems)
+            # This is acceptable here as a final fallback to ensure the app starts
+            # even if Redis setup fails in an unexpected way
             logger.error(
                 "Unexpected error initializing Redis rate limiter: %s. "
                 "Rate limiter falling back to in-memory storage.",
