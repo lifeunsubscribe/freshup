@@ -559,3 +559,84 @@ class TestBulkPurchase:
         response = client.post("/grocery/bulk-purchase", json=payload, headers=auth_headers)
 
         assert response.status_code == 422
+
+    def test_bulk_purchase_with_invalid_unit_for_inventory(self, client, auth_headers, test_user, db_session):
+        """Should return 422 when grocery item has invalid unit during inventory creation."""
+        # Create a grocery item with an invalid unit using SQLAlchemy Core
+        # to bypass Pydantic schema validation. This simulates data corruption
+        # or migration scenarios where invalid data might exist in the database.
+        from sqlalchemy import insert
+        from src.db.models.grocery_list import GroceryListItem as GroceryTable
+
+        invalid_item_id = uuid4()
+
+        # Use SQLAlchemy insert to bypass ORM validations
+        stmt = insert(GroceryTable.__table__).values(
+            id=invalid_item_id,
+            item_name="Test Item",
+            quantity=1.0,
+            unit="invalid_unit",
+            source="manual",
+            added_by=test_user.id,
+            purchased=False,
+        )
+        db_session.execute(stmt)
+        db_session.commit()
+
+        payload = {
+            "item_ids": [str(invalid_item_id)],
+            "create_inventory_item": True,
+            "storage_location": "pantry",
+            "category": "other",
+        }
+
+        response = client.post("/grocery/bulk-purchase", json=payload, headers=auth_headers)
+
+        assert response.status_code == 422
+        assert "unit 'invalid_unit' is not valid for inventory" in response.json()["detail"]
+        assert "Valid units:" in response.json()["detail"]
+
+    def test_bulk_purchase_valid_units_accepted(self, client, auth_headers, test_user, db_session):
+        """Should accept all valid UnitType enum values when creating inventory items."""
+        from src.db.models.inventory_item import UnitType
+
+        # Test a sample of valid units
+        test_units = ["oz", "lb", "g", "kg", "count", "cup"]
+        item_ids = []
+
+        for unit in test_units:
+            item = GroceryListItem(
+                id=uuid4(),
+                item_name=f"Test {unit}",
+                quantity=1.0,
+                unit=unit,
+                source=GrocerySource.manual.value,
+                added_by=test_user.id,
+                purchased=False,
+            )
+            db_session.add(item)
+            item_ids.append(str(item.id))
+
+        db_session.commit()
+
+        payload = {
+            "item_ids": item_ids,
+            "create_inventory_item": True,
+            "storage_location": "pantry",
+            "category": "other",
+        }
+
+        response = client.post("/grocery/bulk-purchase", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["inventory_items_created"] == len(test_units)
+
+        # Verify all inventory items were created with correct units
+        inventory_items = db_session.query(InventoryItem).filter(
+            InventoryItem.added_by == test_user.id
+        ).all()
+        assert len(inventory_items) == len(test_units)
+
+        created_units = {item.unit for item in inventory_items}
+        assert created_units == set(test_units)
