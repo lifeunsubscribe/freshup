@@ -28,7 +28,7 @@ class RecipeCreate(BaseModel):
     base_servings: Optional[int] = Field(default=4, description="Base number of servings")
     tags: Optional[list] = Field(default_factory=list, description="Recipe tags (JSON array)")
     nutritional_info: Optional[dict] = Field(default=None, description="Nutritional information (JSON)")
-    notes: Optional[str] = Field(default=None, description="Recipe notes")
+    notes: Optional[str] = Field(default=None, max_length=10000, description="Recipe notes")
     created_by: Optional[UUID] = Field(default=None, description="User ID who created the recipe")
 
     @field_validator('name')
@@ -80,7 +80,7 @@ class RecipeUpdate(BaseModel):
     base_servings: Optional[int] = Field(default=None, description="Base number of servings")
     tags: Optional[list] = Field(default=None, description="Recipe tags (JSON array)")
     nutritional_info: Optional[dict] = Field(default=None, description="Nutritional information (JSON)")
-    notes: Optional[str] = Field(default=None, description="Recipe notes")
+    notes: Optional[str] = Field(default=None, max_length=10000, description="Recipe notes")
 
     @field_validator('name')
     @classmethod
@@ -289,7 +289,7 @@ class AdHocRecipeCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255, description="Recipe name")
     steps: Optional[list[str]] = Field(default_factory=list, description="Cooking steps (JSON array)")
-    notes: Optional[str] = Field(default=None, description="Recipe notes")
+    notes: Optional[str] = Field(default=None, max_length=10000, description="Recipe notes")
     tags: Optional[list[str]] = Field(default_factory=list, description="Recipe tags (JSON array)")
     inventory_items: list[InventoryItemUsage] = Field(..., min_length=1, description="List of inventory items used in this recipe")
     decrement_inventory: bool = Field(default=False, description="Whether to decrement inventory quantities")
