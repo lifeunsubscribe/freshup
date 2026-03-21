@@ -2119,3 +2119,203 @@ class TestAdHocRecipeCreation:
         for item in items:
             db_session.refresh(item)
             assert item.quantity == 80.0  # 100.0 - 20.0
+
+    def test_create_ad_hoc_recipe_unit_mismatch_without_decrement(self, client, db_session, auth_headers, test_user):
+        """Test that unit mismatch is rejected even when decrement_inventory=False."""
+        from src.db.models.inventory_item import InventoryItem
+
+        # Create inventory item with "g" unit
+        item = InventoryItem(
+            id=uuid4(),
+            name="Flour",
+            quantity=500.0,
+            unit="g",
+            category="baking",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        # Try to create recipe using different unit ("cup")
+        recipe_data = {
+            "name": "Unit Mismatch Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(item.id), "quantity_used": 2.0, "unit": "cup"},
+            ],
+            "decrement_inventory": False,  # Even without decrement, should fail
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 400
+        assert "Unit mismatch for Flour" in response.json()["detail"]
+        assert 'recipe uses "cup"' in response.json()["detail"]
+        assert 'inventory has "g"' in response.json()["detail"]
+
+        # Verify inventory was NOT touched
+        db_session.refresh(item)
+        assert item.quantity == 500.0
+
+    def test_create_ad_hoc_recipe_unit_mismatch_with_decrement(self, client, db_session, auth_headers, test_user):
+        """Test that unit mismatch is rejected when decrement_inventory=True."""
+        from src.db.models.inventory_item import InventoryItem
+
+        # Create inventory item with "oz" unit
+        item = InventoryItem(
+            id=uuid4(),
+            name="Cheese",
+            quantity=16.0,
+            unit="oz",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        # Try to create recipe using different unit ("lb")
+        recipe_data = {
+            "name": "Cheesy Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(item.id), "quantity_used": 1.0, "unit": "lb"},
+            ],
+            "decrement_inventory": True,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 400
+        assert "Unit mismatch for Cheese" in response.json()["detail"]
+        assert 'recipe uses "lb"' in response.json()["detail"]
+        assert 'inventory has "oz"' in response.json()["detail"]
+
+        # Verify inventory was NOT decremented (atomic rollback)
+        db_session.refresh(item)
+        assert item.quantity == 16.0
+
+    def test_create_ad_hoc_recipe_matching_units_success(self, client, db_session, auth_headers, test_user):
+        """Test that matching units allow recipe creation successfully."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe import Recipe
+
+        # Create inventory item with "tsp" unit
+        item = InventoryItem(
+            id=uuid4(),
+            name="Vanilla Extract",
+            quantity=10.0,
+            unit="tsp",
+            category="baking",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        # Create recipe using SAME unit ("tsp")
+        recipe_data = {
+            "name": "Vanilla Cookies",
+            "inventory_items": [
+                {"inventory_item_id": str(item.id), "quantity_used": 2.0, "unit": "tsp"},
+            ],
+            "decrement_inventory": True,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Vanilla Cookies"
+
+        # Verify inventory was decremented correctly
+        db_session.refresh(item)
+        assert item.quantity == 8.0  # 10.0 - 2.0
+
+    def test_create_ad_hoc_recipe_unit_case_sensitive(self, client, db_session, auth_headers, test_user):
+        """Test that unit comparison is case-sensitive (oz != Oz)."""
+        from src.db.models.inventory_item import InventoryItem
+
+        # Create inventory item with lowercase "oz" unit
+        item = InventoryItem(
+            id=uuid4(),
+            name="Milk",
+            quantity=32.0,
+            unit="oz",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        # Try to create recipe using uppercase "Oz"
+        recipe_data = {
+            "name": "Milkshake",
+            "inventory_items": [
+                {"inventory_item_id": str(item.id), "quantity_used": 8.0, "unit": "Oz"},
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 400
+        assert "Unit mismatch for Milk" in response.json()["detail"]
+        assert 'recipe uses "Oz"' in response.json()["detail"]
+        assert 'inventory has "oz"' in response.json()["detail"]
+
+    def test_create_ad_hoc_recipe_unit_mismatch_multiple_items_atomic(self, client, db_session, auth_headers, test_user):
+        """Test that unit mismatch in one item prevents entire recipe creation (atomic)."""
+        from src.db.models.inventory_item import InventoryItem
+        from src.db.models.recipe import Recipe
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create two inventory items
+        item1 = InventoryItem(
+            id=uuid4(),
+            name="Sugar",
+            quantity=1000.0,
+            unit="g",
+            category="baking",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            id=uuid4(),
+            name="Butter",
+            quantity=500.0,
+            unit="g",
+            category="dairy",
+            storage_location="fridge",
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        # Count recipes and ingredients before
+        recipe_count_before = db_session.query(Recipe).count()
+        ingredient_count_before = db_session.query(RecipeIngredient).count()
+
+        # Try to create recipe with first item matching, second item mismatched
+        recipe_data = {
+            "name": "Atomic Unit Test Recipe",
+            "inventory_items": [
+                {"inventory_item_id": str(item1.id), "quantity_used": 100.0, "unit": "g"},  # Matches
+                {"inventory_item_id": str(item2.id), "quantity_used": 8.0, "unit": "oz"},  # Mismatch!
+            ],
+            "decrement_inventory": True,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+        assert response.status_code == 400
+        assert "Unit mismatch for Butter" in response.json()["detail"]
+
+        # Verify NO recipe was created (atomic rollback)
+        recipe_count_after = db_session.query(Recipe).count()
+        assert recipe_count_after == recipe_count_before
+
+        # Verify NO ingredients were created
+        ingredient_count_after = db_session.query(RecipeIngredient).count()
+        assert ingredient_count_after == ingredient_count_before
+
+        # Verify NO inventory was decremented
+        db_session.refresh(item1)
+        db_session.refresh(item2)
+        assert item1.quantity == 1000.0
+        assert item2.quantity == 500.0

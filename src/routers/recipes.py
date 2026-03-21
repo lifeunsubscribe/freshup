@@ -39,6 +39,10 @@ from src.schemas.recipe import (
     AdHocRecipeCreate,
 )
 from src.middleware.auth import get_current_user
+from src.routers.recipe_helpers import (
+    verify_recipe_ownership,
+    verify_recipe_ownership_with_system_check,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +141,7 @@ def create_ad_hoc_recipe(
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If any inventory_item_id not found or not owned by current user
-        HTTPException(400): If decrement would result in negative quantity
+        HTTPException(400): If units mismatch between recipe and inventory, or if decrement would result in negative quantity
         HTTPException(422): If validation fails (empty inventory_items list, etc.)
     """
     # Phase 1: Validate inventory item ownership and existence
@@ -163,7 +167,19 @@ def create_ad_hoc_recipe(
                 detail=f"Inventory item {item_usage.inventory_item_id} not found or not owned by user"
             )
 
-    # Phase 2: Validate quantity sufficiency (if decrement is requested)
+    # Phase 2: Validate unit consistency and quantity sufficiency
+    # Validate units match between recipe and inventory (prevents data corruption)
+    for item_usage in recipe_data.inventory_items:
+        inventory_item = inventory_map[item_usage.inventory_item_id]
+
+        # Check unit mismatch (case-sensitive comparison)
+        if item_usage.unit != inventory_item.unit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unit mismatch for {inventory_item.name}: recipe uses \"{item_usage.unit}\" but inventory has \"{inventory_item.unit}\""
+            )
+
+    # Validate quantity sufficiency (if decrement is requested)
     # This happens BEFORE any mutations to ensure atomicity
     if recipe_data.decrement_inventory:
         for item_usage in recipe_data.inventory_items:
@@ -433,21 +449,8 @@ def update_recipe(
         HTTPException(404): If recipe doesn't exist or belongs to another user
         HTTPException(422): If validation fails (invalid source_type, etc.)
     """
-    # Query recipe with user ownership check
-    recipe = (
-        db.query(Recipe)
-        .filter(
-            Recipe.id == recipe_id,
-            Recipe.created_by == current_user.id,
-        )
-        .first()
-    )
-
-    if not recipe:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipe not found"
-        )
+    # Verify recipe exists and belongs to current user
+    recipe = verify_recipe_ownership(recipe_id, current_user, db)
 
     # Update only the fields that were provided
     update_dict = update_data.model_dump(exclude_unset=True)
@@ -508,21 +511,8 @@ def delete_recipe(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If recipe doesn't exist or belongs to another user
     """
-    # Query recipe with user ownership check
-    recipe = (
-        db.query(Recipe)
-        .filter(
-            Recipe.id == recipe_id,
-            Recipe.created_by == current_user.id,
-        )
-        .first()
-    )
-
-    if not recipe:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipe not found"
-        )
+    # Verify recipe exists and belongs to current user
+    recipe = verify_recipe_ownership(recipe_id, current_user, db)
 
     try:
         db.delete(recipe)
@@ -573,34 +563,8 @@ def add_recipe_ingredient(
         HTTPException(404): If recipe doesn't exist or belongs to another user
         HTTPException(400): If data integrity violation occurs
     """
-    # Query recipe with user ownership check
-    recipe = (
-        db.query(Recipe)
-        .filter(
-            Recipe.id == recipe_id,
-        )
-        .first()
-    )
-
-    if not recipe:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipe not found"
-        )
-
-    # Check if recipe is a system recipe (cannot be modified)
-    if recipe.created_by is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot modify system recipes"
-        )
-
-    # Check if recipe belongs to current user
-    if recipe.created_by != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipe not found"
-        )
+    # Verify recipe exists, is not a system recipe, and belongs to current user
+    recipe = verify_recipe_ownership_with_system_check(recipe_id, current_user, db)
 
     # Create new ingredient
     ingredient_dict = ingredient_data.model_dump()
@@ -670,34 +634,8 @@ def update_recipe_ingredient(
         HTTPException(404): If recipe doesn't exist, belongs to another user, or ingredient not found
         HTTPException(400): If data integrity violation occurs
     """
-    # Query recipe with user ownership check
-    recipe = (
-        db.query(Recipe)
-        .filter(
-            Recipe.id == recipe_id,
-        )
-        .first()
-    )
-
-    if not recipe:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipe not found"
-        )
-
-    # Check if recipe is a system recipe (cannot be modified)
-    if recipe.created_by is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot modify system recipes"
-        )
-
-    # Check if recipe belongs to current user
-    if recipe.created_by != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipe not found"
-        )
+    # Verify recipe exists, is not a system recipe, and belongs to current user
+    recipe = verify_recipe_ownership_with_system_check(recipe_id, current_user, db)
 
     # Query ingredient and verify it belongs to the recipe
     ingredient = (
@@ -778,34 +716,8 @@ def delete_recipe_ingredient(
         HTTPException(403): If recipe is a system recipe (created_by is NULL)
         HTTPException(404): If recipe doesn't exist, belongs to another user, or ingredient not found
     """
-    # Query recipe with user ownership check
-    recipe = (
-        db.query(Recipe)
-        .filter(
-            Recipe.id == recipe_id,
-        )
-        .first()
-    )
-
-    if not recipe:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipe not found"
-        )
-
-    # Check if recipe is a system recipe (cannot be modified)
-    if recipe.created_by is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot modify system recipes"
-        )
-
-    # Check if recipe belongs to current user
-    if recipe.created_by != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipe not found"
-        )
+    # Verify recipe exists, is not a system recipe, and belongs to current user
+    recipe = verify_recipe_ownership_with_system_check(recipe_id, current_user, db)
 
     # Query ingredient and verify it belongs to the recipe
     ingredient = (
