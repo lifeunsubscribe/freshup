@@ -2329,6 +2329,33 @@ class TestFreezeThawActions:
         assert response.status_code == 422
         assert "freezer" in response.json()["detail"][0]["msg"].lower()
 
+    def test_thaw_invalid_destination_fails(self, client, auth_headers, test_user, db_session):
+        """Should return 422 when destination is not a valid enum value."""
+        from datetime import datetime, timezone
+        # Create frozen item
+        item = InventoryItem(
+            name="Frozen Fish",
+            quantity=1.5,
+            unit="lb",
+            category="protein",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Try to thaw to invalid location
+        response = client.post(
+            f"/inventory/{item.id}/thaw",
+            headers=auth_headers,
+            json={"destination": "garage"}
+        )
+
+        assert response.status_code == 422
+        assert "garage" in response.json()["detail"][0]["msg"].lower()
+
     def test_thaw_clears_expiration_date(self, client, auth_headers, test_user, db_session):
         """Should clear expiration_date when thawing (thawed items have different shelf life)."""
         from datetime import datetime, timezone, timedelta
