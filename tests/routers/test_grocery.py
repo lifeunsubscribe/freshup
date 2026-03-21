@@ -1130,3 +1130,309 @@ class TestDeleteGroceryItem:
         """Should return 401 if no auth token provided."""
         response = client.delete(f"/grocery/{test_grocery_item.id}")
         assert response.status_code == 401
+
+
+class TestGetGroceryItemsByStore:
+    """Tests for GET /grocery/by-store (items grouped by target store)."""
+
+    def test_by_store_basic_grouping(self, client, auth_headers, test_user, db_session):
+        """Should group items by target store with store names."""
+        from src.db.models.store import Store
+
+        # Create stores
+        store1 = Store(id=uuid4(), name="Whole Foods")
+        store2 = Store(id=uuid4(), name="Trader Joe's")
+        db_session.add_all([store1, store2])
+        db_session.commit()
+
+        # Create items for different stores
+        item1 = GroceryListItem(
+            id=uuid4(),
+            item_name="Organic Apples",
+            quantity=5.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store1.id,
+            purchased=False,
+        )
+        item2 = GroceryListItem(
+            id=uuid4(),
+            item_name="Bananas",
+            quantity=3.0,
+            unit="lb",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store2.id,
+            purchased=False,
+        )
+        item3 = GroceryListItem(
+            id=uuid4(),
+            item_name="Bread",
+            quantity=1.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store1.id,
+            purchased=False,
+        )
+        db_session.add_all([item1, item2, item3])
+        db_session.commit()
+
+        response = client.get("/grocery/by-store", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "stores" in data
+        assert "unassigned" in data
+        assert len(data["stores"]) == 2
+        assert len(data["unassigned"]) == 0
+
+        # Check store grouping
+        stores_by_name = {s["store_name"]: s for s in data["stores"]}
+        assert "Whole Foods" in stores_by_name
+        assert "Trader Joe's" in stores_by_name
+
+        # Whole Foods should have 2 items
+        wf_store = stores_by_name["Whole Foods"]
+        assert len(wf_store["items"]) == 2
+        wf_item_names = {item["item_name"] for item in wf_store["items"]}
+        assert "Organic Apples" in wf_item_names
+        assert "Bread" in wf_item_names
+
+        # Trader Joe's should have 1 item
+        tj_store = stores_by_name["Trader Joe's"]
+        assert len(tj_store["items"]) == 1
+        assert tj_store["items"][0]["item_name"] == "Bananas"
+
+    def test_by_store_unassigned_items(self, client, auth_headers, test_user, db_session):
+        """Should include items without target_store in unassigned array."""
+        from src.db.models.store import Store
+
+        store = Store(id=uuid4(), name="Target")
+        db_session.add(store)
+        db_session.commit()
+
+        # Create items with and without target store
+        item1 = GroceryListItem(
+            id=uuid4(),
+            item_name="Store Item",
+            quantity=1.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store.id,
+            purchased=False,
+        )
+        item2 = GroceryListItem(
+            id=uuid4(),
+            item_name="Unassigned Item 1",
+            quantity=2.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=None,
+            purchased=False,
+        )
+        item3 = GroceryListItem(
+            id=uuid4(),
+            item_name="Unassigned Item 2",
+            quantity=3.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=None,
+            purchased=False,
+        )
+        db_session.add_all([item1, item2, item3])
+        db_session.commit()
+
+        response = client.get("/grocery/by-store", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["stores"]) == 1
+        assert len(data["unassigned"]) == 2
+
+        # Check unassigned items
+        unassigned_names = {item["item_name"] for item in data["unassigned"]}
+        assert "Unassigned Item 1" in unassigned_names
+        assert "Unassigned Item 2" in unassigned_names
+
+    def test_by_store_default_unpurchased_only(self, client, auth_headers, test_user, db_session):
+        """Should return only unpurchased items by default."""
+        from src.db.models.store import Store
+
+        store = Store(id=uuid4(), name="Safeway")
+        db_session.add(store)
+        db_session.commit()
+
+        # Create unpurchased and purchased items
+        item1 = GroceryListItem(
+            id=uuid4(),
+            item_name="Unpurchased Item",
+            quantity=1.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store.id,
+            purchased=False,
+        )
+        item2 = GroceryListItem(
+            id=uuid4(),
+            item_name="Purchased Item",
+            quantity=2.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store.id,
+            purchased=True,
+            purchased_by=test_user.id,
+            purchased_date=datetime.now(timezone.utc),
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        response = client.get("/grocery/by-store", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["stores"]) == 1
+        assert len(data["stores"][0]["items"]) == 1
+        assert data["stores"][0]["items"][0]["item_name"] == "Unpurchased Item"
+
+    def test_by_store_include_purchased_true(self, client, auth_headers, test_user, db_session):
+        """Should return all items when include_purchased=true."""
+        from src.db.models.store import Store
+
+        store = Store(id=uuid4(), name="Kroger")
+        db_session.add(store)
+        db_session.commit()
+
+        # Create unpurchased and purchased items
+        item1 = GroceryListItem(
+            id=uuid4(),
+            item_name="Unpurchased Item",
+            quantity=1.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store.id,
+            purchased=False,
+        )
+        item2 = GroceryListItem(
+            id=uuid4(),
+            item_name="Purchased Item",
+            quantity=2.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store.id,
+            purchased=True,
+            purchased_by=test_user.id,
+            purchased_date=datetime.now(timezone.utc),
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        response = client.get("/grocery/by-store?include_purchased=true", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["stores"]) == 1
+        assert len(data["stores"][0]["items"]) == 2
+
+        item_names = {item["item_name"] for item in data["stores"][0]["items"]}
+        assert "Unpurchased Item" in item_names
+        assert "Purchased Item" in item_names
+
+    def test_by_store_shared_reads_cross_user(self, client, auth_headers, auth_headers2, test_user, test_user2, db_session):
+        """Should return items from all users (shared/global reads)."""
+        from src.db.models.store import Store
+
+        store = Store(id=uuid4(), name="Costco")
+        db_session.add(store)
+        db_session.commit()
+
+        # Create items by different users
+        item1 = GroceryListItem(
+            id=uuid4(),
+            item_name="User1 Item",
+            quantity=1.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store.id,
+            purchased=False,
+        )
+        item2 = GroceryListItem(
+            id=uuid4(),
+            item_name="User2 Item",
+            quantity=2.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user2.id,
+            target_store=store.id,
+            purchased=False,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        # User1 should see both items
+        response = client.get("/grocery/by-store", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["stores"]) == 1
+        assert len(data["stores"][0]["items"]) == 2
+
+        # User2 should also see both items
+        response = client.get("/grocery/by-store", headers=auth_headers2)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["stores"]) == 1
+        assert len(data["stores"][0]["items"]) == 2
+
+    def test_by_store_empty_stores_not_included(self, client, auth_headers, test_user, db_session):
+        """Should not include stores with no grocery items."""
+        from src.db.models.store import Store
+
+        # Create a store but no grocery items for it
+        store1 = Store(id=uuid4(), name="Empty Store")
+        store2 = Store(id=uuid4(), name="Store With Items")
+        db_session.add_all([store1, store2])
+        db_session.commit()
+
+        # Create item only for store2
+        item = GroceryListItem(
+            id=uuid4(),
+            item_name="Test Item",
+            quantity=1.0,
+            unit="count",
+            source=GrocerySource.manual.value,
+            added_by=test_user.id,
+            target_store=store2.id,
+            purchased=False,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.get("/grocery/by-store", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["stores"]) == 1
+        assert data["stores"][0]["store_name"] == "Store With Items"
+
+    def test_by_store_unauthenticated(self, client):
+        """Should return 401 if no auth token provided."""
+        response = client.get("/grocery/by-store")
+        assert response.status_code == 401
+
+    def test_by_store_empty_response(self, client, auth_headers, db_session):
+        """Should return empty stores and unassigned arrays when no items exist."""
+        response = client.get("/grocery/by-store", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["stores"] == []
+        assert data["unassigned"] == []

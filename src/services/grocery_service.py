@@ -10,7 +10,7 @@ import logging
 from uuid import UUID
 from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from fastapi import HTTPException, status
 
@@ -546,3 +546,73 @@ def bulk_purchase(
     )
 
     return updated_items, inventory_count
+
+
+def get_items_by_store(
+    db: Session,
+    include_purchased: bool = False,
+) -> dict:
+    """
+    Get grocery items grouped by target store.
+
+    Returns items organized by their target store, with items lacking a
+    target_store in a separate "unassigned" list. By default, only returns
+    unpurchased items (include_purchased=False).
+
+    Uses eager loading (selectinload) to avoid N+1 queries when accessing
+    store relationships. Items are ordered by ID descending (most recent first)
+    within each store group.
+
+    Args:
+        db: Database session
+        include_purchased: If True, return all items; if False, only unpurchased (default: False)
+
+    Returns:
+        dict: {
+            "stores": [
+                {"store_id": UUID, "store_name": str, "items": [GroceryListItem, ...]},
+                ...
+            ],
+            "unassigned": [GroceryListItem, ...]
+        }
+    """
+    # Build query with eager loading to prevent N+1 queries
+    query = db.query(GroceryListItem).options(selectinload(GroceryListItem.target_store_rel))
+
+    # Apply purchased filter
+    if not include_purchased:
+        query = query.filter(GroceryListItem.purchased == False)
+
+    # Order by most recent first
+    items = query.order_by(GroceryListItem.id.desc()).all()
+
+    # Group items by store
+    # Use dict to track stores: {store_id: {"store_id": UUID, "store_name": str, "items": [...]}}
+    stores_dict = {}
+    unassigned = []
+
+    for item in items:
+        if item.target_store is None:
+            # Item has no target store
+            unassigned.append(item)
+        else:
+            # Item has a target store
+            store_id = item.target_store
+            if store_id not in stores_dict:
+                # First time seeing this store - initialize group
+                # Access the relationship to get store details (already eager-loaded)
+                store = item.target_store_rel
+                stores_dict[store_id] = {
+                    "store_id": store_id,
+                    "store_name": store.name,
+                    "items": []
+                }
+            stores_dict[store_id]["items"].append(item)
+
+    # Convert stores dict to list
+    stores = list(stores_dict.values())
+
+    return {
+        "stores": stores,
+        "unassigned": unassigned
+    }
