@@ -206,6 +206,13 @@ def bulk_purchase(
                 detail=f"Grocery item not found: {missing_ids[0]}"
             )
 
+        # Pre-validate all units before making any modifications (ensures atomic all-or-nothing)
+        if create_inventory_item:
+            for item in items:
+                # Only validate items that will actually create inventory (not already purchased)
+                if not item.purchased:
+                    _validate_unit_for_inventory(item.unit, item.item_name)
+
         # Mark all items as purchased
         for item in items:
             # Track if item was already purchased (to prevent duplicate inventory creation)
@@ -219,10 +226,8 @@ def bulk_purchase(
 
             # Optionally create inventory item (only if not already purchased)
             if create_inventory_item and not was_already_purchased:
-                # Validate unit compatibility at cross-domain boundary
-                _validate_unit_for_inventory(item.unit, item.item_name)
-
                 # Create inventory item from grocery item
+                # (unit already validated in pre-validation phase above)
                 inventory_item = InventoryItem(
                     name=item.item_name,
                     quantity=item.quantity,
