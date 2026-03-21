@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from enum import Enum as PyEnum
 from uuid import UUID, uuid4
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, JSON, ForeignKey
+from sqlalchemy import String, Integer, JSON, ForeignKey, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -38,6 +39,8 @@ class Recipe(Base):
     times_cooked: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String(10000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
     created_by_user: Mapped[Optional["User"]] = relationship(back_populates="recipes_created")

@@ -370,10 +370,10 @@ def list_recipes(
             )
 
     # Apply ordering and pagination
-    # Note: Recipe model doesn't have date_added, so we order by id (chronological proxy)
+    # Order by created_at to show most recently added recipes first
     recipes = (
         query
-        .order_by(Recipe.id.desc())
+        .order_by(Recipe.created_at.desc())
         .limit(limit)
         .offset(offset)
         .all()
