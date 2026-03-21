@@ -12,6 +12,7 @@ Logging Policy:
 """
 
 import logging
+import math
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -19,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload  # selectinload: Eager loading to prevent N+1 queries
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
+from src.constants import FLOAT_COMPARISON_TOLERANCE
 from src.db.database import get_db
 from src.db.models.user import User
 from src.db.models.inventory_item import InventoryItem, Category, StorageLocation, Shareability
@@ -1100,7 +1102,8 @@ def consume_inventory_item(
         )
 
     # Validate consumption amount doesn't exceed available quantity
-    if consumption_data.amount > item.quantity:
+    # Use tolerance to handle floating-point precision issues
+    if consumption_data.amount > item.quantity + FLOAT_COMPARISON_TOLERANCE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot consume {consumption_data.amount} {item.unit}. Only {item.quantity} {item.unit} available."
@@ -1109,8 +1112,9 @@ def consume_inventory_item(
     # Calculate new quantity
     new_quantity = item.quantity - consumption_data.amount
 
-    # Check if item should be deleted (using tolerance for float comparison)
-    if new_quantity < 1e-9 and consumption_data.delete_when_empty:
+    # Check if item should be deleted (using math.isclose for proper float comparison)
+    # Handles both "effectively zero" and negative edge cases from floating-point rounding
+    if (math.isclose(new_quantity, 0.0, abs_tol=FLOAT_COMPARISON_TOLERANCE) or new_quantity < 0) and consumption_data.delete_when_empty:
         # Delete the item
         try:
             db.delete(item)
@@ -1135,8 +1139,8 @@ def consume_inventory_item(
             item=None
         )
     else:
-        # Update quantity
-        item.quantity = new_quantity
+        # Update quantity - clamp to 0.0 if negative due to floating-point precision
+        item.quantity = max(0.0, new_quantity)
 
         try:
             db.commit()
