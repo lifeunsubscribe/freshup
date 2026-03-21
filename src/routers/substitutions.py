@@ -26,6 +26,7 @@ from src.schemas.substitution import (
     SubstitutionPreferenceResponse,
 )
 from src.middleware.auth import get_current_user
+from src.routers.substitution_helpers import verify_substitution_preference_ownership
 
 logger = logging.getLogger(__name__)
 
@@ -160,21 +161,7 @@ def get_substitution_preference(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If preference doesn't exist or belongs to another user
     """
-    preference = (
-        db.query(SubstitutionPreference)
-        .filter(
-            SubstitutionPreference.id == preference_id,
-            SubstitutionPreference.user_id == current_user.id,
-        )
-        .first()
-    )
-
-    if not preference:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Substitution preference not found"
-        )
-
+    preference = verify_substitution_preference_ownership(preference_id, current_user, db)
     return preference
 
 
@@ -205,21 +192,8 @@ def update_substitution_preference(
         HTTPException(404): If preference doesn't exist or belongs to another user
         HTTPException(422): If validation fails (invalid replacements format, invalid context, etc.)
     """
-    # Query preference with user ownership check
-    preference = (
-        db.query(SubstitutionPreference)
-        .filter(
-            SubstitutionPreference.id == preference_id,
-            SubstitutionPreference.user_id == current_user.id,
-        )
-        .first()
-    )
-
-    if not preference:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Substitution preference not found"
-        )
+    # Verify preference exists and belongs to current user
+    preference = verify_substitution_preference_ownership(preference_id, current_user, db)
 
     # Update only the fields that were provided
     update_dict = update_data.model_dump(exclude_unset=True)
@@ -287,21 +261,8 @@ def delete_substitution_preference(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If preference doesn't exist or belongs to another user
     """
-    # Query preference with user ownership check
-    preference = (
-        db.query(SubstitutionPreference)
-        .filter(
-            SubstitutionPreference.id == preference_id,
-            SubstitutionPreference.user_id == current_user.id,
-        )
-        .first()
-    )
-
-    if not preference:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Substitution preference not found"
-        )
+    # Verify preference exists and belongs to current user
+    preference = verify_substitution_preference_ownership(preference_id, current_user, db)
 
     try:
         db.delete(preference)
