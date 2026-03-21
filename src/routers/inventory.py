@@ -12,6 +12,7 @@ Logging Policy:
 """
 
 import logging
+import math
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -19,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload  # selectinload: Eager loading to prevent N+1 queries
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
+from src.constants import FLOAT_COMPARISON_TOLERANCE
 from src.db.database import get_db
 from src.db.models.user import User
 from src.db.models.inventory_item import InventoryItem, Category, StorageLocation, Shareability
@@ -1109,8 +1111,9 @@ def consume_inventory_item(
     # Calculate new quantity
     new_quantity = item.quantity - consumption_data.amount
 
-    # Check if item should be deleted (using tolerance for float comparison)
-    if new_quantity < 1e-9 and consumption_data.delete_when_empty:
+    # Check if item should be deleted (using math.isclose for proper float comparison)
+    # Handles both "effectively zero" and negative edge cases from floating-point rounding
+    if (math.isclose(new_quantity, 0.0, abs_tol=FLOAT_COMPARISON_TOLERANCE) or new_quantity < 0) and consumption_data.delete_when_empty:
         # Delete the item
         try:
             db.delete(item)
