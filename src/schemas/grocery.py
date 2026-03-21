@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from src.db.models.grocery_list import GrocerySource
 from src.db.models.inventory_item import Category, UnitType, StorageLocation
-from src.schemas.inventory import StoreResponse
 from src.schemas.validators import (
     validate_name_not_empty,
     validate_enum_value,
