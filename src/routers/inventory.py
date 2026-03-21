@@ -16,7 +16,7 @@ from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload  # selectinload: Eager loading to prevent N+1 queries
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.db.database import get_db
@@ -304,6 +304,10 @@ def get_inventory_item(
     Retrieves a specific inventory item. Returns 404 if the item doesn't exist
     or belongs to a different user (preventing cross-user access).
 
+    Performance Note:
+        Uses selectinload() to eagerly fetch related stores in a single additional query,
+        preventing N+1 query problems during Pydantic serialization of the response model.
+
     Args:
         item_id: UUID of the inventory item to retrieve
         current_user: Authenticated user (injected by get_current_user dependency)
@@ -318,6 +322,10 @@ def get_inventory_item(
     """
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -509,6 +517,10 @@ def set_preferred_store(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -571,6 +583,10 @@ def clear_preferred_store(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -644,6 +660,10 @@ def add_available_store(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
@@ -723,6 +743,10 @@ def remove_available_store(
     # Query item with user ownership check
     item = (
         db.query(InventoryItem)
+        .options(
+            selectinload(InventoryItem.available_at_stores),
+            selectinload(InventoryItem.preferred_store_rel)
+        )
         .filter(
             InventoryItem.id == item_id,
             InventoryItem.added_by == current_user.id,
