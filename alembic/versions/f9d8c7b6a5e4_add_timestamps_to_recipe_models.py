@@ -23,6 +23,7 @@ def upgrade() -> None:
     with op.batch_alter_table('recipes', schema=None) as batch_op:
         batch_op.add_column(sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False))
         batch_op.add_column(sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False))
+        batch_op.create_index('ix_recipes_created_at', ['created_at'])
 
     # Add created_at to recipe_ingredients table
     with op.batch_alter_table('recipe_ingredients', schema=None) as batch_op:
@@ -46,5 +47,6 @@ def downgrade() -> None:
 
     # Remove timestamps from recipes table
     with op.batch_alter_table('recipes', schema=None) as batch_op:
+        batch_op.drop_index('ix_recipes_created_at')
         batch_op.drop_column('updated_at')
         batch_op.drop_column('created_at')
