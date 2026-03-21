@@ -41,6 +41,7 @@ from src.schemas.inventory import (
 )
 from src.schemas.validators import validate_enum_value
 from src.middleware.auth import get_current_user
+from src.routers.inventory_helpers import verify_inventory_item_ownership
 
 logger = logging.getLogger(__name__)
 
@@ -322,24 +323,17 @@ def get_inventory_item(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
     """
+    # Verify item exists and belongs to current user, then eager load store relationships
+    verify_inventory_item_ownership(item_id, current_user, db)
     item = (
         db.query(InventoryItem)
         .options(
             selectinload(InventoryItem.available_at_stores),
             selectinload(InventoryItem.preferred_store_rel)
         )
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
+        .filter(InventoryItem.id == item_id)
         .first()
     )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
 
     return item
 
@@ -371,21 +365,8 @@ def update_inventory_item(
         HTTPException(404): If item doesn't exist or belongs to another user
         HTTPException(422): If validation fails (invalid unit, category, etc.)
     """
-    # Query item with user ownership check
-    item = (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
-        .first()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
+    # Verify item exists and belongs to current user
+    item = verify_inventory_item_ownership(item_id, current_user, db)
 
     # Update only the fields that were provided
     update_dict = update_data.model_dump(exclude_unset=True)
@@ -446,21 +427,8 @@ def delete_inventory_item(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
     """
-    # Query item with user ownership check
-    item = (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
-        .first()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
+    # Verify item exists and belongs to current user
+    item = verify_inventory_item_ownership(item_id, current_user, db)
 
     try:
         db.delete(item)
@@ -516,25 +484,17 @@ def set_preferred_store(
             detail="Store not found"
         )
 
-    # Query item with user ownership check
+    # Verify item exists and belongs to current user, then eager load store relationships
+    verify_inventory_item_ownership(item_id, current_user, db)
     item = (
         db.query(InventoryItem)
         .options(
             selectinload(InventoryItem.available_at_stores),
             selectinload(InventoryItem.preferred_store_rel)
         )
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
+        .filter(InventoryItem.id == item_id)
         .first()
     )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
 
     # Update preferred store
     item.preferred_store = request_data.store_id
@@ -582,25 +542,17 @@ def clear_preferred_store(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
     """
-    # Query item with user ownership check
+    # Verify item exists and belongs to current user, then eager load store relationships
+    verify_inventory_item_ownership(item_id, current_user, db)
     item = (
         db.query(InventoryItem)
         .options(
             selectinload(InventoryItem.available_at_stores),
             selectinload(InventoryItem.preferred_store_rel)
         )
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
+        .filter(InventoryItem.id == item_id)
         .first()
     )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
 
     # Clear preferred store
     item.preferred_store = None
@@ -659,25 +611,17 @@ def add_available_store(
             detail="Store not found"
         )
 
-    # Query item with user ownership check
+    # Verify item exists and belongs to current user, then eager load store relationships
+    verify_inventory_item_ownership(item_id, current_user, db)
     item = (
         db.query(InventoryItem)
         .options(
             selectinload(InventoryItem.available_at_stores),
             selectinload(InventoryItem.preferred_store_rel)
         )
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
+        .filter(InventoryItem.id == item_id)
         .first()
     )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
 
     # Add store to available_at_stores if not already present
     if store not in item.available_at_stores:
@@ -742,25 +686,17 @@ def remove_available_store(
             detail="Store not found"
         )
 
-    # Query item with user ownership check
+    # Verify item exists and belongs to current user, then eager load store relationships
+    verify_inventory_item_ownership(item_id, current_user, db)
     item = (
         db.query(InventoryItem)
         .options(
             selectinload(InventoryItem.available_at_stores),
             selectinload(InventoryItem.preferred_store_rel)
         )
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
+        .filter(InventoryItem.id == item_id)
         .first()
     )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
 
     # Remove store from available_at_stores if present
     if store in item.available_at_stores:
@@ -877,21 +813,8 @@ def update_shareability(
         HTTPException(404): If item doesn't exist or belongs to another user
         HTTPException(422): If shareability is invalid or reserved_note exceeds 500 chars
     """
-    # Query item with user ownership check
-    item = (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
-        .first()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
+    # Verify item exists and belongs to current user
+    item = verify_inventory_item_ownership(item_id, current_user, db)
 
     # Update shareability
     item.shareability = request_data.shareability
@@ -953,21 +876,8 @@ def freeze_inventory_item(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
     """
-    # Query item with user ownership check
-    item = (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
-        .first()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
+    # Verify item exists and belongs to current user
+    item = verify_inventory_item_ownership(item_id, current_user, db)
 
     # Update storage location and frozen date
     item.storage_location = StorageLocation.freezer.value
@@ -1017,21 +927,8 @@ def thaw_inventory_item(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
     """
-    # Query item with user ownership check
-    item = (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
-        .first()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
+    # Verify item exists and belongs to current user
+    item = verify_inventory_item_ownership(item_id, current_user, db)
 
     # Update storage location and clear frozen date
     item.storage_location = StorageLocation.fridge.value
@@ -1085,21 +982,8 @@ def consume_inventory_item(
         HTTPException(400): If consumption amount exceeds available quantity
         HTTPException(422): If amount is negative or zero
     """
-    # Query item with user ownership check
-    item = (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
-        .first()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
+    # Verify item exists and belongs to current user
+    item = verify_inventory_item_ownership(item_id, current_user, db)
 
     # Validate consumption amount doesn't exceed available quantity
     # Use tolerance to handle floating-point precision issues
