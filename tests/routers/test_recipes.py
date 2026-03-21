@@ -2228,8 +2228,8 @@ class TestAdHocRecipeCreation:
         db_session.refresh(item)
         assert item.quantity == 8.0  # 10.0 - 2.0
 
-    def test_create_ad_hoc_recipe_unit_case_sensitive(self, client, db_session, auth_headers, test_user):
-        """Test that unit comparison is case-sensitive (oz != Oz)."""
+    def test_create_ad_hoc_recipe_unit_case_insensitive(self, client, db_session, auth_headers, test_user):
+        """Test that unit comparison is case-insensitive (oz == Oz for better UX)."""
         from src.db.models.inventory_item import InventoryItem
 
         # Create inventory item with lowercase "oz" unit
@@ -2245,7 +2245,7 @@ class TestAdHocRecipeCreation:
         db_session.add(item)
         db_session.commit()
 
-        # Try to create recipe using uppercase "Oz"
+        # Create recipe using uppercase "Oz" - should succeed (case-insensitive)
         recipe_data = {
             "name": "Milkshake",
             "inventory_items": [
@@ -2255,10 +2255,14 @@ class TestAdHocRecipeCreation:
         }
 
         response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
-        assert response.status_code == 400
-        assert "Unit mismatch for Milk" in response.json()["detail"]
-        assert 'recipe uses "Oz"' in response.json()["detail"]
-        assert 'inventory has "oz"' in response.json()["detail"]
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Milkshake"
+        assert data["source_type"] == "ad_hoc"
+
+        # Verify inventory was NOT decremented (decrement_inventory=False)
+        db_session.refresh(item)
+        assert item.quantity == 32.0
 
     def test_create_ad_hoc_recipe_unit_mismatch_multiple_items_atomic(self, client, db_session, auth_headers, test_user):
         """Test that unit mismatch in one item prevents entire recipe creation (atomic)."""
