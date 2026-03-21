@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
@@ -11,6 +12,8 @@ from src.config import get_settings
 from src.db.database import Base, init_engine, get_engine, get_session_factory
 from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router
 from src.middleware.rate_limit import limiter
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -104,6 +107,7 @@ async def health_check():
     except Exception as e:
         # Unexpected errors (e.g., configuration issues, driver problems)
         # Health check should never crash, so catch-all is acceptable here
+        logger.warning(f"Unexpected error during database connectivity check: {e}", exc_info=True)
         checks["database"] = "unreachable"
         issues.append(f"db_connect_unexpected: {e}")
 
@@ -124,6 +128,7 @@ async def health_check():
             issues.append(f"schema_check: {e}")
         except Exception as e:
             # Unexpected errors during inspection (e.g., reflection issues)
+            logger.warning(f"Unexpected error during schema inspection: {e}", exc_info=True)
             checks["schema"] = "error"
             issues.append(f"schema_check_unexpected: {e}")
 
@@ -144,6 +149,7 @@ async def health_check():
             issues.append(f"migration_check: {e}")
         except Exception as e:
             # Alembic errors (e.g., missing alembic_version table, config issues)
+            logger.warning(f"Unexpected error during migration status check: {e}", exc_info=True)
             checks["migrations"] = "error"
             issues.append(f"migration_check_unexpected: {e}")
 
