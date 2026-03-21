@@ -9,7 +9,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from src.db.models.recipe import SourceType
-from src.schemas.validators import validate_enum_value, validate_non_negative, validate_name_not_empty
+from src.schemas.validators import validate_enum_value, validate_non_negative, validate_name_not_empty, validate_string_list
 
 
 class RecipeCreate(BaseModel):
@@ -22,11 +22,11 @@ class RecipeCreate(BaseModel):
     source_url: Optional[str] = Field(default=None, max_length=2048, description="Source URL")
     source_image: Optional[str] = Field(default=None, max_length=2048, description="Source image URL")
     variation_groups: Optional[dict] = Field(default=None, description="Variation groups (JSON)")
-    steps: Optional[list] = Field(default_factory=list, description="Cooking steps (JSON)")
+    steps: Optional[list[str]] = Field(default_factory=list, description="Cooking steps (JSON array)")
     prep_time_minutes: Optional[int] = Field(default=None, description="Preparation time in minutes")
     cook_time_minutes: Optional[int] = Field(default=None, description="Cooking time in minutes")
     base_servings: Optional[int] = Field(default=4, description="Base number of servings")
-    tags: Optional[list] = Field(default_factory=list, description="Recipe tags (JSON array)")
+    tags: Optional[list[str]] = Field(default_factory=list, description="Recipe tags (JSON array)")
     nutritional_info: Optional[dict] = Field(default=None, description="Nutritional information (JSON)")
     notes: Optional[str] = Field(default=None, max_length=10000, description="Recipe notes")
     created_by: Optional[UUID] = Field(default=None, description="User ID who created the recipe")
@@ -65,6 +65,22 @@ class RecipeCreate(BaseModel):
             raise ValueError("base_servings must be positive")
         return v
 
+    @field_validator('tags', 'steps')
+    @classmethod
+    def validate_string_lists(cls, v: Optional[list[str]], info) -> Optional[list[str]]:
+        """
+        Validate tags and steps lists for length and character constraints.
+
+        Ensures data quality by enforcing maximum item length, maximum list size,
+        and allowed character constraints. Uses validate_string_list which:
+        - Strips whitespace and filters out empty strings
+        - Normalizes Unicode to NFC form
+        - Blocks dangerous Unicode characters
+        - Allows letters, numbers, and common punctuation
+        """
+        field_name = info.field_name
+        return validate_string_list(field_name, v)
+
 
 class RecipeUpdate(BaseModel):
     """Request schema for updating a recipe (partial updates allowed)."""
@@ -74,11 +90,11 @@ class RecipeUpdate(BaseModel):
     source_url: Optional[str] = Field(default=None, max_length=2048, description="Source URL")
     source_image: Optional[str] = Field(default=None, max_length=2048, description="Source image URL")
     variation_groups: Optional[dict] = Field(default=None, description="Variation groups (JSON)")
-    steps: Optional[list] = Field(default=None, description="Cooking steps (JSON)")
+    steps: Optional[list[str]] = Field(default=None, description="Cooking steps (JSON array)")
     prep_time_minutes: Optional[int] = Field(default=None, description="Preparation time in minutes")
     cook_time_minutes: Optional[int] = Field(default=None, description="Cooking time in minutes")
     base_servings: Optional[int] = Field(default=None, description="Base number of servings")
-    tags: Optional[list] = Field(default=None, description="Recipe tags (JSON array)")
+    tags: Optional[list[str]] = Field(default=None, description="Recipe tags (JSON array)")
     nutritional_info: Optional[dict] = Field(default=None, description="Nutritional information (JSON)")
     notes: Optional[str] = Field(default=None, max_length=10000, description="Recipe notes")
 
@@ -113,6 +129,22 @@ class RecipeUpdate(BaseModel):
         if v is not None and v <= 0:
             raise ValueError("base_servings must be positive")
         return v
+
+    @field_validator('tags', 'steps')
+    @classmethod
+    def validate_string_lists(cls, v: Optional[list[str]], info) -> Optional[list[str]]:
+        """
+        Validate tags and steps lists for length and character constraints.
+
+        Ensures data quality by enforcing maximum item length, maximum list size,
+        and allowed character constraints. Uses validate_string_list which:
+        - Strips whitespace and filters out empty strings
+        - Normalizes Unicode to NFC form
+        - Blocks dangerous Unicode characters
+        - Allows letters, numbers, and common punctuation
+        """
+        field_name = info.field_name
+        return validate_string_list(field_name, v)
 
 
 class RecipeResponse(BaseModel):
@@ -300,3 +332,19 @@ class AdHocRecipeCreate(BaseModel):
         """Ensure name is not empty and apply Unicode normalization."""
         result = validate_name_not_empty(v)
         return result  # type: ignore
+
+    @field_validator('tags', 'steps')
+    @classmethod
+    def validate_string_lists(cls, v: Optional[list[str]], info) -> Optional[list[str]]:
+        """
+        Validate tags and steps lists for length and character constraints.
+
+        Ensures data quality by enforcing maximum item length, maximum list size,
+        and allowed character constraints. Uses validate_string_list which:
+        - Strips whitespace and filters out empty strings
+        - Normalizes Unicode to NFC form
+        - Blocks dangerous Unicode characters
+        - Allows letters, numbers, and common punctuation
+        """
+        field_name = info.field_name
+        return validate_string_list(field_name, v)
