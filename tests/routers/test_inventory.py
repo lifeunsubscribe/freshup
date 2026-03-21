@@ -2240,6 +2240,7 @@ class TestFreezeThawActions:
         thaw_data = thaw_response.json()
         assert thaw_data["storage_location"] == "fridge"
         assert thaw_data["frozen_date"] is None
+        assert thaw_data["expiration_date"] is None  # Expiration cleared on thaw
 
     def test_thaw_then_freeze_transition(self, client, auth_headers, test_user, db_session):
         """Should transition item from thaw to freeze correctly."""
@@ -2271,6 +2272,142 @@ class TestFreezeThawActions:
         freeze_data = freeze_response.json()
         assert freeze_data["storage_location"] == "freezer"
         assert freeze_data["frozen_date"] is not None
+
+    def test_thaw_to_custom_destination_pantry(self, client, auth_headers, test_user, db_session):
+        """Should thaw item to pantry when destination is specified."""
+        from datetime import datetime, timezone
+        # Create frozen item
+        item = InventoryItem(
+            name="Frozen Bread",
+            quantity=1.0,
+            unit="count",
+            category="grain",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Thaw to pantry
+        response = client.post(
+            f"/inventory/{item.id}/thaw",
+            headers=auth_headers,
+            json={"destination": "pantry"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "pantry"
+        assert data["frozen_date"] is None
+
+    def test_thaw_to_freezer_fails(self, client, auth_headers, test_user, db_session):
+        """Should return 422 when trying to thaw to freezer (nonsensical operation)."""
+        from datetime import datetime, timezone
+        # Create frozen item
+        item = InventoryItem(
+            name="Frozen Chicken",
+            quantity=2.0,
+            unit="lb",
+            category="protein",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Try to thaw to freezer
+        response = client.post(
+            f"/inventory/{item.id}/thaw",
+            headers=auth_headers,
+            json={"destination": "freezer"}
+        )
+
+        assert response.status_code == 422
+        assert "freezer" in response.json()["detail"][0]["msg"].lower()
+
+    def test_thaw_invalid_destination_fails(self, client, auth_headers, test_user, db_session):
+        """Should return 422 when destination is not a valid enum value."""
+        from datetime import datetime, timezone
+        # Create frozen item
+        item = InventoryItem(
+            name="Frozen Fish",
+            quantity=1.5,
+            unit="lb",
+            category="protein",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Try to thaw to invalid location
+        response = client.post(
+            f"/inventory/{item.id}/thaw",
+            headers=auth_headers,
+            json={"destination": "garage"}
+        )
+
+        assert response.status_code == 422
+        assert "garage" in response.json()["detail"][0]["msg"].lower()
+
+    def test_thaw_clears_expiration_date(self, client, auth_headers, test_user, db_session):
+        """Should clear expiration_date when thawing (thawed items have different shelf life)."""
+        from datetime import datetime, timezone, timedelta
+        # Create frozen item with expiration date
+        expiration = datetime.now(timezone.utc) + timedelta(days=30)
+        item = InventoryItem(
+            name="Frozen Meat",
+            quantity=2.0,
+            unit="lb",
+            category="protein",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            expiration_date=expiration,
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Thaw the item
+        response = client.post(f"/inventory/{item.id}/thaw", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "fridge"
+        assert data["frozen_date"] is None
+        assert data["expiration_date"] is None  # Expiration cleared
+
+    def test_thaw_default_destination_fridge_backwards_compatibility(self, client, auth_headers, test_user, db_session):
+        """Should default to fridge when no destination specified (backwards compatibility)."""
+        from datetime import datetime, timezone
+        # Create frozen item
+        item = InventoryItem(
+            name="Frozen Vegetables",
+            quantity=1.0,
+            unit="lb",
+            category="produce",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        # Thaw without specifying destination (empty body)
+        response = client.post(f"/inventory/{item.id}/thaw", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "fridge"  # Default to fridge
+        assert data["frozen_date"] is None
 
 
 class TestLowStockAlerts:
