@@ -1139,8 +1139,8 @@ def consume_inventory_item(
             item=None
         )
     else:
-        # Update quantity
-        item.quantity = new_quantity
+        # Update quantity - clamp to 0.0 if negative due to floating-point precision
+        item.quantity = max(0.0, new_quantity)
 
         try:
             db.commit()
