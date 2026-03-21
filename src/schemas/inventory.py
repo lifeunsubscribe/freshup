@@ -263,6 +263,30 @@ class LowStockAlertItem(BaseModel):
     deficit: float = Field(..., description="How many units below threshold (threshold - quantity)")
 
 
+class ThawRequest(BaseModel):
+    """Request schema for thawing inventory items."""
+
+    destination: str = Field(
+        default=StorageLocation.fridge.value,
+        description="Storage location after thawing (pantry or fridge, cannot be freezer)"
+    )
+
+    @field_validator('destination')
+    @classmethod
+    def validate_destination_field(cls, v: str) -> str:
+        """Ensure destination is a valid StorageLocation value and not freezer."""
+        # First validate it's a valid StorageLocation enum value
+        validated = validate_enum_value('Destination', v, StorageLocation, allow_none=False)
+        # validate_enum_value handles Optional, but this field is required so won't be None
+        assert validated is not None  # Type narrowing for mypy
+
+        # Check that destination is not freezer (thawing to freezer is nonsensical)
+        if validated == StorageLocation.freezer.value:
+            raise ValueError("Cannot thaw to freezer. Valid destinations: pantry, fridge")
+
+        return validated
+
+
 class ConsumptionRequest(BaseModel):
     """Request schema for consuming inventory items."""
 

@@ -34,6 +34,7 @@ from src.schemas.inventory import (
     AddAvailableStoreRequest,
     UpdateShareabilityRequest,
     LowStockAlertItem,
+    ThawRequest,
     ConsumptionRequest,
     ConsumptionResponse,
     BulkInventoryItemCreate,
@@ -906,33 +907,40 @@ def freeze_inventory_item(
 @router.post("/{item_id}/thaw", response_model=InventoryItemResponse)
 def thaw_inventory_item(
     item_id: UUID,
+    thaw_data: ThawRequest = ThawRequest(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Thaw an inventory item (quick action).
 
-    Updates the item's storage location to "fridge" and clears the frozen_date.
-    This endpoint is idempotent - thawing a non-frozen item does not raise an error.
+    Updates the item's storage location to the specified destination (defaults to "fridge"),
+    clears the frozen_date, and clears the expiration_date (as thawed items have different
+    shelf life than frozen items). This endpoint is idempotent - thawing a non-frozen item
+    does not raise an error.
 
     Args:
         item_id: UUID of the inventory item to thaw
+        thaw_data: Thaw configuration (destination storage location)
         current_user: Authenticated user (injected by get_current_user dependency)
         db: Database session
 
     Returns:
-        InventoryItemResponse: Updated inventory item with fridge location and cleared frozen_date
+        InventoryItemResponse: Updated inventory item with specified destination, cleared frozen_date and expiration_date
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or belongs to another user
+        HTTPException(422): If destination is "freezer" (invalid thaw destination)
     """
     # Verify item exists and belongs to current user
     item = verify_inventory_item_ownership(item_id, current_user, db)
 
-    # Update storage location and clear frozen date
-    item.storage_location = StorageLocation.fridge.value
+    # Update storage location to destination and clear frozen date
+    item.storage_location = thaw_data.destination
     item.frozen_date = None
+    # Clear expiration date - thawed items have different shelf life than frozen items
+    item.expiration_date = None
 
     try:
         db.commit()
