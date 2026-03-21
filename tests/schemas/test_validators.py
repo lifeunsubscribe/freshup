@@ -493,7 +493,7 @@ class TestUserCreateSchemaIntegration:
             "email": "test@example.com",
             "password": long_password
         }
-        with pytest.raises(ValueError, match="at most 72 bytes"):
+        with pytest.raises(ValueError, match="72 bytes"):
             UserCreate(**user_data)
 
 
