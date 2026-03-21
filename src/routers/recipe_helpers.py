@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from src.db.models.user import User
 from src.db.models.recipe import Recipe
+from src.utils.ownership import verify_ownership
 
 
 def verify_recipe_ownership(
@@ -35,22 +36,14 @@ def verify_recipe_ownership(
     Raises:
         HTTPException(404): If recipe doesn't exist or belongs to another user
     """
-    recipe = (
-        db.query(Recipe)
-        .filter(
-            Recipe.id == recipe_id,
-            Recipe.created_by == current_user.id,
-        )
-        .first()
+    return verify_ownership(
+        entity_class=Recipe,
+        entity_id=recipe_id,
+        ownership_field='created_by',
+        current_user=current_user,
+        db=db,
+        entity_name="Recipe"
     )
-
-    if not recipe:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recipe not found"
-        )
-
-    return recipe
 
 
 def verify_recipe_ownership_with_system_check(

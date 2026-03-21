@@ -6,11 +6,11 @@ inventory CRUD endpoints and maintain consistent error handling.
 """
 
 from uuid import UUID
-from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.db.models.user import User
 from src.db.models.inventory_item import InventoryItem
+from src.utils.ownership import verify_ownership
 
 
 def verify_inventory_item_ownership(
@@ -35,19 +35,11 @@ def verify_inventory_item_ownership(
     Raises:
         HTTPException(404): If item doesn't exist or belongs to another user
     """
-    item = (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.id == item_id,
-            InventoryItem.added_by == current_user.id,
-        )
-        .first()
+    return verify_ownership(
+        entity_class=InventoryItem,
+        entity_id=item_id,
+        ownership_field='added_by',
+        current_user=current_user,
+        db=db,
+        entity_name="Inventory item"
     )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Inventory item not found"
-        )
-
-    return item
