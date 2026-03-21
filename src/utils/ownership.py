@@ -6,22 +6,25 @@ the authenticated user. Centralizes ownership check logic to reduce code
 duplication across routers and maintain consistent error handling.
 """
 
-from typing import Any, Type
+from typing import Type, TypeVar
 from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.db.models.user import User
 
+# TypeVar for generic entity type - provides type safety and IDE autocomplete
+T = TypeVar('T')
+
 
 def verify_ownership(
-    entity_class: Type,
+    entity_class: Type[T],
     entity_id: UUID,
     ownership_field: str,
     current_user: User,
     db: Session,
     entity_name: str = "Resource"
-) -> Any:
+) -> T:
     """
     Verify that a database entity exists and belongs to the current user.
 
@@ -53,6 +56,13 @@ def verify_ownership(
         ...     "Inventory item"
         ... )
     """
+    # Validate that ownership_field exists on entity to prevent cryptic errors
+    if not hasattr(entity_class, ownership_field):
+        raise ValueError(
+            f"Entity class {entity_class.__name__} does not have field '{ownership_field}'. "
+            f"Please check the ownership_field parameter."
+        )
+
     # Build filter dynamically based on ownership field
     ownership_filter = {ownership_field: current_user.id}
 
