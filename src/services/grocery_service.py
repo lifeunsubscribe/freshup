@@ -598,6 +598,12 @@ def get_items_by_store(
         else:
             # Item has a target store
             store_id = item.target_store
+            # Check if store relationship exists (handles dangling foreign key if store was deleted)
+            if item.target_store_rel is None:
+                # Store was deleted - treat as unassigned
+                unassigned.append(item)
+                continue
+
             if store_id not in stores_dict:
                 # First time seeing this store - initialize group
                 # Access the relationship to get store details (already eager-loaded)
