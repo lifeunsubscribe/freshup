@@ -147,8 +147,10 @@ class PreparedFoodListResponse(BaseModel):
     type: str
     servings_remaining: float
     storage_location: str
+    date_prepared: datetime
     estimated_expiration: Optional[datetime]
     shareability: str
+    prepared_by: UUID
 
 
 class PreparedFoodConsumptionResponse(BaseModel):
