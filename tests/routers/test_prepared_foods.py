@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from uuid import UUID, uuid4
+from datetime import datetime, timedelta, timezone
 
 from src.db.database import Base, get_db
 from src.db import models
@@ -1603,3 +1604,328 @@ class TestThawPreparedFood:
 
         response = client.post(f"/prepared-foods/{item.id}/thaw")
         assert response.status_code == 401
+
+
+class TestPreparedFoodExpiringAndSearchFilters:
+    """Tests for expiring_soon, expiring_within_days, and search filters on prepared foods list endpoint."""
+
+    def test_filter_by_expiring_soon(self, client, auth_headers, test_user, db_session):
+        """Should filter items expiring within 7 days."""
+        # Create items with different expiration dates
+        expiring_soon_item = PreparedFood(
+            name="Leftover Curry Expiring Soon",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="fridge",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=3),
+            prepared_by=test_user.id,
+        )
+        expiring_later_item = PreparedFood(
+            name="Frozen Soup Expiring Later",
+            type="batch_portion",
+            servings_remaining=4.0,
+            storage_location="freezer",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=14),
+            prepared_by=test_user.id,
+        )
+        no_expiration_item = PreparedFood(
+            name="Dried Herbs No Expiration",
+            type="component_ingredient",
+            servings_remaining=10.0,
+            storage_location="pantry",
+            estimated_expiration=None,
+            prepared_by=test_user.id,
+        )
+        db_session.add_all([expiring_soon_item, expiring_later_item, no_expiration_item])
+        db_session.commit()
+
+        # Filter by expiring_soon=true
+        response = client.get("/prepared-foods?expiring_soon=true", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Leftover Curry Expiring Soon"
+
+        # Filter by expiring_soon=false (should return all items, including those not expiring soon)
+        response = client.get("/prepared-foods?expiring_soon=false", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        # When expiring_soon=false, no expiration filter is applied, so all items are returned
+        assert len(data) == 3
+
+    def test_filter_by_expiring_within_days(self, client, auth_headers, test_user, db_session):
+        """Should filter items expiring within N days."""
+        # Create items with different expiration dates
+        expiring_in_2_days = PreparedFood(
+            name="Pasta 2 Days",
+            type="complete_meal",
+            servings_remaining=1.0,
+            storage_location="fridge",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=2),
+            prepared_by=test_user.id,
+        )
+        expiring_in_5_days = PreparedFood(
+            name="Rice 5 Days",
+            type="batch_portion",
+            servings_remaining=3.0,
+            storage_location="fridge",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=5),
+            prepared_by=test_user.id,
+        )
+        expiring_in_10_days = PreparedFood(
+            name="Stew 10 Days",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="freezer",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=10),
+            prepared_by=test_user.id,
+        )
+        db_session.add_all([expiring_in_2_days, expiring_in_5_days, expiring_in_10_days])
+        db_session.commit()
+
+        # Filter by expiring_within_days=3
+        response = client.get("/prepared-foods?expiring_within_days=3", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Pasta 2 Days"
+
+        # Filter by expiring_within_days=6
+        response = client.get("/prepared-foods?expiring_within_days=6", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        item_names = {item["name"] for item in data}
+        assert item_names == {"Pasta 2 Days", "Rice 5 Days"}
+
+        # Filter by expiring_within_days=15
+        response = client.get("/prepared-foods?expiring_within_days=15", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 3
+
+    def test_filter_expiring_within_days_overrides_expiring_soon(self, client, auth_headers, test_user, db_session):
+        """Should use expiring_within_days when both expiring_soon and expiring_within_days are provided."""
+        # Create items
+        expiring_in_2_days = PreparedFood(
+            name="Soup 2 Days",
+            type="complete_meal",
+            servings_remaining=1.0,
+            storage_location="fridge",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=2),
+            prepared_by=test_user.id,
+        )
+        expiring_in_5_days = PreparedFood(
+            name="Curry 5 Days",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="fridge",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=5),
+            prepared_by=test_user.id,
+        )
+        db_session.add_all([expiring_in_2_days, expiring_in_5_days])
+        db_session.commit()
+
+        # When both are provided, expiring_within_days should take precedence
+        response = client.get(
+            "/prepared-foods?expiring_soon=true&expiring_within_days=3",
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Soup 2 Days"
+
+    def test_expiring_filters_exclude_null_expiration(self, client, auth_headers, test_user, db_session):
+        """Should exclude items with null estimated_expiration from expiring filters."""
+        # Create items with and without expiration dates
+        has_expiration = PreparedFood(
+            name="Leftovers With Expiration",
+            type="complete_meal",
+            servings_remaining=1.0,
+            storage_location="fridge",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=3),
+            prepared_by=test_user.id,
+        )
+        no_expiration = PreparedFood(
+            name="Dried Ingredients No Expiration",
+            type="component_ingredient",
+            servings_remaining=5.0,
+            storage_location="pantry",
+            estimated_expiration=None,
+            prepared_by=test_user.id,
+        )
+        db_session.add_all([has_expiration, no_expiration])
+        db_session.commit()
+
+        # Filter by expiring_soon=true
+        response = client.get("/prepared-foods?expiring_soon=true", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Leftovers With Expiration"
+
+        # Filter by expiring_within_days=7
+        response = client.get("/prepared-foods?expiring_within_days=7", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Leftovers With Expiration"
+
+    def test_filter_by_search(self, client, auth_headers, test_user, db_session):
+        """Should search items by name (case-insensitive partial match)."""
+        # Create items with different names
+        item1 = PreparedFood(
+            name="Leftover Curry",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="fridge",
+            prepared_by=test_user.id,
+        )
+        item2 = PreparedFood(
+            name="Chicken Curry Batch",
+            type="batch_portion",
+            servings_remaining=5.0,
+            storage_location="freezer",
+            prepared_by=test_user.id,
+        )
+        item3 = PreparedFood(
+            name="Tomato Sauce",
+            type="component_ingredient",
+            servings_remaining=3.0,
+            storage_location="fridge",
+            prepared_by=test_user.id,
+        )
+        db_session.add_all([item1, item2, item3])
+        db_session.commit()
+
+        # Search for "curry" (case-insensitive)
+        response = client.get("/prepared-foods?search=curry", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        item_names = {item["name"] for item in data}
+        assert item_names == {"Leftover Curry", "Chicken Curry Batch"}
+
+        # Search for "CURRY" (case-insensitive)
+        response = client.get("/prepared-foods?search=CURRY", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+
+        # Search for "tomato"
+        response = client.get("/prepared-foods?search=tomato", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Tomato Sauce"
+
+        # Search for partial match "chi"
+        response = client.get("/prepared-foods?search=chi", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Chicken Curry Batch"
+
+    def test_search_with_wildcard_characters(self, client, auth_headers, test_user, db_session):
+        """Should escape SQL wildcards in search input to prevent DoS."""
+        # Create items with special characters
+        item1 = PreparedFood(
+            name="Test_Item_With_Underscores",
+            type="complete_meal",
+            servings_remaining=1.0,
+            storage_location="fridge",
+            prepared_by=test_user.id,
+        )
+        item2 = PreparedFood(
+            name="Test%Item%With%Percent",
+            type="batch_portion",
+            servings_remaining=2.0,
+            storage_location="fridge",
+            prepared_by=test_user.id,
+        )
+        item3 = PreparedFood(
+            name="Regular Item",
+            type="component_ingredient",
+            servings_remaining=3.0,
+            storage_location="pantry",
+            prepared_by=test_user.id,
+        )
+        db_session.add_all([item1, item2, item3])
+        db_session.commit()
+
+        # Search with underscore wildcard (should be escaped and match literally)
+        response = client.get("/prepared-foods?search=Test_Item", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Test_Item_With_Underscores"
+
+        # Search with percent wildcard (should be escaped and match literally)
+        response = client.get("/prepared-foods?search=Test%Item", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Test%Item%With%Percent"
+
+    def test_search_min_length_validation(self, client, auth_headers):
+        """Should return 422 when search term is less than 2 characters."""
+        # Single character search should fail
+        response = client.get("/prepared-foods?search=a", headers=auth_headers)
+        assert response.status_code == 422
+
+        # Two character search should succeed
+        response = client.get("/prepared-foods?search=ab", headers=auth_headers)
+        assert response.status_code == 200
+
+    def test_combined_filters_with_expiring_and_search(self, client, auth_headers, test_user, db_session):
+        """Should combine expiring and search filters with existing filters using AND logic."""
+        # Create diverse items
+        target_item = PreparedFood(
+            name="Leftover Curry",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="fridge",
+            shareability="shared",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=3),
+            prepared_by=test_user.id,
+        )
+        wrong_expiration = PreparedFood(
+            name="Leftover Curry Old",
+            type="complete_meal",
+            servings_remaining=1.0,
+            storage_location="fridge",
+            shareability="shared",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=14),
+            prepared_by=test_user.id,
+        )
+        wrong_name = PreparedFood(
+            name="Tomato Soup",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="fridge",
+            shareability="shared",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=3),
+            prepared_by=test_user.id,
+        )
+        wrong_type = PreparedFood(
+            name="Leftover Curry Frozen",
+            type="batch_portion",
+            servings_remaining=3.0,
+            storage_location="fridge",
+            shareability="shared",
+            estimated_expiration=datetime.now(timezone.utc) + timedelta(days=3),
+            prepared_by=test_user.id,
+        )
+        db_session.add_all([target_item, wrong_expiration, wrong_name, wrong_type])
+        db_session.commit()
+
+        # Combine type, expiring_within_days, and search filters
+        response = client.get(
+            "/prepared-foods?type=complete_meal&expiring_within_days=5&search=curry",
+            headers=auth_headers
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Leftover Curry"
