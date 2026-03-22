@@ -1009,6 +1009,28 @@ class TestTransferPreparedFood:
         response = client.post(f"/prepared-foods/{item.id}/transfer", json=payload, headers=auth_headers2)
         assert response.status_code == 404
 
+    def test_transfer_to_same_location(self, client, auth_headers, test_user, db_session):
+        """Should be idempotent - transferring to same location succeeds."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="Test item",
+            type="complete_meal",
+            servings_remaining=3.0,
+            storage_location="fridge",
+            shareability="shared",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        payload = {"storage_location": "fridge"}
+        response = client.post(f"/prepared-foods/{item.id}/transfer", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "fridge"
+        assert data["servings_remaining"] == 3.0  # Unchanged
+
     def test_transfer_invalid_location(self, client, auth_headers, test_user, db_session):
         """Should reject invalid storage_location."""
         item = PreparedFood(
