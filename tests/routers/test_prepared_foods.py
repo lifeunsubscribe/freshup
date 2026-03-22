@@ -446,30 +446,36 @@ class TestListPreparedFoodsFilterCombinations:
         response = client.get("/prepared-foods?type=invalid_type", headers=auth_headers)
         assert response.status_code == 422
         data = response.json()
-        # Assert validation error detail exists (resilient to error message format changes)
+        # Assert validation error detail exists and has proper structure
         assert "detail" in data
-        assert isinstance(data["detail"], str)
+        assert isinstance(data["detail"], list)
         assert len(data["detail"]) > 0
+        # Verify the error is specifically about the 'type' field (semantic validation)
+        assert any("type" in error.get("loc", []) for error in data["detail"])
 
     def test_invalid_storage_location_filter(self, client, auth_headers):
         """Should reject invalid storage_location enum value with 422."""
         response = client.get("/prepared-foods?storage_location=garage", headers=auth_headers)
         assert response.status_code == 422
         data = response.json()
-        # Assert validation error detail exists (resilient to error message format changes)
+        # Assert validation error detail exists and has proper structure
         assert "detail" in data
-        assert isinstance(data["detail"], str)
+        assert isinstance(data["detail"], list)
         assert len(data["detail"]) > 0
+        # Verify the error is specifically about the 'storage_location' field (semantic validation)
+        assert any("storage_location" in error.get("loc", []) for error in data["detail"])
 
     def test_invalid_shareability_filter(self, client, auth_headers):
         """Should reject invalid shareability enum value with 422."""
         response = client.get("/prepared-foods?shareability=public", headers=auth_headers)
         assert response.status_code == 422
         data = response.json()
-        # Assert validation error detail exists (resilient to error message format changes)
+        # Assert validation error detail exists and has proper structure
         assert "detail" in data
-        assert isinstance(data["detail"], str)
+        assert isinstance(data["detail"], list)
         assert len(data["detail"]) > 0
+        # Verify the error is specifically about the 'shareability' field (semantic validation)
+        assert any("shareability" in error.get("loc", []) for error in data["detail"])
 
     def test_combined_filters_with_pagination(self, client, auth_headers, test_user, db_session):
         """Should apply filters and pagination together correctly."""
