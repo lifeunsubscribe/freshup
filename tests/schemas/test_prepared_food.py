@@ -299,6 +299,8 @@ class TestPreparedFoodListResponse:
     def test_list_response_includes_summary_fields(self):
         """Test that list response includes summary fields for list views."""
         item_id = uuid4()
+        user_id = uuid4()
+        date_prepared = datetime(2025, 3, 15, 12, 0, 0)
         expiration = datetime(2025, 3, 20, 12, 0, 0)
 
         response_data = {
@@ -307,8 +309,10 @@ class TestPreparedFoodListResponse:
             "type": "batch_portion",
             "servings_remaining": 6.0,
             "storage_location": "fridge",
+            "date_prepared": date_prepared,
             "estimated_expiration": expiration,
             "shareability": "shared",
+            "prepared_by": user_id,
         }
         response = PreparedFoodListResponse(**response_data)
         assert response.id == item_id
@@ -316,8 +320,10 @@ class TestPreparedFoodListResponse:
         assert response.type == "batch_portion"
         assert response.servings_remaining == 6.0
         assert response.storage_location == "fridge"
+        assert response.date_prepared == date_prepared
         assert response.estimated_expiration == expiration
         assert response.shareability == "shared"
+        assert response.prepared_by == user_id
 
 
 class TestPreparedFoodConsumptionResponse:
