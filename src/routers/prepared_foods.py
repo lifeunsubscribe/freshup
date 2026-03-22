@@ -15,6 +15,7 @@ Logging Policy:
 
 import logging
 from uuid import UUID
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -134,6 +135,9 @@ def list_prepared_foods(
     type: Optional[str] = Query(default=None, description="Filter by type (complete_meal, batch_portion, component_ingredient)"),
     storage_location: Optional[str] = Query(default=None, description="Filter by storage location (pantry, fridge, freezer)"),
     shareability: Optional[str] = Query(default=None, description="Filter by shareability (shared, reserved, personal)"),
+    expiring_soon: Optional[bool] = Query(default=None, description="Filter items expiring within 7 days"),
+    expiring_within_days: Optional[int] = Query(default=None, ge=1, description="Filter items expiring within N days"),
+    search: Optional[str] = Query(default=None, min_length=2, max_length=255, description="Search items by name (case-insensitive partial match)"),
 ):
     """
     List prepared food items with shareability-aware filtering and pagination.
@@ -143,8 +147,8 @@ def list_prepared_foods(
     foods while maintaining privacy for personal items.
 
     Supports pagination via limit and offset query parameters.
-    Supports filtering by type, storage location, and shareability.
-    Multiple filters combine with AND logic.
+    Supports filtering by type, storage location, shareability, expiration status,
+    and name search. Multiple filters combine with AND logic.
 
     Args:
         current_user: Authenticated user (injected by get_current_user dependency)
@@ -154,6 +158,9 @@ def list_prepared_foods(
         type: Filter by type (must be valid PreparedFoodType enum value)
         storage_location: Filter by storage location (must be valid StorageLocation enum value)
         shareability: Filter by shareability (must be valid Shareability enum value)
+        expiring_soon: Filter items expiring within 7 days (true/false)
+        expiring_within_days: Filter items expiring within N days (overrides expiring_soon if both provided)
+        search: Search items by name (case-insensitive partial match)
 
     Returns:
         list[PreparedFoodListResponse]: List of prepared food items matching filters
@@ -204,6 +211,28 @@ def list_prepared_foods(
         else:
             # For "shared", show all shared items (already covered by base query)
             query = query.filter(PreparedFood.shareability == shareability)
+
+    # Apply expiration filters
+    # expiring_within_days takes precedence over expiring_soon if both provided
+    if expiring_within_days is not None:
+        expiration_cutoff = datetime.now(timezone.utc) + timedelta(days=expiring_within_days)
+        query = query.filter(
+            PreparedFood.estimated_expiration.isnot(None),
+            PreparedFood.estimated_expiration <= expiration_cutoff
+        )
+    elif expiring_soon is not None and expiring_soon:
+        # expiring_soon means within 7 days
+        expiration_cutoff = datetime.now(timezone.utc) + timedelta(days=7)
+        query = query.filter(
+            PreparedFood.estimated_expiration.isnot(None),
+            PreparedFood.estimated_expiration <= expiration_cutoff
+        )
+
+    # Apply name search filter (case-insensitive partial match)
+    if search is not None:
+        # Escape LIKE wildcards to prevent DoS via expensive pattern matching
+        escaped_search = search.replace('%', r'\%').replace('_', r'\_')
+        query = query.filter(PreparedFood.name.ilike(f"%{escaped_search}%", escape='\\'))
 
     # Apply ordering and pagination
     items = (
