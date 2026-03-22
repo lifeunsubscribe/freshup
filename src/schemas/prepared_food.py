@@ -163,7 +163,7 @@ class PaginatedPreparedFoodResponse(BaseModel):
     """Response schema for paginated prepared food lists."""
 
     items: list[PreparedFoodListResponse] = Field(..., description="List of prepared food items")
-    total: int = Field(..., description="Total count of items matching filters (before pagination)")
+    total: int = Field(..., ge=0, description="Total count of items matching filters (before pagination)")
 
 
 __all__ = [
