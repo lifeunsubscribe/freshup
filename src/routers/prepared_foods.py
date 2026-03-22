@@ -152,7 +152,7 @@ def list_prepared_foods(
     # Apply ordering and pagination
     items = (
         query
-        .order_by(PreparedFood.date_prepared.desc())
+        .order_by(PreparedFood.date_prepared.desc(), PreparedFood.id.desc())
         .limit(limit)
         .offset(offset)
         .all()
