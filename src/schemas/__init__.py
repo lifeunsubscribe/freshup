@@ -6,6 +6,7 @@ from src.schemas.inventory import (
     InventoryItemUpdate,
     InventoryItemResponse,
     InventoryItemListResponse,
+    ConsumptionRequest,
 )
 from src.schemas.grocery import (
     GroceryItemCreate,
@@ -29,6 +30,7 @@ __all__ = [
     "InventoryItemUpdate",
     "InventoryItemResponse",
     "InventoryItemListResponse",
+    "ConsumptionRequest",
     "GroceryItemCreate",
     "GroceryItemUpdate",
     "GroceryItemResponse",
