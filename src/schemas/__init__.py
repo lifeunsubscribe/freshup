@@ -6,6 +6,7 @@ from src.schemas.inventory import (
     InventoryItemUpdate,
     InventoryItemResponse,
     InventoryItemListResponse,
+    ConsumptionRequest,
 )
 from src.schemas.grocery import (
     GroceryItemCreate,
@@ -16,12 +17,20 @@ from src.schemas.grocery import (
     BulkPurchaseRequest,
     BulkPurchaseResponse,
 )
+from src.schemas.prepared_food import (
+    PreparedFoodCreate,
+    PreparedFoodUpdate,
+    PreparedFoodResponse,
+    PreparedFoodListResponse,
+    PreparedFoodConsumptionResponse,
+)
 
 __all__ = [
     "InventoryItemCreate",
     "InventoryItemUpdate",
     "InventoryItemResponse",
     "InventoryItemListResponse",
+    "ConsumptionRequest",
     "GroceryItemCreate",
     "GroceryItemUpdate",
     "GroceryItemResponse",
@@ -29,4 +38,9 @@ __all__ = [
     "StoreGroupedGroceryResponse",
     "BulkPurchaseRequest",
     "BulkPurchaseResponse",
+    "PreparedFoodCreate",
+    "PreparedFoodUpdate",
+    "PreparedFoodResponse",
+    "PreparedFoodListResponse",
+    "PreparedFoodConsumptionResponse",
 ]
