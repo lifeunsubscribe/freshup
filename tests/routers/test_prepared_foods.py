@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from src.db.database import Base, get_db
 from src.db import models
@@ -170,7 +170,6 @@ class TestCreatePreparedFood:
         assert data["prepared_by"] == str(test_user.id)
 
         # Verify in database
-        from uuid import UUID
         item = db_session.query(PreparedFood).filter_by(id=UUID(data["id"])).first()
         assert item is not None
         assert item.prepared_by == test_user.id
