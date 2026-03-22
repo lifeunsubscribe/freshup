@@ -159,6 +159,20 @@ class PreparedFoodConsumptionResponse(BaseModel):
     item: Optional[PreparedFoodResponse] = Field(default=None, description="Updated item (null if deleted)")
 
 
+class TransferRequest(BaseModel):
+    """Request schema for transferring prepared food to a different storage location."""
+
+    storage_location: str = Field(..., description="Target storage location (pantry, fridge, freezer)")
+
+    @field_validator('storage_location')
+    @classmethod
+    def validate_storage_location_field(cls, v: str) -> str:
+        """Ensure storage_location is a valid StorageLocation enum value."""
+        result = validate_enum_value('Storage location', v, StorageLocation, allow_none=False)
+        # validate_enum_value handles Optional, but this field is required so won't be None
+        return result  # type: ignore
+
+
 __all__ = [
     "PreparedFoodCreate",
     "PreparedFoodUpdate",
@@ -166,4 +180,5 @@ __all__ = [
     "PreparedFoodListResponse",
     "PreparedFoodConsumptionResponse",
     "ConsumptionRequest",
+    "TransferRequest",
 ]

@@ -30,11 +30,20 @@ from src.schemas.prepared_food import (
     PreparedFoodUpdate,
     PreparedFoodResponse,
     PreparedFoodListResponse,
+    PreparedFoodConsumptionResponse,
+    TransferRequest,
 )
+from src.schemas.inventory import ConsumptionRequest
 from src.schemas.validators import validate_enum_value
 from src.middleware.auth import get_current_user
 from src.routers.prepared_foods_helpers import verify_prepared_food_ownership
-from src.services.prepared_foods_service import create_prepared_food
+from src.services.prepared_foods_service import (
+    create_prepared_food,
+    consume_prepared_food,
+    transfer_prepared_food,
+    freeze_prepared_food,
+    thaw_prepared_food,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -325,3 +334,141 @@ def delete_prepared_food(
     )
 
     return None
+
+
+@router.post("/{item_id}/consume", response_model=PreparedFoodConsumptionResponse)
+def consume_prepared_food_endpoint(
+    item_id: UUID,
+    consumption_data: ConsumptionRequest = ConsumptionRequest(),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Consume (decrement) prepared food servings with shareability-aware permissions.
+
+    Decrements the item's servings_remaining by the specified amount. If servings reach
+    zero and delete_when_empty is true (default), the item is deleted.
+
+    Implements shareability-aware access control:
+    - Shared items can be consumed by any authenticated user
+    - Personal/reserved items can only be consumed by their owner (404 for non-owner)
+
+    Args:
+        item_id: UUID of the prepared food item to consume
+        consumption_data: Amount to consume and deletion preference
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        PreparedFoodConsumptionResponse: Status message, deletion flag, and updated item (if not deleted)
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist or is not accessible to current user
+        HTTPException(400): If consumption amount exceeds available servings
+        HTTPException(422): If amount is negative or zero
+    """
+    message, deleted, item = consume_prepared_food(item_id, consumption_data, current_user, db)
+
+    return PreparedFoodConsumptionResponse(
+        message=message,
+        deleted=deleted,
+        item=item
+    )
+
+
+@router.post("/{item_id}/transfer", response_model=PreparedFoodResponse)
+def transfer_prepared_food_endpoint(
+    item_id: UUID,
+    transfer_data: TransferRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Transfer prepared food to a different storage location.
+
+    Updates the item's storage_location field to the specified location.
+    Only the owner (prepared_by user) can transfer items.
+
+    Args:
+        item_id: UUID of the prepared food item to transfer
+        transfer_data: Target storage location
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        PreparedFoodResponse: Updated prepared food item
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist or belongs to another user
+        HTTPException(422): If storage_location is invalid
+    """
+    # Verify item exists and belongs to current user
+    item = verify_prepared_food_ownership(item_id, current_user, db)
+
+    return transfer_prepared_food(item, transfer_data.storage_location, current_user, db)
+
+
+@router.post("/{item_id}/freeze", response_model=PreparedFoodResponse)
+def freeze_prepared_food_endpoint(
+    item_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Freeze a prepared food item (quick action).
+
+    Updates the item's storage location to "freezer". This endpoint is idempotent -
+    freezing an already-frozen item simply ensures it's in the freezer.
+
+    Only the owner (prepared_by user) can freeze items.
+
+    Args:
+        item_id: UUID of the prepared food item to freeze
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        PreparedFoodResponse: Updated prepared food item with freezer location
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist or belongs to another user
+    """
+    # Verify item exists and belongs to current user
+    item = verify_prepared_food_ownership(item_id, current_user, db)
+
+    return freeze_prepared_food(item, current_user, db)
+
+
+@router.post("/{item_id}/thaw", response_model=PreparedFoodResponse)
+def thaw_prepared_food_endpoint(
+    item_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Thaw a prepared food item (quick action).
+
+    Updates the item's storage location to "fridge". This endpoint is idempotent -
+    thawing a non-frozen item simply ensures it's in the fridge.
+
+    Only the owner (prepared_by user) can thaw items.
+
+    Args:
+        item_id: UUID of the prepared food item to thaw
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        PreparedFoodResponse: Updated prepared food item with fridge location
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(404): If item doesn't exist or belongs to another user
+    """
+    # Verify item exists and belongs to current user
+    item = verify_prepared_food_ownership(item_id, current_user, db)
+
+    return thaw_prepared_food(item, current_user, db)
