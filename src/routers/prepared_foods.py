@@ -30,6 +30,7 @@ from src.schemas.prepared_food import (
     PreparedFoodUpdate,
     PreparedFoodResponse,
     PreparedFoodListResponse,
+    PaginatedPreparedFoodResponse,
 )
 from src.schemas.validators import validate_enum_value
 from src.middleware.auth import get_current_user
@@ -69,7 +70,7 @@ def create_prepared_food_endpoint(
     return create_prepared_food(item_data, current_user, db)
 
 
-@router.get("", response_model=list[PreparedFoodListResponse])
+@router.get("", response_model=PaginatedPreparedFoodResponse)
 def list_prepared_foods(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -90,6 +91,9 @@ def list_prepared_foods(
     Supports filtering by type, storage location, and shareability.
     Multiple filters combine with AND logic.
 
+    Response includes both the paginated items and the total count of items
+    matching the filters (before pagination is applied).
+
     Args:
         current_user: Authenticated user (injected by get_current_user dependency)
         db: Database session
@@ -100,7 +104,7 @@ def list_prepared_foods(
         shareability: Filter by shareability (must be valid Shareability enum value)
 
     Returns:
-        list[PreparedFoodListResponse]: List of prepared food items matching filters
+        PaginatedPreparedFoodResponse: Paginated list with total count
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
@@ -149,6 +153,9 @@ def list_prepared_foods(
             # For "shared", show all shared items (already covered by base query)
             query = query.filter(PreparedFood.shareability == shareability)
 
+    # Get total count before pagination
+    total = query.count()
+
     # Apply ordering and pagination
     items = (
         query
@@ -158,7 +165,7 @@ def list_prepared_foods(
         .all()
     )
 
-    return items
+    return PaginatedPreparedFoodResponse(items=items, total=total)
 
 
 @router.get("/{item_id}", response_model=PreparedFoodResponse)

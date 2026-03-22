@@ -276,8 +276,9 @@ class TestListPreparedFoods:
         response = client.get("/prepared-foods", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        names = {item["name"] for item in data}
+        assert data["total"] == 2
+        assert len(data["items"]) == 2
+        names = {item["name"] for item in data["items"]}
         assert "User1 shared curry" in names
         assert "User2 shared chili" in names
 
@@ -285,7 +286,8 @@ class TestListPreparedFoods:
         response = client.get("/prepared-foods", headers=auth_headers2)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
+        assert data["total"] == 2
+        assert len(data["items"]) == 2
 
     def test_list_includes_personal_items_only_for_owner(self, client, auth_headers, auth_headers2, test_user, test_user2, db_session):
         """Should return personal/reserved items only to their owner."""
@@ -316,15 +318,17 @@ class TestListPreparedFoods:
         response = client.get("/prepared-foods", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "User1 personal meal"
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "User1 personal meal"
 
         # User2 should only see their own reserved item
         response = client.get("/prepared-foods", headers=auth_headers2)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "User2 reserved batch"
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "User2 reserved batch"
 
     def test_list_filters(self, client, auth_headers, test_user, db_session):
         """Should filter by type, storage_location, shareability."""
@@ -341,25 +345,28 @@ class TestListPreparedFoods:
         response = client.get("/prepared-foods?type=complete_meal", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["type"] == "complete_meal"
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["type"] == "complete_meal"
 
         # Filter by storage_location
         response = client.get("/prepared-foods?storage_location=freezer", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["storage_location"] == "freezer"
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["storage_location"] == "freezer"
 
         # Filter by shareability
         response = client.get("/prepared-foods?shareability=personal", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["shareability"] == "personal"
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["shareability"] == "personal"
 
     def test_list_pagination(self, client, auth_headers, test_user, db_session):
-        """Should support limit and offset pagination."""
+        """Should support limit and offset pagination with total count."""
         # Create multiple items
         items = [
             PreparedFood(id=uuid4(), name=f"Item{i}", type="complete_meal", servings_remaining=1.0, storage_location="fridge", shareability="shared", prepared_by=test_user.id)
@@ -372,13 +379,49 @@ class TestListPreparedFoods:
         response = client.get("/prepared-foods?limit=5&offset=0", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 5
+        assert data["total"] == 10  # Total count should reflect all items
+        assert len(data["items"]) == 5  # But only 5 items returned
 
         # Get second page
         response = client.get("/prepared-foods?limit=5&offset=5", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 5
+        assert data["total"] == 10  # Total count remains the same
+        assert len(data["items"]) == 5  # Second page has 5 items
+
+    def test_list_total_count_accuracy(self, client, auth_headers, test_user, db_session):
+        """Should return accurate total count with different filters."""
+        # Create diverse items
+        items = [
+            PreparedFood(id=uuid4(), name="Meal1", type="complete_meal", servings_remaining=1.0, storage_location="fridge", shareability="shared", prepared_by=test_user.id),
+            PreparedFood(id=uuid4(), name="Meal2", type="complete_meal", servings_remaining=2.0, storage_location="fridge", shareability="shared", prepared_by=test_user.id),
+            PreparedFood(id=uuid4(), name="Meal3", type="complete_meal", servings_remaining=3.0, storage_location="freezer", shareability="shared", prepared_by=test_user.id),
+            PreparedFood(id=uuid4(), name="Batch1", type="batch_portion", servings_remaining=5.0, storage_location="freezer", shareability="shared", prepared_by=test_user.id),
+            PreparedFood(id=uuid4(), name="Component1", type="component_ingredient", servings_remaining=10.0, storage_location="fridge", shareability="personal", prepared_by=test_user.id),
+        ]
+        db_session.add_all(items)
+        db_session.commit()
+
+        # Test total without filters
+        response = client.get("/prepared-foods", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 5
+        assert len(data["items"]) == 5
+
+        # Test total with type filter
+        response = client.get("/prepared-foods?type=complete_meal", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 3
+        assert len(data["items"]) == 3
+
+        # Test total with pagination (should show full total, not paginated count)
+        response = client.get("/prepared-foods?limit=2", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 5  # Total is 5, even though only 2 returned
+        assert len(data["items"]) == 2
 
     def test_list_requires_auth(self, client):
         """Should reject request without authentication."""
@@ -405,8 +448,9 @@ class TestListPreparedFoodsFilterCombinations:
         response = client.get("/prepared-foods?type=complete_meal&storage_location=fridge", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        for item in data:
+        assert data["total"] == 2
+        assert len(data["items"]) == 2
+        for item in data["items"]:
             assert item["type"] == "complete_meal"
             assert item["storage_location"] == "fridge"
 
@@ -414,11 +458,12 @@ class TestListPreparedFoodsFilterCombinations:
         response = client.get("/prepared-foods?type=complete_meal&storage_location=fridge&shareability=personal", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "Meal2"
-        assert data[0]["type"] == "complete_meal"
-        assert data[0]["storage_location"] == "fridge"
-        assert data[0]["shareability"] == "personal"
+        assert data["total"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "Meal2"
+        assert data["items"][0]["type"] == "complete_meal"
+        assert data["items"][0]["storage_location"] == "fridge"
+        assert data["items"][0]["shareability"] == "personal"
 
     def test_combined_filters_no_matches(self, client, auth_headers, test_user, db_session):
         """Should return empty list when combined filters match no items."""
@@ -434,13 +479,15 @@ class TestListPreparedFoodsFilterCombinations:
         response = client.get("/prepared-foods?type=complete_meal&storage_location=freezer", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 0
+        assert data["total"] == 0
+        assert len(data["items"]) == 0
 
         # Another non-matching combination
         response = client.get("/prepared-foods?type=component_ingredient&shareability=shared", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 0
+        assert data["total"] == 0
+        assert len(data["items"]) == 0
 
     def test_invalid_type_filter(self, client, auth_headers):
         """Should reject invalid type enum value with 422."""
@@ -477,23 +524,26 @@ class TestListPreparedFoodsFilterCombinations:
         response = client.get("/prepared-foods?type=complete_meal&limit=5&offset=0", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 5
-        for item in data:
+        assert data["total"] == 10  # Total count with filter applied
+        assert len(data["items"]) == 5  # But only 5 items in first page
+        for item in data["items"]:
             assert item["type"] == "complete_meal"
 
         # Get second page with filter
         response = client.get("/prepared-foods?type=complete_meal&limit=5&offset=5", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 5
-        for item in data:
+        assert data["total"] == 10  # Total remains the same
+        assert len(data["items"]) == 5
+        for item in data["items"]:
             assert item["type"] == "complete_meal"
 
         # Get beyond available items
         response = client.get("/prepared-foods?type=complete_meal&limit=5&offset=10", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 0
+        assert data["total"] == 10  # Total still shows all items
+        assert len(data["items"]) == 0  # But no items on this page
 
     def test_invalid_filter_with_valid_filters(self, client, auth_headers, test_user, db_session):
         """Should reject request if any filter is invalid, even if others are valid."""

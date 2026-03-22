@@ -159,11 +159,19 @@ class PreparedFoodConsumptionResponse(BaseModel):
     item: Optional[PreparedFoodResponse] = Field(default=None, description="Updated item (null if deleted)")
 
 
+class PaginatedPreparedFoodResponse(BaseModel):
+    """Response schema for paginated prepared food lists."""
+
+    items: list[PreparedFoodListResponse] = Field(..., description="List of prepared food items")
+    total: int = Field(..., description="Total count of items matching filters (before pagination)")
+
+
 __all__ = [
     "PreparedFoodCreate",
     "PreparedFoodUpdate",
     "PreparedFoodResponse",
     "PreparedFoodListResponse",
     "PreparedFoodConsumptionResponse",
+    "PaginatedPreparedFoodResponse",
     "ConsumptionRequest",
 ]
