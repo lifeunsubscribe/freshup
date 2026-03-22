@@ -30,7 +30,7 @@ class PreparedFoodCreate(BaseModel):
     storage_location: str = Field(..., description="Storage location (pantry, fridge, freezer)")
     estimated_expiration: Optional[datetime] = Field(default=None, description="Estimated expiration date")
     shareability: str = Field(default=Shareability.shared.value, description="Shareability status (shared, reserved, personal)")
-    notes: Optional[str] = Field(default=None, description="Additional notes")
+    notes: Optional[str] = Field(default=None, max_length=10000, description="Additional notes")
 
     @field_validator('name')
     @classmethod
@@ -86,7 +86,7 @@ class PreparedFoodUpdate(BaseModel):
     storage_location: Optional[str] = Field(default=None, description="Storage location (pantry, fridge, freezer)")
     estimated_expiration: Optional[datetime] = Field(default=None, description="Estimated expiration date")
     shareability: Optional[str] = Field(default=None, description="Shareability status (shared, reserved, personal)")
-    notes: Optional[str] = Field(default=None, description="Additional notes")
+    notes: Optional[str] = Field(default=None, max_length=10000, description="Additional notes")
 
     @field_validator('name')
     @classmethod

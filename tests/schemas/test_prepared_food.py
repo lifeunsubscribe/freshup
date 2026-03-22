@@ -159,6 +159,37 @@ class TestPreparedFoodCreate:
         # Verify the created item doesn't have prepared_by attribute
         assert not hasattr(item, "prepared_by") or "prepared_by" not in item.model_fields
 
+    def test_notes_at_max_length_is_accepted(self):
+        """Test that notes at exactly 10000 characters are accepted."""
+        notes_10000 = "a" * 10000
+        item_data = {
+            "name": "Test Item",
+            "type": "complete_meal",
+            "servings_remaining": 2.0,
+            "storage_location": "fridge",
+            "notes": notes_10000,
+        }
+        item = PreparedFoodCreate(**item_data)
+        assert item.notes == notes_10000
+        assert len(item.notes) == 10000
+
+    def test_notes_exceeding_max_length_is_rejected(self):
+        """Test that notes exceeding 10000 characters are rejected."""
+        notes_10001 = "a" * 10001
+        item_data = {
+            "name": "Test Item",
+            "type": "complete_meal",
+            "servings_remaining": 2.0,
+            "storage_location": "fridge",
+            "notes": notes_10001,
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            PreparedFoodCreate(**item_data)
+
+        errors = exc_info.value.errors()
+        assert any(error["loc"] == ("notes",) for error in errors)
+        assert any("10000" in str(error["msg"]) for error in errors)
+
 
 class TestPreparedFoodUpdate:
     """Tests for PreparedFoodUpdate schema."""
@@ -203,6 +234,25 @@ class TestPreparedFoodUpdate:
         errors = exc_info.value.errors()
         assert any(error["loc"] == ("servings_remaining",) for error in errors)
         assert any("negative" in error["msg"].lower() for error in errors)
+
+    def test_update_notes_at_max_length_is_accepted(self):
+        """Test that update with notes at exactly 10000 characters are accepted."""
+        notes_10000 = "b" * 10000
+        update_data = {"notes": notes_10000}
+        update = PreparedFoodUpdate(**update_data)
+        assert update.notes == notes_10000
+        assert len(update.notes) == 10000
+
+    def test_update_notes_exceeding_max_length_is_rejected(self):
+        """Test that update with notes exceeding 10000 characters are rejected."""
+        notes_10001 = "b" * 10001
+        update_data = {"notes": notes_10001}
+        with pytest.raises(ValidationError) as exc_info:
+            PreparedFoodUpdate(**update_data)
+
+        errors = exc_info.value.errors()
+        assert any(error["loc"] == ("notes",) for error in errors)
+        assert any("10000" in str(error["msg"]) for error in errors)
 
 
 class TestPreparedFoodResponse:
