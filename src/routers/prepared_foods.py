@@ -50,6 +50,53 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/prepared-foods", tags=["prepared-foods"])
 
 
+def get_accessible_prepared_food(
+    item_id: UUID,
+    current_user: User,
+    db: Session,
+) -> PreparedFood:
+    """
+    Retrieve a prepared food item with shareability-aware access control.
+
+    Implements the authorization pattern where:
+    - Shared items are accessible to all authenticated users
+    - Personal/reserved items are only accessible to their owner
+
+    This helper consolidates the authorization logic used across multiple
+    action endpoints (consume, transfer, freeze, thaw).
+
+    Args:
+        item_id: UUID of the prepared food item to retrieve
+        current_user: Authenticated user attempting to access the item
+        db: Database session
+
+    Returns:
+        PreparedFood: The requested item if accessible
+
+    Raises:
+        HTTPException(404): If item doesn't exist or is not accessible to current user
+    """
+    item = (
+        db.query(PreparedFood)
+        .filter(
+            PreparedFood.id == item_id,
+            or_(
+                PreparedFood.shareability == Shareability.shared.value,
+                PreparedFood.prepared_by == current_user.id
+            )
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Prepared food item not found"
+        )
+
+    return item
+
+
 @router.post("", response_model=PreparedFoodResponse, status_code=status.HTTP_201_CREATED)
 def create_prepared_food_endpoint(
     item_data: PreparedFoodCreate,
@@ -385,10 +432,13 @@ def transfer_prepared_food_endpoint(
     db: Session = Depends(get_db),
 ):
     """
-    Transfer prepared food to a different storage location.
+    Transfer prepared food to a different storage location with shareability-aware permissions.
 
     Updates the item's storage_location field to the specified location.
-    Only the owner (prepared_by user) can transfer items.
+
+    Implements shareability-aware access control:
+    - Shared items can be transferred by any authenticated user
+    - Personal/reserved items can only be transferred by their owner (404 for non-owner)
 
     Args:
         item_id: UUID of the prepared food item to transfer
@@ -401,11 +451,11 @@ def transfer_prepared_food_endpoint(
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
-        HTTPException(404): If item doesn't exist or belongs to another user
+        HTTPException(404): If item doesn't exist or is not accessible to current user
         HTTPException(422): If storage_location is invalid
     """
-    # Verify item exists and belongs to current user
-    item = verify_prepared_food_ownership(item_id, current_user, db)
+    # Use helper function for shareability-aware access control
+    item = get_accessible_prepared_food(item_id, current_user, db)
 
     return transfer_prepared_food(item, transfer_data.storage_location, current_user, db)
 
@@ -417,12 +467,14 @@ def freeze_prepared_food_endpoint(
     db: Session = Depends(get_db),
 ):
     """
-    Freeze a prepared food item (quick action).
+    Freeze a prepared food item (quick action) with shareability-aware permissions.
 
     Updates the item's storage location to "freezer". This endpoint is idempotent -
     freezing an already-frozen item simply ensures it's in the freezer.
 
-    Only the owner (prepared_by user) can freeze items.
+    Implements shareability-aware access control:
+    - Shared items can be frozen by any authenticated user
+    - Personal/reserved items can only be frozen by their owner (404 for non-owner)
 
     Args:
         item_id: UUID of the prepared food item to freeze
@@ -434,10 +486,10 @@ def freeze_prepared_food_endpoint(
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
-        HTTPException(404): If item doesn't exist or belongs to another user
+        HTTPException(404): If item doesn't exist or is not accessible to current user
     """
-    # Verify item exists and belongs to current user
-    item = verify_prepared_food_ownership(item_id, current_user, db)
+    # Use helper function for shareability-aware access control
+    item = get_accessible_prepared_food(item_id, current_user, db)
 
     return freeze_prepared_food(item, current_user, db)
 
@@ -449,12 +501,14 @@ def thaw_prepared_food_endpoint(
     db: Session = Depends(get_db),
 ):
     """
-    Thaw a prepared food item (quick action).
+    Thaw a prepared food item (quick action) with shareability-aware permissions.
 
     Updates the item's storage location to "fridge". This endpoint is idempotent -
     thawing a non-frozen item simply ensures it's in the fridge.
 
-    Only the owner (prepared_by user) can thaw items.
+    Implements shareability-aware access control:
+    - Shared items can be thawed by any authenticated user
+    - Personal/reserved items can only be thawed by their owner (404 for non-owner)
 
     Args:
         item_id: UUID of the prepared food item to thaw
@@ -466,9 +520,9 @@ def thaw_prepared_food_endpoint(
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
-        HTTPException(404): If item doesn't exist or belongs to another user
+        HTTPException(404): If item doesn't exist or is not accessible to current user
     """
-    # Verify item exists and belongs to current user
-    item = verify_prepared_food_ownership(item_id, current_user, db)
+    # Use helper function for shareability-aware access control
+    item = get_accessible_prepared_food(item_id, current_user, db)
 
     return thaw_prepared_food(item, current_user, db)

@@ -1125,8 +1125,8 @@ class TestTransferPreparedFood:
         assert data["storage_location"] == "freezer"
         assert data["servings_remaining"] == 3.0  # Unchanged
 
-    def test_transfer_by_non_owner(self, client, auth_headers2, test_user, db_session):
-        """Should reject transfer by non-owner with 404."""
+    def test_transfer_shared_item_by_non_owner(self, client, auth_headers2, test_user, db_session):
+        """Should allow transfer of shared item by non-owner (shareability-aware)."""
         item = PreparedFood(
             id=uuid4(),
             name="User1 item",
@@ -1141,7 +1141,89 @@ class TestTransferPreparedFood:
 
         payload = {"storage_location": "freezer"}
         response = client.post(f"/prepared-foods/{item.id}/transfer", json=payload, headers=auth_headers2)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "freezer"
+
+    def test_transfer_personal_item_by_non_owner(self, client, auth_headers2, test_user, db_session):
+        """Should reject transfer of personal item by non-owner with 404."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="User1 personal item",
+            type="complete_meal",
+            servings_remaining=3.0,
+            storage_location="fridge",
+            shareability="personal",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        payload = {"storage_location": "freezer"}
+        response = client.post(f"/prepared-foods/{item.id}/transfer", json=payload, headers=auth_headers2)
         assert response.status_code == 404
+
+    def test_transfer_reserved_item_by_non_owner(self, client, auth_headers2, test_user, db_session):
+        """Should reject transfer of reserved item by non-owner with 404."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="User1 reserved item",
+            type="complete_meal",
+            servings_remaining=3.0,
+            storage_location="fridge",
+            shareability="reserved",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        payload = {"storage_location": "freezer"}
+        response = client.post(f"/prepared-foods/{item.id}/transfer", json=payload, headers=auth_headers2)
+        assert response.status_code == 404
+
+    def test_transfer_personal_item_by_owner(self, client, auth_headers, test_user, db_session):
+        """Should allow owner to transfer their own personal item."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="Personal item",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="fridge",
+            shareability="personal",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        payload = {"storage_location": "freezer"}
+        response = client.post(f"/prepared-foods/{item.id}/transfer", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "freezer"
+        assert data["shareability"] == "personal"
+
+    def test_transfer_reserved_item_by_owner(self, client, auth_headers, test_user, db_session):
+        """Should allow owner to transfer their own reserved item."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="Reserved item",
+            type="complete_meal",
+            servings_remaining=4.0,
+            storage_location="fridge",
+            shareability="reserved",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        payload = {"storage_location": "freezer"}
+        response = client.post(f"/prepared-foods/{item.id}/transfer", json=payload, headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "freezer"
+        assert data["shareability"] == "reserved"
 
     def test_transfer_to_same_location(self, client, auth_headers, test_user, db_session):
         """Should be idempotent - transferring to same location succeeds."""
@@ -1225,6 +1307,48 @@ class TestFreezePreparedFood:
         data = response.json()
         assert data["storage_location"] == "freezer"
 
+    def test_freeze_personal_item_by_owner(self, client, auth_headers, test_user, db_session):
+        """Should allow owner to freeze their own personal item."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="Personal item",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="fridge",
+            shareability="personal",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.post(f"/prepared-foods/{item.id}/freeze", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "freezer"
+        assert data["shareability"] == "personal"
+
+    def test_freeze_reserved_item_by_owner(self, client, auth_headers, test_user, db_session):
+        """Should allow owner to freeze their own reserved item."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="Reserved item",
+            type="complete_meal",
+            servings_remaining=4.0,
+            storage_location="fridge",
+            shareability="reserved",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.post(f"/prepared-foods/{item.id}/freeze", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "freezer"
+        assert data["shareability"] == "reserved"
+
     def test_freeze_already_frozen(self, client, auth_headers, test_user, db_session):
         """Should be idempotent - freezing already-frozen item succeeds."""
         item = PreparedFood(
@@ -1245,8 +1369,8 @@ class TestFreezePreparedFood:
         data = response.json()
         assert data["storage_location"] == "freezer"
 
-    def test_freeze_by_non_owner(self, client, auth_headers2, test_user, db_session):
-        """Should reject freeze by non-owner with 404."""
+    def test_freeze_shared_item_by_non_owner(self, client, auth_headers2, test_user, db_session):
+        """Should allow freeze of shared item by non-owner (shareability-aware)."""
         item = PreparedFood(
             id=uuid4(),
             name="User1 item",
@@ -1254,6 +1378,42 @@ class TestFreezePreparedFood:
             servings_remaining=3.0,
             storage_location="fridge",
             shareability="shared",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.post(f"/prepared-foods/{item.id}/freeze", headers=auth_headers2)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "freezer"
+
+    def test_freeze_personal_item_by_non_owner(self, client, auth_headers2, test_user, db_session):
+        """Should reject freeze of personal item by non-owner with 404."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="User1 personal item",
+            type="complete_meal",
+            servings_remaining=3.0,
+            storage_location="fridge",
+            shareability="personal",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.post(f"/prepared-foods/{item.id}/freeze", headers=auth_headers2)
+        assert response.status_code == 404
+
+    def test_freeze_reserved_item_by_non_owner(self, client, auth_headers2, test_user, db_session):
+        """Should reject freeze of reserved item by non-owner with 404."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="User1 reserved item",
+            type="complete_meal",
+            servings_remaining=3.0,
+            storage_location="fridge",
+            shareability="reserved",
             prepared_by=test_user.id,
         )
         db_session.add(item)
@@ -1303,6 +1463,48 @@ class TestThawPreparedFood:
         data = response.json()
         assert data["storage_location"] == "fridge"
 
+    def test_thaw_personal_item_by_owner(self, client, auth_headers, test_user, db_session):
+        """Should allow owner to thaw their own personal item."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="Personal frozen item",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="freezer",
+            shareability="personal",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.post(f"/prepared-foods/{item.id}/thaw", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "fridge"
+        assert data["shareability"] == "personal"
+
+    def test_thaw_reserved_item_by_owner(self, client, auth_headers, test_user, db_session):
+        """Should allow owner to thaw their own reserved item."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="Reserved frozen item",
+            type="complete_meal",
+            servings_remaining=4.0,
+            storage_location="freezer",
+            shareability="reserved",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.post(f"/prepared-foods/{item.id}/thaw", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "fridge"
+        assert data["shareability"] == "reserved"
+
     def test_thaw_already_thawed(self, client, auth_headers, test_user, db_session):
         """Should be idempotent - thawing already-thawed item succeeds."""
         item = PreparedFood(
@@ -1323,8 +1525,8 @@ class TestThawPreparedFood:
         data = response.json()
         assert data["storage_location"] == "fridge"
 
-    def test_thaw_by_non_owner(self, client, auth_headers2, test_user, db_session):
-        """Should reject thaw by non-owner with 404."""
+    def test_thaw_shared_item_by_non_owner(self, client, auth_headers2, test_user, db_session):
+        """Should allow thaw of shared item by non-owner (shareability-aware)."""
         item = PreparedFood(
             id=uuid4(),
             name="User1 item",
@@ -1332,6 +1534,42 @@ class TestThawPreparedFood:
             servings_remaining=3.0,
             storage_location="freezer",
             shareability="shared",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.post(f"/prepared-foods/{item.id}/thaw", headers=auth_headers2)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["storage_location"] == "fridge"
+
+    def test_thaw_personal_item_by_non_owner(self, client, auth_headers2, test_user, db_session):
+        """Should reject thaw of personal item by non-owner with 404."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="User1 personal item",
+            type="complete_meal",
+            servings_remaining=3.0,
+            storage_location="freezer",
+            shareability="personal",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        response = client.post(f"/prepared-foods/{item.id}/thaw", headers=auth_headers2)
+        assert response.status_code == 404
+
+    def test_thaw_reserved_item_by_non_owner(self, client, auth_headers2, test_user, db_session):
+        """Should reject thaw of reserved item by non-owner with 404."""
+        item = PreparedFood(
+            id=uuid4(),
+            name="User1 reserved item",
+            type="complete_meal",
+            servings_remaining=3.0,
+            storage_location="freezer",
+            shareability="reserved",
             prepared_by=test_user.id,
         )
         db_session.add(item)
