@@ -210,10 +210,11 @@ def transfer_prepared_food(
     Transfer prepared food to a different storage location.
 
     Updates the storage_location field for the specified item.
-    Only the owner can transfer items (ownership verified by caller).
+    Implements shareability-aware access: shared items can be transferred by any user,
+    personal/reserved items only by owner (access control verified by caller).
 
     Args:
-        item: PreparedFood item to transfer (ownership already verified)
+        item: PreparedFood item to transfer (access control already verified)
         storage_location: Target storage location (pantry, fridge, freezer)
         current_user: Authenticated user performing the transfer
         db: Database session
@@ -256,10 +257,11 @@ def freeze_prepared_food(
     Freeze a prepared food item (quick action).
 
     Updates the item's storage location to "freezer".
-    Only the owner can freeze items (ownership verified by caller).
+    Implements shareability-aware access: shared items can be frozen by any user,
+    personal/reserved items only by owner (access control verified by caller).
 
     Args:
-        item: PreparedFood item to freeze (ownership already verified)
+        item: PreparedFood item to freeze (access control already verified)
         current_user: Authenticated user performing the freeze
         db: Database session
 
@@ -301,10 +303,11 @@ def thaw_prepared_food(
     Thaw a prepared food item (quick action).
 
     Updates the item's storage location to "fridge".
-    Only the owner can thaw items (ownership verified by caller).
+    Implements shareability-aware access: shared items can be thawed by any user,
+    personal/reserved items only by owner (access control verified by caller).
 
     Args:
-        item: PreparedFood item to thaw (ownership already verified)
+        item: PreparedFood item to thaw (access control already verified)
         current_user: Authenticated user performing the thaw
         db: Database session
 
