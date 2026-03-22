@@ -184,7 +184,16 @@ def list_prepared_foods(
         try:
             validate_enum_value("type", type, PreparedFoodType)
         except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[
+                    {
+                        "loc": ["query", "type"],
+                        "msg": str(e),
+                        "type": "value_error"
+                    }
+                ]
+            )
         query = query.filter(PreparedFood.type == type)
 
     # Apply storage_location filter
@@ -192,7 +201,16 @@ def list_prepared_foods(
         try:
             validate_enum_value("storage_location", storage_location, StorageLocation)
         except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[
+                    {
+                        "loc": ["query", "storage_location"],
+                        "msg": str(e),
+                        "type": "value_error"
+                    }
+                ]
+            )
         query = query.filter(PreparedFood.storage_location == storage_location)
 
     # Apply shareability filter
@@ -200,7 +218,16 @@ def list_prepared_foods(
         try:
             validate_enum_value("shareability", shareability, Shareability)
         except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=[
+                    {
+                        "loc": ["query", "shareability"],
+                        "msg": str(e),
+                        "type": "value_error"
+                    }
+                ]
+            )
         # When filtering by shareability, still respect base visibility rules
         # Example: If filtering for "personal", only show current user's personal items
         if shareability == Shareability.personal.value or shareability == Shareability.reserved.value:
