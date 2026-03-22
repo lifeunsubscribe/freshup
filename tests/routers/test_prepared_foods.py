@@ -9,6 +9,7 @@ Tests cover:
 - DELETE /prepared-foods/{id}: delete item (owner-only)
 - Shareability-aware permissions (shared visible to all, personal/reserved to owner only)
 - Filters (type, storage_location, shareability)
+- Combined filter validation (invalid enum values, multiple filters with AND logic)
 - Pagination (limit, offset)
 - Authentication requirements
 """
@@ -383,6 +384,139 @@ class TestListPreparedFoods:
         """Should reject request without authentication."""
         response = client.get("/prepared-foods")
         assert response.status_code == 401
+
+
+class TestListPreparedFoodsFilterCombinations:
+    """Tests for GET /prepared-foods with combined and invalid filter parameters."""
+
+    def test_combined_filters_valid(self, client, auth_headers, test_user, db_session):
+        """Should apply multiple filters together with AND logic."""
+        # Create diverse items
+        items = [
+            PreparedFood(id=uuid4(), name="Meal1", type="complete_meal", servings_remaining=1.0, storage_location="fridge", shareability="shared", prepared_by=test_user.id),
+            PreparedFood(id=uuid4(), name="Batch1", type="batch_portion", servings_remaining=5.0, storage_location="freezer", shareability="shared", prepared_by=test_user.id),
+            PreparedFood(id=uuid4(), name="Component1", type="component_ingredient", servings_remaining=10.0, storage_location="fridge", shareability="personal", prepared_by=test_user.id),
+            PreparedFood(id=uuid4(), name="Meal2", type="complete_meal", servings_remaining=2.0, storage_location="fridge", shareability="personal", prepared_by=test_user.id),
+        ]
+        db_session.add_all(items)
+        db_session.commit()
+
+        # Combine type + storage_location
+        response = client.get("/prepared-foods?type=complete_meal&storage_location=fridge", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        for item in data:
+            assert item["type"] == "complete_meal"
+            assert item["storage_location"] == "fridge"
+
+        # Combine all three filters
+        response = client.get("/prepared-foods?type=complete_meal&storage_location=fridge&shareability=personal", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Meal2"
+        assert data[0]["type"] == "complete_meal"
+        assert data[0]["storage_location"] == "fridge"
+        assert data[0]["shareability"] == "personal"
+
+    def test_combined_filters_no_matches(self, client, auth_headers, test_user, db_session):
+        """Should return empty list when combined filters match no items."""
+        # Create items
+        items = [
+            PreparedFood(id=uuid4(), name="Meal1", type="complete_meal", servings_remaining=1.0, storage_location="fridge", shareability="shared", prepared_by=test_user.id),
+            PreparedFood(id=uuid4(), name="Batch1", type="batch_portion", servings_remaining=5.0, storage_location="freezer", shareability="shared", prepared_by=test_user.id),
+        ]
+        db_session.add_all(items)
+        db_session.commit()
+
+        # Search for combination that doesn't exist
+        response = client.get("/prepared-foods?type=complete_meal&storage_location=freezer", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 0
+
+        # Another non-matching combination
+        response = client.get("/prepared-foods?type=component_ingredient&shareability=shared", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 0
+
+    def test_invalid_type_filter(self, client, auth_headers):
+        """Should reject invalid type enum value with 422."""
+        response = client.get("/prepared-foods?type=invalid_type", headers=auth_headers)
+        assert response.status_code == 422
+        data = response.json()
+        assert "type" in data["detail"].lower()
+
+    def test_invalid_storage_location_filter(self, client, auth_headers):
+        """Should reject invalid storage_location enum value with 422."""
+        response = client.get("/prepared-foods?storage_location=garage", headers=auth_headers)
+        assert response.status_code == 422
+        data = response.json()
+        assert "storage_location" in data["detail"].lower()
+
+    def test_invalid_shareability_filter(self, client, auth_headers):
+        """Should reject invalid shareability enum value with 422."""
+        response = client.get("/prepared-foods?shareability=public", headers=auth_headers)
+        assert response.status_code == 422
+        data = response.json()
+        assert "shareability" in data["detail"].lower()
+
+    def test_combined_filters_with_pagination(self, client, auth_headers, test_user, db_session):
+        """Should apply filters and pagination together correctly."""
+        # Create multiple items of the same type
+        items = [
+            PreparedFood(id=uuid4(), name=f"Meal{i}", type="complete_meal", servings_remaining=1.0, storage_location="fridge", shareability="shared", prepared_by=test_user.id)
+            for i in range(10)
+        ]
+        db_session.add_all(items)
+        db_session.commit()
+
+        # Get first page with filter
+        response = client.get("/prepared-foods?type=complete_meal&limit=5&offset=0", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 5
+        for item in data:
+            assert item["type"] == "complete_meal"
+
+        # Get second page with filter
+        response = client.get("/prepared-foods?type=complete_meal&limit=5&offset=5", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 5
+        for item in data:
+            assert item["type"] == "complete_meal"
+
+        # Get beyond available items
+        response = client.get("/prepared-foods?type=complete_meal&limit=5&offset=10", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 0
+
+    def test_invalid_filter_with_valid_filters(self, client, auth_headers, test_user, db_session):
+        """Should reject request if any filter is invalid, even if others are valid."""
+        # Create item
+        item = PreparedFood(
+            id=uuid4(),
+            name="Test item",
+            type="complete_meal",
+            servings_remaining=1.0,
+            storage_location="fridge",
+            shareability="shared",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        # Valid type but invalid storage_location
+        response = client.get("/prepared-foods?type=complete_meal&storage_location=garage", headers=auth_headers)
+        assert response.status_code == 422
+
+        # Valid shareability but invalid type
+        response = client.get("/prepared-foods?shareability=shared&type=invalid_type", headers=auth_headers)
+        assert response.status_code == 422
 
 
 class TestGetPreparedFood:
