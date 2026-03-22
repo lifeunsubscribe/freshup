@@ -849,6 +849,123 @@ class TestConsumePreparedFood:
         response = client.post(f"/prepared-foods/{item.id}/consume", json=payload)
         assert response.status_code == 401
 
+    def test_consume_floating_point_edge_cases(self, client, auth_headers, test_user, db_session):
+        """Should handle floating-point precision edge cases correctly."""
+        # Test case 1: Consuming amount that would leave tiny remainder due to float precision
+        # e.g., 3.3 - 3.3 might not equal exactly 0.0
+        item1 = PreparedFood(
+            id=uuid4(),
+            name="Float test 1",
+            type="complete_meal",
+            servings_remaining=3.3,
+            storage_location="fridge",
+            shareability="shared",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item1)
+        db_session.commit()
+        item1_id = item1.id
+
+        # Consume exact amount (should delete due to tolerance handling)
+        payload = {"amount": 3.3, "delete_when_empty": True}
+        response = client.post(f"/prepared-foods/{item1_id}/consume", json=payload, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] is True
+        deleted_item = db_session.query(PreparedFood).filter_by(id=item1_id).first()
+        assert deleted_item is None
+
+        # Test case 2: Amount within tolerance of remaining servings should succeed
+        item2 = PreparedFood(
+            id=uuid4(),
+            name="Float test 2",
+            type="complete_meal",
+            servings_remaining=2.0,
+            storage_location="fridge",
+            shareability="shared",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item2)
+        db_session.commit()
+        item2_id = item2.id
+
+        # Try to consume slightly more than available (within tolerance)
+        # 2.0 + 1e-10 should be within tolerance (1e-9)
+        payload = {"amount": 2.0 + 1e-10, "delete_when_empty": False}
+        response = client.post(f"/prepared-foods/{item2_id}/consume", json=payload, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        # Result should be effectively zero (within tolerance)
+        assert data["deleted"] is False
+        assert data["item"]["servings_remaining"] <= 1e-9
+
+        # Test case 3: Amount beyond tolerance should fail
+        item3 = PreparedFood(
+            id=uuid4(),
+            name="Float test 3",
+            type="complete_meal",
+            servings_remaining=1.5,
+            storage_location="fridge",
+            shareability="shared",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item3)
+        db_session.commit()
+
+        # Try to consume amount exceeding available by more than tolerance
+        # 1.5 + 1e-8 is greater than tolerance (1e-9)
+        payload = {"amount": 1.5 + 1e-8, "delete_when_empty": False}
+        response = client.post(f"/prepared-foods/{item3.id}/consume", json=payload, headers=auth_headers)
+        assert response.status_code == 400
+        assert "Cannot consume" in response.json()["detail"]
+
+        # Test case 4: Result near zero with delete_when_empty=False should keep item
+        item4 = PreparedFood(
+            id=uuid4(),
+            name="Float test 4",
+            type="complete_meal",
+            servings_remaining=1.0,
+            storage_location="fridge",
+            shareability="shared",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item4)
+        db_session.commit()
+        item4_id = item4.id
+
+        # Consume amount leaving near-zero remainder
+        payload = {"amount": 1.0 - 1e-10, "delete_when_empty": False}
+        response = client.post(f"/prepared-foods/{item4_id}/consume", json=payload, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] is False
+        # Verify item exists with tiny positive remainder
+        existing_item = db_session.query(PreparedFood).filter_by(id=item4_id).first()
+        assert existing_item is not None
+        assert existing_item.servings_remaining >= 0
+
+        # Test case 5: Multiple decimal places consumption
+        item5 = PreparedFood(
+            id=uuid4(),
+            name="Float test 5",
+            type="complete_meal",
+            servings_remaining=0.1 + 0.2,  # Classic float precision issue: may not equal exactly 0.3
+            storage_location="fridge",
+            shareability="shared",
+            prepared_by=test_user.id,
+        )
+        db_session.add(item5)
+        db_session.commit()
+        item5_id = item5.id
+
+        # Consume 0.3 which should match within tolerance
+        payload = {"amount": 0.3, "delete_when_empty": True}
+        response = client.post(f"/prepared-foods/{item5_id}/consume", json=payload, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        # Should successfully consume and delete due to tolerance handling
+        assert data["deleted"] is True or (data["item"] is not None and abs(data["item"]["servings_remaining"]) < 1e-9)
+
 
 class TestTransferPreparedFood:
     """Tests for POST /prepared-foods/{id}/transfer (transfer to different storage location)."""
