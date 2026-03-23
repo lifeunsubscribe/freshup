@@ -50,7 +50,15 @@ export default function DietarySection({ currentProfiles }: DietarySectionProps)
 
   const handleSave = async () => {
     try {
-      await updateProfile.mutateAsync({ dietary_profile: selectedProfiles })
+      await updateProfile.mutateAsync(
+        { dietary_profile: selectedProfiles },
+        {
+          onSuccess: () => {
+            // Reset hasChanges state after successful save
+            setHasChanges(false)
+          },
+        }
+      )
     } catch (error) {
       console.error('Failed to update dietary preferences:', error)
     }

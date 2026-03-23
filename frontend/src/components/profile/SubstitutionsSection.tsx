@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react'
+import { useState, FormEvent, useEffect } from 'react'
 import { X, Plus, Edit2, Trash2, ArrowRight } from 'lucide-react'
 import {
   useSubstitutionList,
@@ -184,6 +184,17 @@ function SubstitutionModal({
   const [context, setContext] = useState(preference?.context || '')
   const [currentReplacement, setCurrentReplacement] = useState('')
 
+  // Handle Escape key to close modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isSaving) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [onClose, isSaving])
+
   const handleAddReplacement = () => {
     const trimmed = currentReplacement.trim()
     if (trimmed && !replacements.some((r) => r.ingredient === trimmed)) {
@@ -240,7 +251,15 @@ function SubstitutionModal({
     : originalIngredient.trim() && replacements.length > 0
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={(e) => {
+        // Close modal when clicking on backdrop (not the modal content)
+        if (e.target === e.currentTarget && !isSaving) {
+          onClose()
+        }
+      }}
+    >
       <div className="bg-white rounded-card max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="p-6">
           <h3 className="text-xl font-semibold text-text-primary mb-4">
@@ -258,6 +277,7 @@ function SubstitutionModal({
               onChange={(e) => setOriginalIngredient(e.target.value)}
               disabled={!!preference}
               placeholder="e.g., Chicken"
+              maxLength={100}
               className="w-full px-4 py-2 rounded-button border border-warm-border focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent disabled:bg-cream-dark disabled:cursor-not-allowed"
             />
           </div>
@@ -279,6 +299,7 @@ function SubstitutionModal({
                   }
                 }}
                 placeholder="e.g., Tofu"
+                maxLength={100}
                 className="flex-1 px-4 py-2 rounded-button border border-warm-border focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
               />
               <button
@@ -345,6 +366,7 @@ function SubstitutionModal({
               value={context}
               onChange={(e) => setContext(e.target.value)}
               placeholder="e.g., in_recipe, side_dish, protein"
+              maxLength={200}
               className="w-full px-4 py-2 rounded-button border border-warm-border focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
             />
           </div>

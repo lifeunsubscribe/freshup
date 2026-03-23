@@ -53,7 +53,15 @@ export default function AllergiesSection({ currentAllergies }: AllergiesSectionP
 
   const handleSave = async () => {
     try {
-      await updateProfile.mutateAsync({ allergies })
+      await updateProfile.mutateAsync(
+        { allergies },
+        {
+          onSuccess: () => {
+            // Reset hasChanges state after successful save
+            setHasChanges(false)
+          },
+        }
+      )
     } catch (error) {
       console.error('Failed to update allergies:', error)
     }
@@ -80,6 +88,7 @@ export default function AllergiesSection({ currentAllergies }: AllergiesSectionP
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type an allergy and press Enter"
+            maxLength={100}
             className="flex-1 px-4 py-2 rounded-button border border-warm-border focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
           />
           <button

@@ -55,7 +55,15 @@ export default function DislikedIngredientsSection({
 
   const handleSave = async () => {
     try {
-      await updateProfile.mutateAsync({ disliked_ingredients: disliked })
+      await updateProfile.mutateAsync(
+        { disliked_ingredients: disliked },
+        {
+          onSuccess: () => {
+            // Reset hasChanges state after successful save
+            setHasChanges(false)
+          },
+        }
+      )
     } catch (error) {
       console.error('Failed to update disliked ingredients:', error)
     }
@@ -84,6 +92,7 @@ export default function DislikedIngredientsSection({
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type an ingredient and press Enter"
+            maxLength={100}
             className="flex-1 px-4 py-2 rounded-button border border-warm-border focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
           />
           <button
