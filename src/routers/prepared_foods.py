@@ -37,7 +37,10 @@ from src.schemas.prepared_food import (
 from src.schemas.inventory import ConsumptionRequest
 from src.schemas.validators import validate_enum_value
 from src.middleware.auth import get_current_user
-from src.routers.prepared_foods_helpers import verify_prepared_food_ownership
+from src.routers.prepared_foods_helpers import (
+    verify_prepared_food_ownership,
+    raise_query_param_validation_error,
+)
 from src.services.prepared_foods_service import (
     create_prepared_food,
     consume_prepared_food,
@@ -184,16 +187,7 @@ def list_prepared_foods(
         try:
             validate_enum_value("type", type, PreparedFoodType)
         except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=[
-                    {
-                        "loc": ["query", "type"],
-                        "msg": str(e),
-                        "type": "value_error"
-                    }
-                ]
-            )
+            raise_query_param_validation_error("type", str(e))
         query = query.filter(PreparedFood.type == type)
 
     # Apply storage_location filter
@@ -201,16 +195,7 @@ def list_prepared_foods(
         try:
             validate_enum_value("storage_location", storage_location, StorageLocation)
         except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=[
-                    {
-                        "loc": ["query", "storage_location"],
-                        "msg": str(e),
-                        "type": "value_error"
-                    }
-                ]
-            )
+            raise_query_param_validation_error("storage_location", str(e))
         query = query.filter(PreparedFood.storage_location == storage_location)
 
     # Apply shareability filter
@@ -218,16 +203,7 @@ def list_prepared_foods(
         try:
             validate_enum_value("shareability", shareability, Shareability)
         except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=[
-                    {
-                        "loc": ["query", "shareability"],
-                        "msg": str(e),
-                        "type": "value_error"
-                    }
-                ]
-            )
+            raise_query_param_validation_error("shareability", str(e))
         # When filtering by shareability, still respect base visibility rules
         # Example: If filtering for "personal", only show current user's personal items
         if shareability == Shareability.personal.value or shareability == Shareability.reserved.value:
