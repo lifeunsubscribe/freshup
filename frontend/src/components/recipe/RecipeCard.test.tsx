@@ -43,6 +43,20 @@ describe('RecipeCard', () => {
       const image = screen.getByAltText('Sweet Potato Chickpea Curry')
       expect(image).toHaveAttribute('src', 'https://example.com/image.jpg')
     })
+
+    it('displays "No image" placeholder when image fails to load', () => {
+      renderWithRouter(
+        <RecipeCard recipe={mockRecipe} imageUrl="https://example.com/broken-image.jpg" />
+      )
+      const image = screen.getByAltText('Sweet Potato Chickpea Curry')
+
+      // Simulate image load error
+      const errorEvent = new Event('error', { bubbles: true })
+      image.dispatchEvent(errorEvent)
+
+      // Should show "No image" placeholder after error
+      expect(screen.getByText('No image')).toBeInTheDocument()
+    })
   })
 
   describe('source badge', () => {

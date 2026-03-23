@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Heart } from 'lucide-react'
+import { useState } from 'react'
 import Pill from '../ui/Pill'
 
 export interface RecipeCardProps {
@@ -49,6 +50,9 @@ export default function RecipeCard({
 }: RecipeCardProps) {
   const { id, name, source_type, cook_time_minutes, tags } = recipe
 
+  // Track image loading errors
+  const [imageError, setImageError] = useState(false)
+
   // Calculate total time (prep + cook) or use cook_time if prep is not available
   const totalTime = cook_time_minutes || 0
 
@@ -90,11 +94,12 @@ export default function RecipeCard({
       <div className="relative w-full" style={{ paddingBottom: '75%' }}>
         {/* Image */}
         <div className="absolute inset-0 bg-warm-gray">
-          {imageUrl ? (
+          {imageUrl && !imageError ? (
             <img
               src={imageUrl}
               alt={name}
               className="w-full h-full object-cover"
+              onError={() => setImageError(true)}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-text-tertiary">
