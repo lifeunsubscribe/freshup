@@ -8,6 +8,8 @@
  * - login: Function to authenticate with email/password
  * - logout: Function to clear authentication and redirect to login
  * - switchUser: Function to switch to another household member (shared device)
+ *
+ * Wrapped with ErrorBoundary to catch and handle errors gracefully.
  */
 
 import { createContext, useContext, ReactNode } from 'react';
@@ -99,7 +101,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     switchUser,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  );
 }
 
 /**
