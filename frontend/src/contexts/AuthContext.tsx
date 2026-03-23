@@ -8,6 +8,8 @@
  * - login: Function to authenticate with email/password
  * - logout: Function to clear authentication and redirect to login
  * - switchUser: Function to switch to another household member (shared device)
+ *
+ * Wrapped with ErrorBoundary to catch and handle errors gracefully.
  */
 
 import { createContext, useContext, ReactNode } from 'react';
@@ -15,6 +17,8 @@ import { useNavigate } from 'react-router-dom';
 import { useCurrentUser, useLogin, useLogout, useSwitchUser } from '../api/hooks/useAuth';
 import { isAuthenticated as checkIsAuthenticated } from '../api/client';
 import type { LoginRequest, UserResponse, SwitchUserRequest } from '../api/types';
+import { ErrorBoundary } from '../components/errors';
+import AuthErrorFallback from '../components/errors/AuthErrorFallback';
 
 interface AuthContextType {
   currentUser: UserResponse | undefined;
@@ -99,7 +103,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     switchUser,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <ErrorBoundary fallback={(error, resetError) => <AuthErrorFallback error={error} resetError={resetError} />}>
+      <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+    </ErrorBoundary>
+  );
 }
 
 /**
