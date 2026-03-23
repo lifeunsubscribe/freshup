@@ -42,13 +42,15 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
     // Error handling is done via onError callbacks to avoid timing issues
     if (item.purchased) {
       unpurchaseMutation.mutate(item.id, {
-        onError: () => {
+        onError: (error) => {
+          console.error('Failed to unmark grocery item:', error)
           setErrorMessage('Failed to unmark item. Please try again.')
         },
       })
     } else {
       purchaseMutation.mutate(item.id, {
-        onError: () => {
+        onError: (error) => {
+          console.error('Failed to mark grocery item as purchased:', error)
           setErrorMessage('Failed to mark item as purchased. Please try again.')
         },
       })

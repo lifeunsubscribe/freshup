@@ -94,7 +94,8 @@ export default function InventoryRow({ item }: InventoryRowProps) {
         },
       },
       {
-        onError: () => {
+        onError: (error) => {
+          console.error('Failed to consume inventory item:', error)
           setErrorMessage('Failed to consume item. Please try again.')
         },
       }
@@ -106,7 +107,8 @@ export default function InventoryRow({ item }: InventoryRowProps) {
     // Clear any existing error immediately when user retries to prevent stale error messages
     setErrorMessage(null)
     freezeMutation.mutate(item.id, {
-      onError: () => {
+      onError: (error) => {
+        console.error('Failed to freeze inventory item:', error)
         setErrorMessage('Failed to freeze item. Please try again.')
       },
     })
@@ -124,7 +126,8 @@ export default function InventoryRow({ item }: InventoryRowProps) {
         },
       },
       {
-        onError: () => {
+        onError: (error) => {
+          console.error('Failed to update inventory item storage:', error)
           setErrorMessage('Failed to update storage. Please try again.')
         },
       }
