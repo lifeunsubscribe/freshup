@@ -6,7 +6,8 @@ import { existsSync } from 'fs'
  * Detects if the application is running inside a Docker container.
  *
  * Docker creates a .dockerenv file at the root of the filesystem.
- * We also support an explicit DOCKER_CONTAINER env var for flexibility.
+ * We prioritize this definitive check over environment variables to prevent
+ * accidental exposure via stale .env files.
  *
  * @returns {boolean} true if running in Docker, false otherwise
  */
@@ -14,16 +15,19 @@ function isRunningInDocker(): boolean {
   const hasDockerEnvFile = existsSync('/.dockerenv')
   const hasDockerEnvVar = process.env.DOCKER_CONTAINER === 'true'
 
-  // Security: Warn if DOCKER_CONTAINER is set but we're not actually in Docker
+  // Security: Only trust DOCKER_CONTAINER env var if it matches reality
   if (hasDockerEnvVar && !hasDockerEnvFile) {
-    console.warn(
-      '\n⚠️  WARNING: DOCKER_CONTAINER=true is set, but /.dockerenv not found.\n' +
-      '   This will expose the dev server on ALL network interfaces (0.0.0.0).\n' +
-      '   If you are not running in Docker, remove this environment variable.\n'
+    console.error(
+      '\n❌ ERROR: DOCKER_CONTAINER=true is set, but /.dockerenv not found.\n' +
+      '   This appears to be a stale environment variable (possibly from .env file).\n' +
+      '   For security, the dev server will bind to localhost (127.0.0.1) only.\n' +
+      '   Remove DOCKER_CONTAINER from your environment to clear this error.\n'
     )
+    // Fail safe: ignore the env var if not actually in Docker
+    return false
   }
 
-  return hasDockerEnvFile || hasDockerEnvVar
+  return hasDockerEnvFile
 }
 
 /**
