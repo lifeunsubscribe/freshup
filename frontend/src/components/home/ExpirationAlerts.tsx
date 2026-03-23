@@ -1,5 +1,4 @@
 import { useInventoryList } from '../../api'
-import type { InventoryItemResponse } from '../../api/types'
 import InventoryRow from '../inventory/InventoryRow'
 import SectionHeader from '../ui/SectionHeader'
 
@@ -14,8 +13,8 @@ import SectionHeader from '../ui/SectionHeader'
  * - Error state: displays error message if fetch fails
  *
  * Note: The list API returns InventoryItemListResponse (lighter payload),
- * but InventoryRow handles missing fields gracefully. We type-assert here
- * since the component checks for null/undefined before using optional fields.
+ * but InventoryRow accepts both InventoryItemResponse and InventoryItemListResponse,
+ * handling missing fields gracefully by checking for their existence.
  */
 export default function ExpirationAlerts() {
   const { data: items, isLoading, isError, error } = useInventoryList({
@@ -49,7 +48,7 @@ export default function ExpirationAlerts() {
             {items.map((item) => (
               <InventoryRow
                 key={item.id}
-                item={item as unknown as InventoryItemResponse}
+                item={item}
               />
             ))}
           </div>

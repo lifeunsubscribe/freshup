@@ -4,13 +4,13 @@ import {
   useFreezeInventoryItem,
   useUpdateInventoryItem,
 } from '../../api'
-import type { InventoryItemResponse } from '../../api/types'
+import type { InventoryItemResponse, InventoryItemListResponse } from '../../api/types'
 import { StorageLocation } from '../../api/types'
 import Pill from '../ui/Pill'
 import StorageBadge from './StorageBadge'
 
 export interface InventoryRowProps {
-  item: InventoryItemResponse
+  item: InventoryItemResponse | InventoryItemListResponse
 }
 
 /**
@@ -80,9 +80,11 @@ export default function InventoryRow({ item }: InventoryRowProps) {
 
   // Check if item is low stock
   const isLowStock = (): boolean => {
+    // minimum_threshold only exists on InventoryItemResponse, not InventoryItemListResponse
+    const threshold = 'minimum_threshold' in item ? item.minimum_threshold : null
     return (
-      item.minimum_threshold !== null &&
-      item.quantity < item.minimum_threshold
+      threshold !== null &&
+      item.quantity < threshold
     )
   }
 
