@@ -123,6 +123,14 @@ export default function RecipeCard({
             e.stopPropagation()
             onFavoriteToggle?.()
           }}
+          onKeyDown={(e) => {
+            // Handle keyboard accessibility (Enter or Space)
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              e.stopPropagation()
+              onFavoriteToggle?.()
+            }
+          }}
           className="absolute top-2 right-2 p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors"
           aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
         >

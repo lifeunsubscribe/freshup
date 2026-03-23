@@ -120,6 +120,30 @@ describe('RecipeCard', () => {
       // Navigation would change pathname, but it should remain at test root
       expect(window.location.pathname).toBe('/')
     })
+
+    it('calls onFavoriteToggle when Enter key is pressed on heart button', async () => {
+      const user = userEvent.setup()
+      const onFavoriteToggle = vi.fn()
+      renderWithRouter(
+        <RecipeCard recipe={mockRecipe} onFavoriteToggle={onFavoriteToggle} />
+      )
+      const button = screen.getByRole('button', { name: 'Add to favorites' })
+      button.focus()
+      await user.keyboard('{Enter}')
+      expect(onFavoriteToggle).toHaveBeenCalledTimes(1)
+    })
+
+    it('calls onFavoriteToggle when Space key is pressed on heart button', async () => {
+      const user = userEvent.setup()
+      const onFavoriteToggle = vi.fn()
+      renderWithRouter(
+        <RecipeCard recipe={mockRecipe} onFavoriteToggle={onFavoriteToggle} />
+      )
+      const button = screen.getByRole('button', { name: 'Add to favorites' })
+      button.focus()
+      await user.keyboard(' ')
+      expect(onFavoriteToggle).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('metadata display', () => {
