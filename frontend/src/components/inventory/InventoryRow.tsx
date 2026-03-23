@@ -108,7 +108,7 @@ export default function InventoryRow({ item }: InventoryRowProps) {
   }
 
   // Handle storage location cycle
-  const handleStorageCycle = (newLocation: string) => {
+  const handleStorageCycle = (newLocation: StorageLocation) => {
     setErrorMessage(null)
     updateMutation.mutate({
       storage_location: newLocation,
