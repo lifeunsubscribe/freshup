@@ -40,6 +40,7 @@ export default function QuickActionCard({
 }: QuickActionCardProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className="w-full bg-white rounded-card p-4 text-left transition-colors duration-200 hover:bg-[#f4f2ea] focus:outline-none focus:ring-2 focus:ring-olive focus:ring-offset-2"
     >
