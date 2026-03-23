@@ -137,9 +137,14 @@ export async function apiClient<T = unknown>(
   // Attach Authorization header if token exists and auth is required
   if (requiresAuth) {
     const token = getAuthToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    if (!token) {
+      throw new ApiException(
+        'Authentication required',
+        401,
+        'No authentication token found. Please log in.'
+      );
     }
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   try {

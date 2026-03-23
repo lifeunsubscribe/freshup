@@ -101,7 +101,7 @@ export function useCurrentUser() {
         method: 'GET',
       });
     },
-    enabled: !!getAuthToken(), // Only run query if token exists
+    enabled: () => !!getAuthToken(), // Use function to avoid stale closure
     staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
   });
 }

@@ -209,10 +209,16 @@ export function usePurchaseGroceryItem() {
 
       // Optimistically update to the new value
       if (previousItem) {
+        // Get current user from cache to set purchased_by correctly
+        const currentUser = queryClient.getQueryData<{ id: string }>([
+          'auth',
+          'current-user',
+        ]);
+
         queryClient.setQueryData<GroceryItemResponse>(groceryKeys.detail(id), {
           ...previousItem,
           purchased: true,
-          // Don't set purchased_by - let server provide correct user ID
+          purchased_by: currentUser?.id || null,
           purchased_date: new Date().toISOString(),
         });
       }
