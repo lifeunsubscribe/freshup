@@ -5,6 +5,7 @@ import {
   useUpdateInventoryItem,
 } from '../../api'
 import type { InventoryItemResponse } from '../../api/types'
+import { StorageLocation } from '../../api/types'
 import Pill from '../ui/Pill'
 import StorageBadge from './StorageBadge'
 
@@ -158,7 +159,7 @@ export default function InventoryRow({ item }: InventoryRowProps) {
               </button>
               <button
                 onClick={handleFreeze}
-                disabled={isPending || item.storage_location === 'freezer'}
+                disabled={isPending || item.storage_location === StorageLocation.FREEZER}
                 className="px-3 py-1 text-xs font-medium text-mocha bg-white border border-mocha rounded-[6px] hover:bg-mocha hover:text-cream transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 type="button"
               >

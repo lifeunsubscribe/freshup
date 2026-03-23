@@ -4,6 +4,7 @@ import { userEvent } from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import InventoryRow from './InventoryRow'
 import type { InventoryItemResponse } from '../../api/types'
+import { StorageLocation } from '../../api/types'
 
 // Mock the API hooks
 vi.mock('../../api', () => ({
@@ -69,7 +70,7 @@ describe('InventoryRow', () => {
     quantity: 2,
     unit: 'gallon',
     category: 'dairy',
-    storage_location: 'fridge',
+    storage_location: StorageLocation.FRIDGE,
     added_by: 'user-1',
     date_added: '2026-03-20T10:00:00Z',
     expiration_date: null,
@@ -109,7 +110,7 @@ describe('InventoryRow', () => {
     })
 
     it('renders storage badge', () => {
-      const item = createMockItem({ storage_location: 'fridge' })
+      const item = createMockItem({ storage_location: StorageLocation.FRIDGE })
       renderWithProviders(<InventoryRow item={item} />)
 
       expect(screen.getByText('Fridge')).toBeInTheDocument()
@@ -286,7 +287,7 @@ describe('InventoryRow', () => {
       today.setHours(0, 0, 0, 0)
       const item = createMockItem({
         expiration_date: today.toISOString(),
-        storage_location: 'freezer',
+        storage_location: StorageLocation.FREEZER,
       })
       renderWithProviders(<InventoryRow item={item} />)
 
@@ -319,7 +320,7 @@ describe('InventoryRow', () => {
   describe('StorageBadge Cycling', () => {
     it('calls update endpoint when storage badge is clicked', async () => {
       const user = userEvent.setup()
-      const item = createMockItem({ storage_location: 'pantry' })
+      const item = createMockItem({ storage_location: StorageLocation.PANTRY })
       renderWithProviders(<InventoryRow item={item} />)
 
       const storageBadge = screen.getByRole('button', {
@@ -328,13 +329,13 @@ describe('InventoryRow', () => {
       await user.click(storageBadge)
 
       expect(updateMutate).toHaveBeenCalledWith({
-        storage_location: 'fridge',
+        storage_location: StorageLocation.FRIDGE,
       })
     })
 
     it('cycles through storage locations in correct order', async () => {
       const user = userEvent.setup()
-      const item = createMockItem({ storage_location: 'fridge' })
+      const item = createMockItem({ storage_location: StorageLocation.FRIDGE })
       renderWithProviders(<InventoryRow item={item} />)
 
       const storageBadge = screen.getByRole('button', {
@@ -344,7 +345,7 @@ describe('InventoryRow', () => {
 
       // Fridge → Freezer
       expect(updateMutate).toHaveBeenCalledWith({
-        storage_location: 'freezer',
+        storage_location: StorageLocation.FREEZER,
       })
     })
 
@@ -355,7 +356,7 @@ describe('InventoryRow', () => {
         isError: false,
       } as any)
 
-      const item = createMockItem({ storage_location: 'pantry' })
+      const item = createMockItem({ storage_location: StorageLocation.PANTRY })
       renderWithProviders(<InventoryRow item={item} />)
 
       const storageBadge = screen.getByRole('button', {
@@ -448,7 +449,7 @@ describe('InventoryRow', () => {
     })
 
     it('storage badge has accessible label', () => {
-      const item = createMockItem({ storage_location: 'fridge' })
+      const item = createMockItem({ storage_location: StorageLocation.FRIDGE })
       renderWithProviders(<InventoryRow item={item} />)
 
       const storageBadge = screen.getByRole('button', {
@@ -482,7 +483,7 @@ describe('InventoryRow', () => {
         unit: 'lb',
         minimum_threshold: 2,
         expiration_date: today.toISOString(),
-        storage_location: 'fridge',
+        storage_location: StorageLocation.FRIDGE,
       })
       renderWithProviders(<InventoryRow item={item} />)
 

@@ -28,7 +28,7 @@ export default function StorageBadge({
       StorageLocation.PANTRY,
       StorageLocation.FRIDGE,
       StorageLocation.FREEZER,
-      'counter', // Not in enum but used in the app
+      StorageLocation.COUNTER,
     ]
     const currentIndex = cycle.indexOf(current)
     const nextIndex = (currentIndex + 1) % cycle.length
@@ -51,7 +51,7 @@ export default function StorageBadge({
         return { icon: Snowflake, label: 'Freezer', color: 'text-olive' }
       case StorageLocation.PANTRY:
         return { icon: Box, label: 'Pantry', color: 'text-text-secondary' }
-      case 'counter':
+      case StorageLocation.COUNTER:
         return { icon: Home, label: 'Counter', color: 'text-terra' }
       default:
         return { icon: Box, label: location, color: 'text-text-secondary' }
