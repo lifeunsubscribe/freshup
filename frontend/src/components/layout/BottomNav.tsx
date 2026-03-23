@@ -32,7 +32,7 @@ export default function BottomNav() {
   }
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-warm-border">
+    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 bg-white border-t border-warm-border">
       <div className="flex justify-around items-center h-16 max-w-screen-lg mx-auto">
         {navItems.map((item) => {
           const Icon = item.icon
