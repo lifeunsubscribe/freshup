@@ -13,7 +13,7 @@ interface AuthErrorFallbackProps {
   resetError: () => void;
 }
 
-export default function AuthErrorFallback({ error, resetError }: AuthErrorFallbackProps) {
+export default function AuthErrorFallback({ error: _error, resetError }: AuthErrorFallbackProps) {
   const handleReturnToLogin = () => {
     // Clear any stale auth tokens before redirecting
     localStorage.removeItem('access_token');
