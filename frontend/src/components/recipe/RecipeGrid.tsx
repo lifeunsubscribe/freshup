@@ -50,7 +50,7 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
 
       {/* Results count */}
       {!isLoading && !isError && recipes && (
-        <p className="text-sm text-text-secondary">
+        <p className="text-sm text-text-secondary" aria-live="polite">
           {recipes.length} {recipes.length === 1 ? 'recipe' : 'recipes'} found
         </p>
       )}
