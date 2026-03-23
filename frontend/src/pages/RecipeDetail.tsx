@@ -18,6 +18,7 @@ export default function RecipeDetail() {
 
   const [activeTab, setActiveTab] = useState<TabType>('ingredients')
   const [selectedServings, setSelectedServings] = useState<2 | 4 | 6>(2)
+  const [favoriteError, setFavoriteError] = useState<string | null>(null)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
     enabled: !!id,
@@ -33,6 +34,8 @@ export default function RecipeDetail() {
   const handleFavoriteToggle = async () => {
     if (!id) return
 
+    setFavoriteError(null)
+
     try {
       // Toggle favorite status via rate endpoint (upsert behavior)
       // Preserve existing rating value while toggling is_favorite
@@ -45,8 +48,7 @@ export default function RecipeDetail() {
       })
     } catch (error) {
       console.error('Failed to toggle favorite:', error)
-      // TODO: Add toast notification or error state display for user feedback
-      alert('Failed to update favorite status. Please try again.')
+      setFavoriteError('Failed to update favorite status. Please try again.')
     }
   }
 
@@ -92,7 +94,7 @@ export default function RecipeDetail() {
           <RecipeHeader
             title={recipe.name}
             subtitle={recipe.notes || undefined}
-            imageUrl={undefined}
+            imageUrl={recipe.source_image || undefined}
           />
 
           <div className="mb-4 flex flex-wrap gap-2">
@@ -135,12 +137,19 @@ export default function RecipeDetail() {
         </div>
       </PageContainer>
 
-      <ActionBar
-        isFavorited={isFavorited}
-        onFavoriteToggle={handleFavoriteToggle}
-        onAddToMealPlan={handleAddToMealPlan}
-        isLoading={rateRecipeMutation.isPending}
-      />
+      <>
+        {favoriteError && (
+          <div className="fixed bottom-20 left-4 right-4 bg-red-50 border border-red-200 rounded-lg p-3 shadow-lg z-40">
+            <p className="text-sm text-red-800">{favoriteError}</p>
+          </div>
+        )}
+        <ActionBar
+          isFavorited={isFavorited}
+          onFavoriteToggle={handleFavoriteToggle}
+          onAddToMealPlan={handleAddToMealPlan}
+          isLoading={rateRecipeMutation.isPending}
+        />
+      </>
     </>
   )
 }
