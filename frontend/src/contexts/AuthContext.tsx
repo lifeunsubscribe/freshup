@@ -17,8 +17,6 @@ import { useNavigate } from 'react-router-dom';
 import { useCurrentUser, useLogin, useLogout, useSwitchUser } from '../api/hooks/useAuth';
 import { isAuthenticated as checkIsAuthenticated } from '../api/client';
 import type { LoginRequest, UserResponse, SwitchUserRequest } from '../api/types';
-import { ErrorBoundary } from '../components/errors';
-import AuthErrorFallback from '../components/errors/AuthErrorFallback';
 
 interface AuthContextType {
   currentUser: UserResponse | undefined;
@@ -104,9 +102,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   return (
-    <ErrorBoundary fallback={(error, resetError) => <AuthErrorFallback error={error} resetError={resetError} />}>
-      <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-    </ErrorBoundary>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
   );
 }
 
