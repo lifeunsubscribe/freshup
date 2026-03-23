@@ -40,7 +40,14 @@ export default function LowStockSection({ items }: LowStockSectionProps) {
                 </div>
 
                 {/* Progress bar */}
-                <div className="w-full bg-cream rounded-full h-2 overflow-hidden">
+                <div
+                  className="w-full bg-cream rounded-full h-2 overflow-hidden"
+                  role="progressbar"
+                  aria-valuenow={item.quantity}
+                  aria-valuemin={0}
+                  aria-valuemax={item.minimum_threshold}
+                  aria-label={`${item.name} stock level: ${item.quantity} of ${item.minimum_threshold} ${item.unit}`}
+                >
                   <div
                     className="h-full bg-terra transition-all duration-300"
                     style={{ width: `${Math.min(percentage, 100)}%` }}
