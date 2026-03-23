@@ -45,11 +45,13 @@ export default function RecipeDetail() {
       })
     } catch (error) {
       console.error('Failed to toggle favorite:', error)
+      // TODO: Add toast notification or error state display for user feedback
+      alert('Failed to update favorite status. Please try again.')
     }
   }
 
   const handleAddToMealPlan = () => {
-    console.log('Add to meal plan clicked - Phase 2 feature')
+    // Phase 2 feature: Add to meal plan functionality
   }
 
   if (isLoadingRecipe) {
@@ -127,7 +129,7 @@ export default function RecipeDetail() {
               />
             )}
             {activeTab === 'nutrition' && (
-              <NutritionTab nutritionalInfo={null} />
+              <NutritionTab nutritionalInfo={recipe.nutritional_info} />
             )}
           </div>
         </div>
