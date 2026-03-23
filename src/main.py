@@ -3,6 +3,7 @@ import logging
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import OperationalError, DatabaseError
 from slowapi import _rate_limit_exceeded_handler
@@ -69,6 +70,25 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# CORS — must be added before rate limiting so OPTIONS preflight isn't rejected
+if settings.environment == "local":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    # TODO: read allowed origins from CORS_ALLOWED_ORIGINS setting for production
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Register rate limiting
 app.state.limiter = limiter
