@@ -41,6 +41,7 @@ export enum StorageLocation {
   PANTRY = 'pantry',
   FRIDGE = 'fridge',
   FREEZER = 'freezer',
+  COUNTER = 'counter',
 }
 
 export enum Shareability {
