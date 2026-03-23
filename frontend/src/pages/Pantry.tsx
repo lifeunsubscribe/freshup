@@ -16,13 +16,13 @@ export default function Pantry() {
 
   // Fetch inventory with storage filter
   const storageFilter = activeTab === 'all' ? undefined : activeTab
-  const { data: inventoryItems = [], isLoading: isLoadingInventory } = useInventoryList({
+  const { data: inventoryItems = [], isLoading: isLoadingInventory, error: inventoryError } = useInventoryList({
     storage_location: storageFilter,
     limit: 100,
   })
 
   // Fetch low stock alerts
-  const { data: lowStockItems = [], isLoading: isLoadingLowStock } = useLowStockAlerts()
+  const { data: lowStockItems = [], isLoading: isLoadingLowStock, error: lowStockError } = useLowStockAlerts()
 
   // Calculate expiring items (within 3 days)
   const expiringItems = useMemo(() => {
@@ -64,6 +64,23 @@ export default function Pantry() {
         <div className="py-8">
           <PageTitle>Pantry</PageTitle>
           <p className="text-text-secondary mt-4">Loading inventory...</p>
+        </div>
+      </PageContainer>
+    )
+  }
+
+  // Error state
+  if (inventoryError || lowStockError) {
+    return (
+      <PageContainer>
+        <div className="py-8">
+          <PageTitle>Pantry</PageTitle>
+          <div className="bg-red-50 border border-red-200 rounded-card p-6 mt-4">
+            <p className="text-red-800 font-medium">Failed to load inventory data</p>
+            <p className="text-red-600 text-sm mt-2">
+              {inventoryError?.message || lowStockError?.message || 'An unexpected error occurred. Please try again later.'}
+            </p>
+          </div>
         </div>
       </PageContainer>
     )

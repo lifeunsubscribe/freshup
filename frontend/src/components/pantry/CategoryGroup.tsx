@@ -34,6 +34,7 @@ export default function CategoryGroup({ category, items }: CategoryGroupProps) {
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-cream transition-colors"
+        aria-expanded={isExpanded}
       >
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-text-primary">
@@ -52,6 +53,7 @@ export default function CategoryGroup({ category, items }: CategoryGroupProps) {
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
           <path
             strokeLinecap="round"
