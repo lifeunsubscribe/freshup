@@ -24,14 +24,14 @@ STORES = [
 SEED_USERS = [
     {
         "name": "Sarah",
-        "email": "sarah@freshup.local",
+        "email": "sarah@freshup.dev",
         "password": "FreshUp2024!",
         "role": UserRole.coordinator.value,
         "dietary_profile": ["omnivore"],
     },
     {
         "name": "Alex",
-        "email": "alex@freshup.local",
+        "email": "alex@freshup.dev",
         "password": "FreshUp2024!",
         "role": UserRole.member.value,
         "dietary_profile": ["vegan"],

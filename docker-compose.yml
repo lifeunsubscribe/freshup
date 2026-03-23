@@ -6,16 +6,8 @@ services:
     container_name: freshup-api
     ports:
       - "8000:8000"
-    environment:
-      - ENVIRONMENT=${ENVIRONMENT}
-      - DATABASE_URL=${DATABASE_URL}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
-      - MINIO_BUCKET=${MINIO_BUCKET}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - JWT_ALGORITHM=${JWT_ALGORITHM}
-      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+    env_file:
+      - .env
     volumes:
       - ./src:/app/src
       - ./alembic:/app/alembic
@@ -32,8 +24,8 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_ROOT_USER: freshup-admin
+      MINIO_ROOT_PASSWORD: secure
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -43,14 +35,13 @@ services:
     image: node:20-alpine
     container_name: freshup-frontend
     working_dir: /app
-    # Run as node user (UID 1000) instead of root for security
-    user: "node"
+
     ports:
       - "5173:5173"
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
-    command: sh -c "[ -d node_modules ] || npm install && npm run dev"
+    command: sh -c "npm install && npm run dev"
     restart: unless-stopped
 
 volumes:

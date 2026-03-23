@@ -118,7 +118,7 @@ export default function Pantry() {
             ))}
           </div>
         ) : (
-          <div className="bg-cream-dark rounded-card border border-warm-border p-6">
+          <div className="bg-white rounded-card border border-warm-border p-6">
             <p className="text-text-secondary">
               {inventoryItems.length === 0
                 ? 'No items in pantry yet. Add items to get started!'
