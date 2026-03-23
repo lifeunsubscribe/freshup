@@ -7,7 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Create non-root user for security
+# Using UID/GID 1000 for compatibility with common development environments
+RUN groupadd -r appuser -g 1000 && \
+    useradd -r -u 1000 -g appuser -m -s /bin/bash appuser
+
+# Install Python dependencies as root (required for system-wide packages)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -16,6 +21,12 @@ COPY src/ ./src/
 COPY tests/ ./tests/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+
+# Set ownership of application files to non-root user
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user for running the application
+USER appuser
 
 EXPOSE 8000
 

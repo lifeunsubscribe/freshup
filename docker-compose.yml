@@ -43,6 +43,8 @@ services:
     image: node:20-alpine
     container_name: freshup-frontend
     working_dir: /app
+    # Run as node user (UID 1000) instead of root for security
+    user: "node"
     ports:
       - "5173:5173"
     volumes:
