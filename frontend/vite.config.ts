@@ -11,7 +11,19 @@ import { existsSync } from 'fs'
  * @returns {boolean} true if running in Docker, false otherwise
  */
 function isRunningInDocker(): boolean {
-  return existsSync('/.dockerenv') || process.env.DOCKER_CONTAINER === 'true'
+  const hasDockerEnvFile = existsSync('/.dockerenv')
+  const hasDockerEnvVar = process.env.DOCKER_CONTAINER === 'true'
+
+  // Security: Warn if DOCKER_CONTAINER is set but we're not actually in Docker
+  if (hasDockerEnvVar && !hasDockerEnvFile) {
+    console.warn(
+      '\n⚠️  WARNING: DOCKER_CONTAINER=true is set, but /.dockerenv not found.\n' +
+      '   This will expose the dev server on ALL network interfaces (0.0.0.0).\n' +
+      '   If you are not running in Docker, remove this environment variable.\n'
+    )
+  }
+
+  return hasDockerEnvFile || hasDockerEnvVar
 }
 
 /**
