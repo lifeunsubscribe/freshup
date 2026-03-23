@@ -25,6 +25,8 @@ COPY alembic.ini .
 # Set ownership of application files to non-root user
 RUN chown -R appuser:appuser /app
 
+RUN mkdir -p /app/data && chown appuser:appuser /app/data
+
 # Switch to non-root user for running the application
 USER appuser
 

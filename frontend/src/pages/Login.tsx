@@ -71,7 +71,7 @@ export default function Login() {
         </div>
 
         {/* Login Form Card */}
-        <div className="bg-cream-dark rounded-card border border-warm-border p-8">
+        <div className="bg-white rounded-card border border-warm-border p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Email Input */}
             <div>
