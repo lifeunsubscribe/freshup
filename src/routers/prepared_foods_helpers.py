@@ -1,12 +1,14 @@
 """
-Helper functions for prepared food ownership verification.
+Helper functions for prepared food ownership verification and error handling.
 
-Centralizes ownership validation logic to reduce code duplication across
-prepared food CRUD endpoints and maintain consistent error handling.
+Centralizes ownership validation logic and error response formatting to reduce
+code duplication across prepared food CRUD endpoints and maintain consistent
+error handling.
 """
 
 from uuid import UUID
 from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
 
 from src.db.models.user import User
 from src.db.models.prepared_food import PreparedFood
@@ -42,4 +44,31 @@ def verify_prepared_food_ownership(
         current_user=current_user,
         db=db,
         entity_name="Prepared food item"
+    )
+
+
+def raise_query_param_validation_error(field_name: str, error_message: str) -> None:
+    """
+    Raise a standardized 422 validation error for query parameter validation failures.
+
+    This helper eliminates code duplication by providing a consistent error format
+    for enum validation failures in query parameters. The error format matches
+    FastAPI's validation error structure with a list of error details.
+
+    Args:
+        field_name: Name of the query parameter that failed validation
+        error_message: Error message describing the validation failure
+
+    Raises:
+        HTTPException: Always raises 422 Unprocessable Entity with standardized detail format
+    """
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=[
+            {
+                "loc": ["query", field_name],
+                "msg": error_message,
+                "type": "value_error"
+            }
+        ]
     )
