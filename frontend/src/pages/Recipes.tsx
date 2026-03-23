@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import PageContainer from '../components/layout/PageContainer'
 import PageTitle from '../components/ui/PageTitle'
 import SearchBar from '../components/recipe/SearchBar'
@@ -38,7 +38,7 @@ export default function Recipes() {
   ]
 
   // Handle search input - transition to grid view when typing
-  const handleSearchChange = (value: string) => {
+  const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value)
     if (value) {
       setViewMode('grid')
@@ -46,11 +46,16 @@ export default function Recipes() {
       // Return to carousel if search is cleared and no filters active
       setViewMode('carousel')
     }
-  }
+  }, [filters])
 
   // Handle "See all" button - transition to grid with filter
-  const handleSeeAll = (sectionFilters: RecipeFilters) => {
-    setFilters(sectionFilters)
+  const handleSeeAll = (sectionFilters: { limit?: number; max_cook_time?: number; tag?: string }) => {
+    // Extract only RecipeFilters properties (exclude limit which is for carousel only)
+    const { max_cook_time, tag } = sectionFilters
+    const gridFilters: RecipeFilters = {}
+    if (max_cook_time !== undefined) gridFilters.max_cook_time = max_cook_time
+    if (tag !== undefined) gridFilters.tag = tag
+    setFilters(gridFilters)
     setViewMode('grid')
   }
 
@@ -85,7 +90,7 @@ export default function Recipes() {
                   key={section.id}
                   title={section.label}
                   filters={section.filters}
-                  onSeeAll={() => handleSeeAll(section.filters as RecipeFilters)}
+                  onSeeAll={() => handleSeeAll(section.filters)}
                   sectionId={section.id}
                 />
               ))}
