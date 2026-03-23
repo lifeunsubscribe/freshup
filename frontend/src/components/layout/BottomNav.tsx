@@ -43,6 +43,7 @@ export default function BottomNav() {
               key={item.to}
               to={item.to}
               className="flex flex-col items-center justify-center flex-1 h-full relative"
+              aria-current={active ? 'page' : undefined}
             >
               <div className="relative">
                 <Icon
@@ -50,7 +51,7 @@ export default function BottomNav() {
                   className={
                     active
                       ? 'text-olive fill-olive stroke-2'
-                      : 'text-[#8b8b7e] stroke-2'
+                      : 'text-tertiary stroke-2'
                   }
                 />
                 {item.badge !== undefined && item.badge > 0 && (
@@ -63,7 +64,7 @@ export default function BottomNav() {
                 className={`text-xs mt-1 ${
                   active
                     ? 'text-olive font-medium'
-                    : 'text-[#8b8b7e] font-normal'
+                    : 'text-tertiary font-normal'
                 }`}
               >
                 {item.label}
