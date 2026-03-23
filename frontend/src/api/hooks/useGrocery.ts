@@ -212,7 +212,7 @@ export function usePurchaseGroceryItem() {
         queryClient.setQueryData<GroceryItemResponse>(groceryKeys.detail(id), {
           ...previousItem,
           purchased: true,
-          purchased_by: previousItem.added_by, // Use added_by as proxy for current user
+          // Don't set purchased_by - let server provide correct user ID
           purchased_date: new Date().toISOString(),
         });
       }

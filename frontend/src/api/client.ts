@@ -58,6 +58,24 @@ export function clearAuthToken(): void {
 }
 
 /**
+ * Decode base64url string (JWT uses base64url, not standard base64)
+ */
+function decodeBase64Url(base64url: string): string {
+  // Convert base64url to standard base64
+  let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+
+  // Add padding if necessary
+  const padding = base64.length % 4;
+  if (padding === 2) {
+    base64 += '==';
+  } else if (padding === 3) {
+    base64 += '=';
+  }
+
+  return atob(base64);
+}
+
+/**
  * Check if user is authenticated (has valid token)
  */
 export function isAuthenticated(): boolean {
@@ -73,8 +91,8 @@ export function isAuthenticated(): boolean {
       return false;
     }
 
-    // Decode the payload (second part)
-    const payload = JSON.parse(atob(parts[1]));
+    // Decode the payload (second part) using base64url decoding
+    const payload = JSON.parse(decodeBase64Url(parts[1]));
 
     // Check if token has expiration claim
     if (!payload.exp) {
