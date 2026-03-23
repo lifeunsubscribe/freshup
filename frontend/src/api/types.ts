@@ -123,6 +123,16 @@ export interface SwitchUserRequest {
   user_id: string;
 }
 
+export interface UserListResponse {
+  id: string;
+  name: string;
+  role: string;
+  dietary_profile: string[];
+  allergies: string[];
+  disliked_ingredients: string[];
+  favorite_ingredients: string[];
+}
+
 // ============================================================================
 // Inventory Types
 // ============================================================================
