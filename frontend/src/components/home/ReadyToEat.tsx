@@ -57,7 +57,11 @@ export default function ReadyToEat() {
         )}
 
         {!isLoading && !isError && items && items.length > 0 && (
-          <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          <div
+            className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide"
+            role="list"
+            aria-label="Prepared foods carousel"
+          >
             {items.map((item) => (
               <PreparedFoodCard key={item.id} item={item} formatDate={formatDate} />
             ))}
@@ -75,7 +79,10 @@ interface PreparedFoodCardProps {
 
 function PreparedFoodCard({ item, formatDate }: PreparedFoodCardProps) {
   return (
-    <div className="flex-shrink-0 w-[240px] bg-white rounded-card p-4 border border-warm-border">
+    <div
+      className="flex-shrink-0 w-[240px] bg-white rounded-card p-4 border border-warm-border"
+      role="listitem"
+    >
       <div className="flex items-start justify-between mb-2">
         <h3 className="text-sm font-medium text-text-primary line-clamp-2">
           {item.name}
