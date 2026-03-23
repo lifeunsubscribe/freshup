@@ -61,7 +61,36 @@ export function clearAuthToken(): void {
  * Check if user is authenticated (has valid token)
  */
 export function isAuthenticated(): boolean {
-  return getAuthToken() !== null;
+  const token = getAuthToken();
+  if (!token) {
+    return false;
+  }
+
+  try {
+    // JWT tokens are base64url encoded and have 3 parts: header.payload.signature
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return false;
+    }
+
+    // Decode the payload (second part)
+    const payload = JSON.parse(atob(parts[1]));
+
+    // Check if token has expiration claim
+    if (!payload.exp) {
+      // If no expiration, treat as valid (though this shouldn't happen with proper JWTs)
+      return true;
+    }
+
+    // JWT exp is in seconds, Date.now() is in milliseconds
+    const currentTime = Math.floor(Date.now() / 1000);
+
+    // Token is valid if current time is before expiration
+    return currentTime < payload.exp;
+  } catch (error) {
+    // If token parsing fails, consider it invalid
+    return false;
+  }
 }
 
 /**
@@ -117,6 +146,11 @@ export async function apiClient<T = unknown>(
 
     // Handle error responses
     if (!response.ok) {
+      // Clear token on 401 Unauthorized - indicates token is invalid/expired
+      if (response.status === 401) {
+        clearAuthToken();
+      }
+
       const errorData = data as { detail?: string };
       const message = errorData?.detail || response.statusText || 'An error occurred';
       throw new ApiException(message, response.status, errorData?.detail);
