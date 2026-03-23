@@ -4,7 +4,8 @@ Unit tests for recipe_helpers module.
 Tests cover:
 - verify_recipe_ownership: Basic ownership verification
 - verify_recipe_ownership_with_system_check: Enhanced verification with system recipe protection
-- Error cases: missing recipes, wrong owner, system recipes
+- validate_step_index: Step index validation for recipe ingredients
+- Error cases: missing recipes, wrong owner, system recipes, invalid step indices
 - Security: prevents leaking recipe existence through different error codes
 """
 
@@ -22,6 +23,7 @@ from src.services.auth_service import hash_password
 from src.routers.recipe_helpers import (
     verify_recipe_ownership,
     verify_recipe_ownership_with_system_check,
+    validate_step_index,
 )
 
 
@@ -336,3 +338,78 @@ class TestSecurityConsistency:
             verify_recipe_ownership_with_system_check(system_recipe.id, test_user, db_session)
         assert exc_info_2.value.status_code == 403
         assert exc_info_2.value.detail == "Cannot modify system recipes"
+
+
+class TestValidateStepIndex:
+    """Test validate_step_index function."""
+
+    def test_validate_step_index_none(self):
+        """Test that None step_index is allowed (skips validation)."""
+        # Should not raise exception
+        validate_step_index(None, 5)
+        validate_step_index(None, 0)
+        validate_step_index(None, 100)
+
+    def test_validate_step_index_valid_zero(self):
+        """Test that step_index 0 is valid when recipe has steps."""
+        # Should not raise exception
+        validate_step_index(0, 1)
+        validate_step_index(0, 5)
+        validate_step_index(0, 100)
+
+    def test_validate_step_index_valid_middle(self):
+        """Test that step_index in middle of range is valid."""
+        # Should not raise exception
+        validate_step_index(2, 5)
+        validate_step_index(5, 10)
+        validate_step_index(50, 100)
+
+    def test_validate_step_index_valid_last(self):
+        """Test that step_index at last valid index is valid."""
+        # Should not raise exception
+        validate_step_index(4, 5)  # Last index for 5 steps is 4
+        validate_step_index(9, 10)  # Last index for 10 steps is 9
+        validate_step_index(99, 100)  # Last index for 100 steps is 99
+
+    def test_validate_step_index_out_of_bounds_zero_steps(self):
+        """Test that any step_index fails when recipe has 0 steps."""
+        with pytest.raises(HTTPException) as exc_info:
+            validate_step_index(0, 0)
+
+        assert exc_info.value.status_code == 400
+        assert "step_index 0 is out of bounds. Recipe has 0 steps" in exc_info.value.detail
+
+    def test_validate_step_index_out_of_bounds_one_step(self):
+        """Test error message when recipe has 1 step."""
+        with pytest.raises(HTTPException) as exc_info:
+            validate_step_index(1, 1)
+
+        assert exc_info.value.status_code == 400
+        assert "step_index 1 is out of bounds. Recipe has 1 step (index 0)" in exc_info.value.detail
+
+    def test_validate_step_index_out_of_bounds_multiple_steps(self):
+        """Test error message when recipe has multiple steps."""
+        with pytest.raises(HTTPException) as exc_info:
+            validate_step_index(5, 5)
+
+        assert exc_info.value.status_code == 400
+        assert "step_index 5 is out of bounds. Recipe has 5 steps (indices 0-4)" in exc_info.value.detail
+
+    def test_validate_step_index_out_of_bounds_large_index(self):
+        """Test that very large step_index is rejected."""
+        with pytest.raises(HTTPException) as exc_info:
+            validate_step_index(100, 5)
+
+        assert exc_info.value.status_code == 400
+        assert "step_index 100 is out of bounds" in exc_info.value.detail
+        assert "Recipe has 5 steps (indices 0-4)" in exc_info.value.detail
+
+    def test_validate_step_index_boundary_conditions(self):
+        """Test boundary conditions for step_index validation."""
+        # Valid: exactly at boundary
+        validate_step_index(4, 5)  # Should not raise
+
+        # Invalid: one past boundary
+        with pytest.raises(HTTPException) as exc_info:
+            validate_step_index(5, 5)
+        assert exc_info.value.status_code == 400

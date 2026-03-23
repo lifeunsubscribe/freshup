@@ -1,10 +1,12 @@
 """
-Helper functions for recipe ownership verification.
+Helper functions for recipe ownership verification and validation.
 
-Centralizes ownership validation logic to reduce code duplication across
-recipe CRUD endpoints and maintain consistent error handling.
+Centralizes ownership validation logic and step_index validation to reduce
+code duplication across recipe CRUD endpoints and maintain consistent error
+handling.
 """
 
+from typing import Optional
 from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -103,3 +105,35 @@ def verify_recipe_ownership_with_system_check(
         )
 
     return recipe
+
+
+def validate_step_index(step_index: Optional[int], num_steps: int) -> None:
+    """
+    Validate that step_index is within bounds of recipe steps array.
+
+    step_index references an index in recipe.steps (0-based array).
+    Pydantic validation ensures step_index >= 0 if provided, this function
+    validates the upper bound against the actual number of steps.
+
+    Args:
+        step_index: The step index to validate (None is allowed and skips validation)
+        num_steps: The total number of steps in the recipe
+
+    Raises:
+        HTTPException(400): If step_index is out of bounds, with a descriptive
+                           error message indicating the valid range
+    """
+    if step_index is None:
+        return
+
+    if step_index >= num_steps:
+        if num_steps == 0:
+            detail_msg = f"step_index {step_index} is out of bounds. Recipe has 0 steps"
+        elif num_steps == 1:
+            detail_msg = f"step_index {step_index} is out of bounds. Recipe has 1 step (index 0)"
+        else:
+            detail_msg = f"step_index {step_index} is out of bounds. Recipe has {num_steps} steps (indices 0-{num_steps-1})"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail_msg
+        )

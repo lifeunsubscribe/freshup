@@ -42,6 +42,7 @@ from src.middleware.auth import get_current_user
 from src.routers.recipe_helpers import (
     verify_recipe_ownership,
     verify_recipe_ownership_with_system_check,
+    validate_step_index,
 )
 
 logger = logging.getLogger(__name__)
@@ -223,21 +224,7 @@ def create_ad_hoc_recipe(
             inventory_item = inventory_map[item_usage.inventory_item_id]
 
             # Validate step_index bounds if provided
-            # step_index references an index in recipe.steps (0-based array)
-            # Pydantic validation ensures step_index >= 0, here we check upper bound
-            if item_usage.step_index is not None:
-                if item_usage.step_index >= len(recipe_data.steps):
-                    num_steps = len(recipe_data.steps)
-                    if num_steps == 0:
-                        detail_msg = f"step_index {item_usage.step_index} is out of bounds. Recipe has 0 steps"
-                    elif num_steps == 1:
-                        detail_msg = f"step_index {item_usage.step_index} is out of bounds. Recipe has 1 step (index 0)"
-                    else:
-                        detail_msg = f"step_index {item_usage.step_index} is out of bounds. Recipe has {num_steps} steps (indices 0-{num_steps-1})"
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=detail_msg
-                    )
+            validate_step_index(item_usage.step_index, len(recipe_data.steps))
 
             recipe_ingredient = RecipeIngredient(
                 recipe_id=new_recipe.id,
@@ -595,21 +582,7 @@ def add_recipe_ingredient(
     recipe = verify_recipe_ownership_with_system_check(recipe_id, current_user, db)
 
     # Validate step_index bounds if provided
-    # step_index references an index in recipe.steps (0-based array)
-    # Pydantic validation ensures step_index >= 0, here we check upper bound
-    if ingredient_data.step_index is not None:
-        if ingredient_data.step_index >= len(recipe.steps):
-            num_steps = len(recipe.steps)
-            if num_steps == 0:
-                detail_msg = f"step_index {ingredient_data.step_index} is out of bounds. Recipe has 0 steps"
-            elif num_steps == 1:
-                detail_msg = f"step_index {ingredient_data.step_index} is out of bounds. Recipe has 1 step (index 0)"
-            else:
-                detail_msg = f"step_index {ingredient_data.step_index} is out of bounds. Recipe has {num_steps} steps (indices 0-{num_steps-1})"
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=detail_msg
-            )
+    validate_step_index(ingredient_data.step_index, len(recipe.steps))
 
     # Create new ingredient
     ingredient_dict = ingredient_data.model_dump()
@@ -699,21 +672,7 @@ def update_recipe_ingredient(
         )
 
     # Validate step_index bounds if provided
-    # step_index references an index in recipe.steps (0-based array)
-    # Pydantic validation ensures step_index >= 0, here we check upper bound
-    if update_data.step_index is not None:
-        if update_data.step_index >= len(recipe.steps):
-            num_steps = len(recipe.steps)
-            if num_steps == 0:
-                detail_msg = f"step_index {update_data.step_index} is out of bounds. Recipe has 0 steps"
-            elif num_steps == 1:
-                detail_msg = f"step_index {update_data.step_index} is out of bounds. Recipe has 1 step (index 0)"
-            else:
-                detail_msg = f"step_index {update_data.step_index} is out of bounds. Recipe has {num_steps} steps (indices 0-{num_steps-1})"
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=detail_msg
-            )
+    validate_step_index(update_data.step_index, len(recipe.steps))
 
     # Update only the fields that were provided
     update_dict = update_data.model_dump(exclude_unset=True)
