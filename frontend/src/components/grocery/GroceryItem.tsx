@@ -25,11 +25,24 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
 
   const handleCheckboxClick = () => {
     if (item.purchased) {
-      unpurchaseMutation.mutate(item.id)
+      unpurchaseMutation.mutate(item.id, {
+        onError: (error) => {
+          console.error('Failed to unpurchase item:', error)
+          // TODO: Show user-friendly error notification (e.g., toast)
+        },
+      })
     } else {
-      purchaseMutation.mutate(item.id)
+      purchaseMutation.mutate(item.id, {
+        onError: (error) => {
+          console.error('Failed to purchase item:', error)
+          // TODO: Show user-friendly error notification (e.g., toast)
+        },
+      })
     }
   }
+
+  // Check if either mutation is pending to prevent double-clicks
+  const isPending = purchaseMutation.isPending || unpurchaseMutation.isPending
 
   // Map source to readable label for context chip
   const getSourceLabel = (): string => {
@@ -62,7 +75,8 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
       {/* Checkbox with touch target */}
       <button
         onClick={handleCheckboxClick}
-        className="flex-shrink-0 p-2 -m-2 touch-manipulation"
+        disabled={isPending}
+        className="flex-shrink-0 p-2 -m-2 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
         aria-label={
           item.purchased
             ? `Unmark ${item.item_name} as purchased`
