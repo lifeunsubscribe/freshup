@@ -1,120 +1,78 @@
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+/* Tailwind directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-#root {
-  width: 100%;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
-
-.app-header {
-  margin-bottom: 3rem;
-}
-
-.app-header h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-  margin-bottom: 0.5rem;
-}
-
-.app-header p {
-  color: #888;
-  font-size: 1.1em;
-}
-
-.welcome-card {
-  padding: 2em;
-  background-color: #2a2a2a;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-.welcome-card h2 {
-  font-size: 2em;
-  margin-bottom: 1rem;
-}
-
-.counter-demo {
-  margin-top: 2rem;
-  padding-top: 2rem;
-  border-top: 1px solid #444;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-
-button:hover {
-  border-color: #646cff;
-}
-
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-code {
-  background-color: #1a1a1a;
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+/* Base layer customizations - FreshUp design system */
+@layer base {
+  /* Apply system font stack globally */
+  html {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
-  button {
-    background-color: #f9f9f9;
+  /* Global page background - cream, avoiding pure white */
+  body {
+    @apply bg-cream text-text-primary;
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    line-height: 1.5;
   }
 
-  .welcome-card {
-    background-color: #f5f5f5;
+  /* CSS Reset - maintain consistency */
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
   }
 
-  .app-header p {
-    color: #666;
+  /* Typography scale with warm colors (no pure black) */
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-text-primary;
+    line-height: 1.25;
   }
 
+  p {
+    @apply text-text-secondary;
+    line-height: 1.5;
+  }
+
+  /* Links with olive accent */
+  a {
+    @apply text-olive;
+    text-decoration: none;
+  }
+
+  a:hover {
+    @apply text-olive-dark;
+  }
+
+  /* Code blocks with mocha background */
   code {
-    background-color: #e8e8e8;
+    @apply bg-mocha-light text-cream rounded px-1 py-0.5;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  /* Buttons inherit from custom theme */
+  button {
+    @apply rounded-button;
+    font-family: inherit;
+  }
+}
+
+/* Component layer - reusable patterns */
+@layer components {
+  /* Root container */
+  #root {
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+
+  /* Card component base */
+  .card {
+    @apply bg-cream-dark rounded-card border border-warm-border;
+    padding: 1.5rem;
   }
 }
