@@ -1,7 +1,74 @@
+import { useState, useMemo } from 'react'
 import PageContainer from '../components/layout/PageContainer'
-import { PageTitle, SectionHeader, Pill, CategoryLabel } from '../components/ui'
+import { PageTitle } from '../components/ui'
+import StorageTabs from '../components/pantry/StorageTabs'
+import StatCards from '../components/pantry/StatCards'
+import ExpiringSection from '../components/pantry/ExpiringSection'
+import LowStockSection from '../components/pantry/LowStockSection'
+import CategoryGroup from '../components/pantry/CategoryGroup'
+import { useInventoryList, useLowStockAlerts } from '../api'
+import { StorageLocation } from '../api/types'
+
+type StorageTab = 'all' | StorageLocation
 
 export default function Pantry() {
+  const [activeTab, setActiveTab] = useState<StorageTab>('all')
+
+  // Fetch inventory with storage filter
+  const storageFilter = activeTab === 'all' ? undefined : activeTab
+  const { data: inventoryItems = [], isLoading: isLoadingInventory } = useInventoryList({
+    storage_location: storageFilter,
+    limit: 100,
+  })
+
+  // Fetch low stock alerts
+  const { data: lowStockItems = [], isLoading: isLoadingLowStock } = useLowStockAlerts()
+
+  // Calculate expiring items (within 3 days)
+  const expiringItems = useMemo(() => {
+    const now = new Date()
+    const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000)
+
+    return inventoryItems.filter((item) => {
+      if (!item.expiration_date) return false
+      const expiryDate = new Date(item.expiration_date)
+      return expiryDate >= now && expiryDate <= threeDaysFromNow
+    })
+  }, [inventoryItems])
+
+  // Group remaining items by category (exclude expiring items)
+  const categoryGroups = useMemo(() => {
+    const expiringIds = new Set(expiringItems.map((item) => item.id))
+    const remainingItems = inventoryItems.filter((item) => !expiringIds.has(item.id))
+
+    // Group by category
+    const groups = remainingItems.reduce(
+      (acc, item) => {
+        if (!acc[item.category]) {
+          acc[item.category] = []
+        }
+        acc[item.category].push(item)
+        return acc
+      },
+      {} as Record<string, typeof remainingItems>
+    )
+
+    // Sort categories alphabetically
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+  }, [inventoryItems, expiringItems])
+
+  // Loading state
+  if (isLoadingInventory || isLoadingLowStock) {
+    return (
+      <PageContainer>
+        <div className="py-8">
+          <PageTitle>Pantry</PageTitle>
+          <p className="text-text-secondary mt-4">Loading inventory...</p>
+        </div>
+      </PageContainer>
+    )
+  }
+
   return (
     <PageContainer>
       <div className="py-8">
@@ -10,37 +77,38 @@ export default function Pantry() {
           Manage your kitchen inventory
         </p>
 
-        <div className="bg-cream-dark rounded-card border border-warm-border p-6 mb-6">
-          <SectionHeader>Fresh Items</SectionHeader>
-          <div className="mt-4 space-y-3">
-            <div className="flex items-center gap-3">
-              <CategoryLabel>Produce</CategoryLabel>
-              <Pill variant="success">Fresh</Pill>
-              <span className="text-text-secondary">Tomatoes (3)</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <CategoryLabel>Dairy</CategoryLabel>
-              <Pill variant="warning">Expiring Soon</Pill>
-              <span className="text-text-secondary">Milk (1qt)</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <CategoryLabel>Protein</CategoryLabel>
-              <Pill variant="alert">Check Date</Pill>
-              <span className="text-text-secondary">Ground Beef (1lb)</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <CategoryLabel>Pantry</CategoryLabel>
-              <Pill>Stocked</Pill>
-              <span className="text-text-secondary">Rice (5lbs)</span>
-            </div>
-          </div>
-        </div>
+        {/* Storage filter tabs */}
+        <StorageTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
-        <div className="bg-cream-dark rounded-card border border-warm-border p-6">
-          <p className="text-text-secondary">
-            Full inventory management features for fridge, freezer, and pantry items coming soon.
-          </p>
-        </div>
+        {/* Statistics cards */}
+        <StatCards
+          totalItems={inventoryItems.length}
+          expiringSoonCount={expiringItems.length}
+          lowStockCount={lowStockItems.length}
+        />
+
+        {/* Triage sections: Expiring Soon */}
+        <ExpiringSection items={expiringItems} />
+
+        {/* Triage sections: Low Stock */}
+        <LowStockSection items={lowStockItems} />
+
+        {/* Category groups (collapsible) */}
+        {categoryGroups.length > 0 ? (
+          <div>
+            {categoryGroups.map(([category, items]) => (
+              <CategoryGroup key={category} category={category} items={items} />
+            ))}
+          </div>
+        ) : (
+          <div className="bg-cream-dark rounded-card border border-warm-border p-6">
+            <p className="text-text-secondary">
+              {inventoryItems.length === 0
+                ? 'No items in pantry yet. Add items to get started!'
+                : 'All items are expiring soon. Check the triage sections above.'}
+            </p>
+          </div>
+        )}
       </div>
     </PageContainer>
   )
