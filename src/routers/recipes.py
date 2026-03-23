@@ -227,9 +227,13 @@ def create_ad_hoc_recipe(
             # Pydantic validation ensures step_index >= 0, here we check upper bound
             if item_usage.step_index is not None:
                 if item_usage.step_index >= len(recipe_data.steps):
+                    if len(recipe_data.steps) == 0:
+                        detail_msg = f"step_index {item_usage.step_index} is out of bounds. Recipe has 0 steps"
+                    else:
+                        detail_msg = f"step_index {item_usage.step_index} is out of bounds. Recipe has {len(recipe_data.steps)} steps (indices 0-{len(recipe_data.steps)-1})"
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"step_index {item_usage.step_index} is out of bounds. Recipe has {len(recipe_data.steps)} steps (indices 0-{len(recipe_data.steps)-1})"
+                        detail=detail_msg
                     )
 
             recipe_ingredient = RecipeIngredient(
@@ -592,9 +596,13 @@ def add_recipe_ingredient(
     # Pydantic validation ensures step_index >= 0, here we check upper bound
     if ingredient_data.step_index is not None:
         if ingredient_data.step_index >= len(recipe.steps):
+            if len(recipe.steps) == 0:
+                detail_msg = f"step_index {ingredient_data.step_index} is out of bounds. Recipe has 0 steps"
+            else:
+                detail_msg = f"step_index {ingredient_data.step_index} is out of bounds. Recipe has {len(recipe.steps)} steps (indices 0-{len(recipe.steps)-1})"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"step_index {ingredient_data.step_index} is out of bounds. Recipe has {len(recipe.steps)} steps (indices 0-{len(recipe.steps)-1})"
+                detail=detail_msg
             )
 
     # Create new ingredient
@@ -689,9 +697,13 @@ def update_recipe_ingredient(
     # Pydantic validation ensures step_index >= 0, here we check upper bound
     if update_data.step_index is not None:
         if update_data.step_index >= len(recipe.steps):
+            if len(recipe.steps) == 0:
+                detail_msg = f"step_index {update_data.step_index} is out of bounds. Recipe has 0 steps"
+            else:
+                detail_msg = f"step_index {update_data.step_index} is out of bounds. Recipe has {len(recipe.steps)} steps (indices 0-{len(recipe.steps)-1})"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"step_index {update_data.step_index} is out of bounds. Recipe has {len(recipe.steps)} steps (indices 0-{len(recipe.steps)-1})"
+                detail=detail_msg
             )
 
     # Update only the fields that were provided
