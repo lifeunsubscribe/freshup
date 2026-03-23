@@ -93,7 +93,7 @@ export default function SubstitutionsSection() {
                   <div className="flex flex-wrap gap-2">
                     {pref.replacements.map((replacement, idx) => (
                       <div
-                        key={idx}
+                        key={replacement.ingredient}
                         className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-olive/10 text-sm border border-olive/20"
                       >
                         <span className="font-medium text-olive">{idx + 1}.</span>
@@ -317,7 +317,7 @@ function SubstitutionModal({
               <div className="space-y-2">
                 {replacements.map((replacement, idx) => (
                   <div
-                    key={idx}
+                    key={replacement.ingredient}
                     className="flex items-center gap-2 p-2 rounded-button border border-warm-border"
                   >
                     <span className="font-medium text-olive w-8">{idx + 1}.</span>
