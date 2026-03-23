@@ -25,17 +25,6 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
   const unpurchaseMutation = useUnpurchaseGroceryItem()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  // Track errors from mutations and display them to the user
-  useEffect(() => {
-    if (purchaseMutation.isError) {
-      setErrorMessage('Failed to mark item as purchased. Please try again.')
-    } else if (unpurchaseMutation.isError) {
-      setErrorMessage('Failed to unmark item. Please try again.')
-    } else {
-      setErrorMessage(null)
-    }
-  }, [purchaseMutation.isError, unpurchaseMutation.isError])
-
   // Auto-dismiss error after 5 seconds
   useEffect(() => {
     if (errorMessage) {
@@ -45,15 +34,24 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
   }, [errorMessage])
 
   const handleCheckboxClick = () => {
-    // Clear any existing error message
+    // Clear any existing error immediately when user retries to prevent stale error messages
     setErrorMessage(null)
 
-    // Mutations now use optimistic updates configured in the hooks
+    // Mutations use optimistic updates configured in the hooks
     // (see useGrocery.ts lines 200-241 for purchase, 257-286 for unpurchase)
+    // Error handling is done via onError callbacks to avoid timing issues
     if (item.purchased) {
-      unpurchaseMutation.mutate(item.id)
+      unpurchaseMutation.mutate(item.id, {
+        onError: () => {
+          setErrorMessage('Failed to unmark item. Please try again.')
+        },
+      })
     } else {
-      purchaseMutation.mutate(item.id)
+      purchaseMutation.mutate(item.id, {
+        onError: () => {
+          setErrorMessage('Failed to mark item as purchased. Please try again.')
+        },
+      })
     }
   }
 

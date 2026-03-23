@@ -156,7 +156,12 @@ describe('GroceryItem', () => {
       })
       await user.click(checkbox)
 
-      expect(purchaseMutate).toHaveBeenCalledWith('item-1')
+      expect(purchaseMutate).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({
+          onError: expect.any(Function),
+        })
+      )
       expect(unpurchaseMutate).not.toHaveBeenCalled()
     })
 
@@ -170,7 +175,12 @@ describe('GroceryItem', () => {
       })
       await user.click(checkbox)
 
-      expect(unpurchaseMutate).toHaveBeenCalledWith('item-1')
+      expect(unpurchaseMutate).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({
+          onError: expect.any(Function),
+        })
+      )
       expect(purchaseMutate).not.toHaveBeenCalled()
     })
 
@@ -185,7 +195,12 @@ describe('GroceryItem', () => {
       checkbox.focus()
       await user.keyboard('{Enter}')
 
-      expect(purchaseMutate).toHaveBeenCalledWith('item-1')
+      expect(purchaseMutate).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({
+          onError: expect.any(Function),
+        })
+      )
     })
 
     it('supports keyboard interaction with Space key', async () => {
@@ -199,59 +214,111 @@ describe('GroceryItem', () => {
       checkbox.focus()
       await user.keyboard(' ')
 
-      expect(purchaseMutate).toHaveBeenCalledWith('item-1')
+      expect(purchaseMutate).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({
+          onError: expect.any(Function),
+        })
+      )
     })
   })
 
   describe('Error Handling', () => {
-    it('displays error banner when purchaseMutation fails', () => {
+    it('displays error banner when purchaseMutation fails', async () => {
+      const purchaseMutate = vi.fn((id, options) => {
+        // Simulate mutation failure by calling onError
+        if (options?.onError) {
+          options.onError()
+        }
+      })
+
       vi.mocked(usePurchaseGroceryItem).mockReturnValue({
         mutate: purchaseMutate,
-        isError: true,
+        isError: false,
         isPending: false,
       } as any)
 
       const item = createMockItem({ purchased: false })
       renderWithProviders(<GroceryItem item={item} />)
 
-      const errorBanner = screen.getByRole('alert')
-      expect(errorBanner).toBeInTheDocument()
-      expect(errorBanner).toHaveTextContent(
-        'Failed to mark item as purchased. Please try again.'
-      )
+      // Click checkbox to trigger error
+      const checkbox = screen.getByRole('button', {
+        name: /Mark Olive oil as purchased/,
+      })
+      fireEvent.click(checkbox)
+
+      // Error banner should appear
+      await waitFor(() => {
+        const errorBanner = screen.getByRole('alert')
+        expect(errorBanner).toBeInTheDocument()
+        expect(errorBanner).toHaveTextContent(
+          'Failed to mark item as purchased. Please try again.'
+        )
+      })
     })
 
-    it('displays error banner when unpurchaseMutation fails', () => {
+    it('displays error banner when unpurchaseMutation fails', async () => {
+      const unpurchaseMutate = vi.fn((id, options) => {
+        // Simulate mutation failure by calling onError
+        if (options?.onError) {
+          options.onError()
+        }
+      })
+
       vi.mocked(useUnpurchaseGroceryItem).mockReturnValue({
         mutate: unpurchaseMutate,
-        isError: true,
+        isError: false,
         isPending: false,
       } as any)
 
       const item = createMockItem({ purchased: true })
       renderWithProviders(<GroceryItem item={item} />)
 
-      const errorBanner = screen.getByRole('alert')
-      expect(errorBanner).toBeInTheDocument()
-      expect(errorBanner).toHaveTextContent(
-        'Failed to unmark item. Please try again.'
-      )
+      // Click checkbox to trigger error
+      const checkbox = screen.getByRole('button', {
+        name: /Unmark Olive oil as purchased/,
+      })
+      fireEvent.click(checkbox)
+
+      // Error banner should appear
+      await waitFor(() => {
+        const errorBanner = screen.getByRole('alert')
+        expect(errorBanner).toBeInTheDocument()
+        expect(errorBanner).toHaveTextContent(
+          'Failed to unmark item. Please try again.'
+        )
+      })
     })
 
     it('auto-dismisses error message after 5 seconds', async () => {
       vi.useFakeTimers()
 
+      const purchaseMutate = vi.fn((id, options) => {
+        // Simulate mutation failure by calling onError
+        if (options?.onError) {
+          options.onError()
+        }
+      })
+
       vi.mocked(usePurchaseGroceryItem).mockReturnValue({
         mutate: purchaseMutate,
-        isError: true,
+        isError: false,
         isPending: false,
       } as any)
 
       const item = createMockItem({ purchased: false })
       renderWithProviders(<GroceryItem item={item} />)
 
+      // Click checkbox to trigger error
+      const checkbox = screen.getByRole('button', {
+        name: /Mark Olive oil as purchased/,
+      })
+      fireEvent.click(checkbox)
+
       // Error should be visible initially
-      expect(screen.getByRole('alert')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument()
+      })
 
       // Fast-forward 5 seconds
       vi.advanceTimersByTime(5000)
@@ -266,28 +333,43 @@ describe('GroceryItem', () => {
 
     it('clears error when user retries the action', async () => {
       const user = userEvent.setup()
+      let shouldError = true
 
-      // Start with error state
+      const purchaseMutate = vi.fn((id, options) => {
+        // First call fails, second succeeds
+        if (shouldError && options?.onError) {
+          options.onError()
+        }
+      })
+
       vi.mocked(usePurchaseGroceryItem).mockReturnValue({
         mutate: purchaseMutate,
-        isError: true,
+        isError: false,
         isPending: false,
       } as any)
 
       const item = createMockItem({ purchased: false })
-      const { rerender } = renderWithProviders(<GroceryItem item={item} />)
+      renderWithProviders(<GroceryItem item={item} />)
 
-      // Error should be visible
-      expect(screen.getByRole('alert')).toBeInTheDocument()
-
-      // Click checkbox to retry
+      // Click checkbox to trigger first error
       const checkbox = screen.getByRole('button', {
         name: /Mark Olive oil as purchased/,
       })
       await user.click(checkbox)
 
-      // Error should be cleared (component clears error in handleCheckboxClick)
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      // Error should be visible
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument()
+      })
+
+      // Next click should succeed (no error)
+      shouldError = false
+      await user.click(checkbox)
+
+      // Error should be cleared immediately (component clears error in handleCheckboxClick)
+      await waitFor(() => {
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      })
     })
   })
 
