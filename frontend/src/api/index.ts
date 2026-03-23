@@ -102,3 +102,12 @@ export {
   preparedFoodsKeys,
   type PreparedFoodListFilters,
 } from './hooks/usePreparedFoods';
+
+// Substitution hooks
+export {
+  useSubstitutionList,
+  useCreateSubstitution,
+  useUpdateSubstitution,
+  useDeleteSubstitution,
+  substitutionKeys,
+} from './hooks/useSubstitutions';
