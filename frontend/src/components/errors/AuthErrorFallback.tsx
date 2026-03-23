@@ -34,7 +34,9 @@ export default function AuthErrorFallback({ error, resetError }: AuthErrorFallba
         <div className="bg-white rounded-card border border-warm-border p-8">
           {/* Error Message */}
           <div className="rounded-button border border-terra bg-terra/10 p-4 mb-6">
-            <p className="text-sm text-terra-dark font-medium">{error.message}</p>
+            <p className="text-sm text-terra-dark font-medium">
+              We're having trouble loading your authentication session. Please try again or return to the login page.
+            </p>
           </div>
 
           {/* Action Buttons */}
