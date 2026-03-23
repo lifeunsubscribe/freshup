@@ -23,71 +23,71 @@ function AppContent() {
         {/* Public route */}
         <Route path="/login" element={<Login />} />
 
-            {/* Protected routes */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Home />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/plan"
-              element={
-                <ProtectedRoute>
-                  <Plan />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/recipes"
-              element={
-                <ProtectedRoute>
-                  <Recipes />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/recipes/:id"
-              element={
-                <ProtectedRoute>
-                  <RecipeDetail />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/pantry"
-              element={
-                <ProtectedRoute>
-                  <Pantry />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/grocery"
-              element={
-                <ProtectedRoute>
-                  <Grocery />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/shopped"
-              element={
-                <ProtectedRoute>
-                  <IShopped />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/profile"
-              element={
-                <ProtectedRoute>
-                  <Profile />
-                </ProtectedRoute>
-              }
-            />
+        {/* Protected routes */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Home />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/plan"
+          element={
+            <ProtectedRoute>
+              <Plan />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recipes"
+          element={
+            <ProtectedRoute>
+              <Recipes />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recipes/:id"
+          element={
+            <ProtectedRoute>
+              <RecipeDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pantry"
+          element={
+            <ProtectedRoute>
+              <Pantry />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/grocery"
+          element={
+            <ProtectedRoute>
+              <Grocery />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/shopped"
+          element={
+            <ProtectedRoute>
+              <IShopped />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<NotFound />} />
       </Routes>
       {!isLoginPage && <BottomNav />}

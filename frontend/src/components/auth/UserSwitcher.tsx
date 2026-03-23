@@ -25,8 +25,7 @@ export default function UserSwitcher() {
   const [error, setError] = useState<string | null>(null);
 
   // Only show for coordinator users
-  // Use case-insensitive comparison to handle potential backend case variations
-  if (!currentUser || currentUser.role.toLowerCase() !== UserRole.COORDINATOR.toLowerCase()) {
+  if (!currentUser || currentUser.role !== UserRole.COORDINATOR) {
     return null;
   }
 

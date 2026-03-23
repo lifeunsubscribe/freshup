@@ -35,20 +35,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const navigate = useNavigate();
 
   // React Query hooks for auth operations
-  const { data: currentUser, isLoading: isLoadingUser, refetch } = useCurrentUser();
+  const { data: currentUser, isLoading: isLoadingUser, isError: isUserError, refetch } = useCurrentUser();
   const loginMutation = useLogin();
   const logoutMutation = useLogout();
   const switchUserMutation = useSwitchUser();
 
   // Determine if user is authenticated
-  // Check both token existence and current user data
-  // During initial load, if we have a token but user data is still loading,
-  // consider the user authenticated to prevent flash of login page
-  const isAuthenticated = checkIsAuthenticated() && (!!currentUser || isLoadingUser);
+  // User is authenticated only if they have a valid token AND current user data
+  // If user data fails to load (e.g., expired token), isAuthenticated will be false
+  const isAuthenticated = checkIsAuthenticated() && !!currentUser;
 
   // Loading state: only show loading on initial auth check
   // Don't show loading for mutations (login/logout/switch)
-  const isLoading = isLoadingUser;
+  // If there's an error loading user data, stop showing loading state
+  const isLoading = isLoadingUser && !isUserError;
 
   /**
    * Login with email and password

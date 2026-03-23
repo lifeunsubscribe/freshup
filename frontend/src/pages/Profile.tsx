@@ -6,13 +6,20 @@ import { useAuth } from '../contexts/AuthContext'
 export default function Profile() {
   const { currentUser, logout } = useAuth()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
 
   const handleLogout = async () => {
     setIsLoggingOut(true)
+    setLogoutError(null)
     try {
       await logout()
     } catch (error) {
-      // Logout handles navigation, errors are unlikely
+      // Handle logout errors
+      if (error instanceof Error) {
+        setLogoutError(error.message)
+      } else {
+        setLogoutError('Failed to log out. Please try again.')
+      }
       setIsLoggingOut(false)
     }
   }
@@ -63,6 +70,11 @@ export default function Profile() {
             <h2 className="text-xl font-semibold text-text-primary mb-4">
               Account Actions
             </h2>
+            {logoutError && (
+              <div className="mb-4 rounded-button border border-terra bg-terra/10 p-3">
+                <p className="text-sm text-terra-dark">{logoutError}</p>
+              </div>
+            )}
             <button
               onClick={handleLogout}
               disabled={isLoggingOut}
