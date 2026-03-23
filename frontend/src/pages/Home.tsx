@@ -1,27 +1,40 @@
 import PageContainer from '../components/layout/PageContainer'
-import { useAuth } from '../contexts/AuthContext'
+import PageTitle from '../components/ui/PageTitle'
+import QuickActionsGrid from '../components/home/QuickActionsGrid'
+import ExpirationAlerts from '../components/home/ExpirationAlerts'
+import GroceryPreview from '../components/home/GroceryPreview'
+import ReadyToEat from '../components/home/ReadyToEat'
 
+/**
+ * Home screen - Primary entry point showing triage-first information
+ *
+ * Sections:
+ * 1. Page title: "Home" with olive period
+ * 2. Quick actions grid: 4 common actions in 2x2 grid
+ * 3. Expiration alerts: Items expiring within 3 days with inline actions
+ * 4. Grocery preview: Count of unpurchased items with link to grocery list
+ * 5. Ready to eat: Horizontal carousel of prepared foods
+ *
+ * All data loads via React Query hooks with loading/error states
+ */
 export default function Home() {
-  const { currentUser } = useAuth()
-
   return (
     <PageContainer>
-      <div className="py-8">
-        <h1 className="text-4xl font-bold text-text-primary mb-4">FreshUp</h1>
-        <p className="text-lg text-text-secondary mb-8">
-          Privacy-First Kitchen Management System
-        </p>
+      <div className="py-6 space-y-6">
+        {/* Page title */}
+        <PageTitle>Home</PageTitle>
 
-        <div className="space-y-4">
-          <div className="bg-cream-dark rounded-card border border-warm-border p-6">
-            <h2 className="text-2xl font-semibold text-text-primary mb-2">
-              Welcome, {currentUser?.name}
-            </h2>
-            <p className="text-text-secondary">
-              Your kitchen dashboard is ready. Quick actions and meal suggestions will appear here.
-            </p>
-          </div>
-        </div>
+        {/* Quick actions grid */}
+        <QuickActionsGrid />
+
+        {/* Expiration alerts */}
+        <ExpirationAlerts />
+
+        {/* Grocery preview */}
+        <GroceryPreview />
+
+        {/* Ready to eat carousel */}
+        <ReadyToEat />
       </div>
     </PageContainer>
   )
