@@ -42,7 +42,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Determine if user is authenticated
   // Check both token existence and current user data
-  const isAuthenticated = checkIsAuthenticated() && !!currentUser;
+  // During initial load, if we have a token but user data is still loading,
+  // consider the user authenticated to prevent flash of login page
+  const isAuthenticated = checkIsAuthenticated() && (!!currentUser || isLoadingUser);
 
   // Loading state: only show loading on initial auth check
   // Don't show loading for mutations (login/logout/switch)
@@ -55,7 +57,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const login = async (credentials: LoginRequest): Promise<void> => {
     await loginMutation.mutateAsync(credentials);
     // Refetch current user to populate context
-    await refetch();
+    const result = await refetch();
+    if (result.isError) {
+      throw new Error('Failed to fetch user data after login');
+    }
     // Redirect to home page
     navigate('/');
   };
@@ -78,7 +83,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const switchUser = async (request: SwitchUserRequest): Promise<void> => {
     await switchUserMutation.mutateAsync(request);
     // Refetch current user to show new user's profile
-    await refetch();
+    const result = await refetch();
+    if (result.isError) {
+      throw new Error('Failed to fetch user data after switching users');
+    }
     // Stay on current page (user switcher is typically in header/nav)
   };
 

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import BottomNav from './components/layout/BottomNav'
@@ -13,14 +13,15 @@ import IShopped from './pages/IShopped'
 import Profile from './pages/Profile'
 import NotFound from './pages/NotFound'
 
-function App() {
+function AppContent() {
+  const location = useLocation()
+  const isLoginPage = location.pathname === '/login'
+
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <div className="min-h-screen bg-cream">
-          <Routes>
-            {/* Public route */}
-            <Route path="/login" element={<Login />} />
+    <div className="min-h-screen bg-cream">
+      <Routes>
+        {/* Public route */}
+        <Route path="/login" element={<Login />} />
 
             {/* Protected routes */}
             <Route
@@ -87,10 +88,18 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-          <BottomNav />
-        </div>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      {!isLoginPage && <BottomNav />}
+    </div>
+  )
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppContent />
       </AuthProvider>
     </BrowserRouter>
   )
