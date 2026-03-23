@@ -1,6 +1,9 @@
 import PageContainer from '../components/layout/PageContainer'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function Home() {
+  const { currentUser } = useAuth()
+
   return (
     <PageContainer>
       <div className="py-8">
@@ -12,7 +15,7 @@ export default function Home() {
         <div className="space-y-4">
           <div className="bg-cream-dark rounded-card border border-warm-border p-6">
             <h2 className="text-2xl font-semibold text-text-primary mb-2">
-              Welcome Home
+              Welcome, {currentUser?.name}
             </h2>
             <p className="text-text-secondary">
               Your kitchen dashboard is ready. Quick actions and meal suggestions will appear here.
