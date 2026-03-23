@@ -25,7 +25,7 @@ export default function StorageTabs({ activeTab, onTabChange }: StorageTabsProps
   ]
 
   return (
-    <div className="flex gap-2 mb-6">
+    <div className="flex gap-2 mb-6" role="tablist">
       {tabs.map((tab) => {
         const isActive = activeTab === tab.value
 
@@ -33,6 +33,8 @@ export default function StorageTabs({ activeTab, onTabChange }: StorageTabsProps
           <button
             key={tab.value}
             type="button"
+            role="tab"
+            aria-selected={isActive}
             onClick={() => onTabChange(tab.value)}
             className={`px-4 py-2 text-sm font-medium rounded-[8px] transition-colors ${
               isActive
