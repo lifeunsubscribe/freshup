@@ -2,8 +2,8 @@ import { Refrigerator, Snowflake, Box, Home } from 'lucide-react'
 import { StorageLocation } from '../../api/types'
 
 interface StorageBadgeProps {
-  storageLocation: string
-  onCycle?: (newLocation: string) => void
+  storageLocation: StorageLocation
+  onCycle?: (newLocation: StorageLocation) => void
   disabled?: boolean
 }
 
@@ -23,8 +23,8 @@ export default function StorageBadge({
   disabled = false,
 }: StorageBadgeProps) {
   // Get the next storage location in the cycle
-  const getNextLocation = (current: string): string => {
-    const cycle: string[] = [
+  const getNextLocation = (current: StorageLocation): StorageLocation => {
+    const cycle: StorageLocation[] = [
       StorageLocation.PANTRY,
       StorageLocation.FRIDGE,
       StorageLocation.FREEZER,
@@ -43,7 +43,7 @@ export default function StorageBadge({
   }
 
   // Get icon and label for storage location
-  const getStorageDisplay = (location: string) => {
+  const getStorageDisplay = (location: StorageLocation) => {
     switch (location) {
       case StorageLocation.FRIDGE:
         return { icon: Refrigerator, label: 'Fridge', color: 'text-mocha' }
