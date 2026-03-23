@@ -195,6 +195,7 @@ class RecipeIngredientCreate(BaseModel):
     variation_group: Optional[str] = Field(default=None, max_length=100, description="Variation group identifier")
     variation_diet: Optional[str] = Field(default=None, max_length=50, description="Dietary variation identifier")
     is_optional: bool = Field(default=False, description="Whether ingredient is optional")
+    step_index: Optional[int] = Field(default=None, ge=0, description="Step index this ingredient is associated with")
 
     @field_validator('ingredient_name', 'unit')
     @classmethod
@@ -224,6 +225,7 @@ class RecipeIngredientUpdate(BaseModel):
     variation_group: Optional[str] = Field(default=None, max_length=100, description="Variation group identifier")
     variation_diet: Optional[str] = Field(default=None, max_length=50, description="Dietary variation identifier")
     is_optional: Optional[bool] = Field(default=None, description="Whether ingredient is optional")
+    step_index: Optional[int] = Field(default=None, ge=0, description="Step index this ingredient is associated with")
 
     @field_validator('ingredient_name', 'unit')
     @classmethod
@@ -259,6 +261,7 @@ class RecipeIngredientResponse(BaseModel):
     variation_group: Optional[str]
     variation_diet: Optional[str]
     is_optional: bool
+    step_index: Optional[int]
 
 
 class UserRecipeRatingCreate(BaseModel):
@@ -305,6 +308,7 @@ class InventoryItemUsage(BaseModel):
     inventory_item_id: UUID = Field(..., description="ID of the inventory item to use")
     quantity_used: float = Field(..., gt=0, description="Quantity to use from inventory (must be positive)")
     unit: str = Field(..., min_length=1, max_length=50, description="Unit of measurement")
+    step_index: Optional[int] = Field(default=None, ge=0, description="Step index this ingredient is associated with")
 
     @field_validator('unit')
     @classmethod

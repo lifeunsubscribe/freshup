@@ -2395,3 +2395,324 @@ class TestAdHocRecipeCreation:
         detail = response.json()["detail"]
         # Verify it's a validation error on the unit field
         assert any("unit" in str(error).lower() for error in detail)
+
+
+class TestRecipeIngredientStepIndex:
+    """Test step_index field for recipe ingredients."""
+
+    @pytest.fixture
+    def test_recipe_with_steps(self, db_session, test_user):
+        """Create a test recipe with 3 steps."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="Recipe with Steps",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=["Step 1: Prep ingredients", "Step 2: Cook", "Step 3: Serve"],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+        return recipe
+
+    @pytest.fixture
+    def test_recipe_no_steps(self, db_session, test_user):
+        """Create a test recipe with no steps."""
+        recipe = Recipe(
+            id=uuid4(),
+            name="Recipe without Steps",
+            source_type="manual",
+            created_by=test_user.id,
+            tags=[],
+            steps=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+        return recipe
+
+    def test_add_ingredient_with_step_index_zero(self, client, auth_headers, test_recipe_with_steps):
+        """Test adding ingredient with step_index=0 succeeds."""
+        ingredient_data = {
+            "ingredient_name": "Tomatoes",
+            "quantity": 2.0,
+            "unit": "lbs",
+            "step_index": 0,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe_with_steps.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["ingredient_name"] == "Tomatoes"
+        assert data["step_index"] == 0
+
+    def test_add_ingredient_with_step_index_none(self, client, auth_headers, test_recipe_with_steps):
+        """Test adding ingredient with step_index=None succeeds (backwards compatible)."""
+        ingredient_data = {
+            "ingredient_name": "Salt",
+            "quantity": 1.0,
+            "unit": "tsp",
+            "step_index": None,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe_with_steps.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["ingredient_name"] == "Salt"
+        assert data["step_index"] is None
+
+    def test_add_ingredient_without_step_index_field(self, client, auth_headers, test_recipe_with_steps):
+        """Test adding ingredient without step_index field succeeds (backwards compatible)."""
+        ingredient_data = {
+            "ingredient_name": "Pepper",
+            "quantity": 1.0,
+            "unit": "tsp",
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe_with_steps.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["ingredient_name"] == "Pepper"
+        assert data["step_index"] is None
+
+    def test_add_ingredient_with_negative_step_index(self, client, auth_headers, test_recipe_with_steps):
+        """Test adding ingredient with step_index=-1 returns 422 (Pydantic validation)."""
+        ingredient_data = {
+            "ingredient_name": "Invalid Ingredient",
+            "quantity": 1.0,
+            "unit": "cup",
+            "step_index": -1,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe_with_steps.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        # Verify it's a validation error mentioning step_index
+        assert any("step_index" in str(error).lower() for error in detail)
+
+    def test_add_ingredient_with_step_index_out_of_bounds(self, client, auth_headers, test_recipe_with_steps):
+        """Test adding ingredient with step_index >= len(steps) returns 400."""
+        ingredient_data = {
+            "ingredient_name": "Out of Bounds Ingredient",
+            "quantity": 1.0,
+            "unit": "cup",
+            "step_index": 5,  # Recipe has only 3 steps (indices 0-2)
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe_with_steps.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "step_index 5 is out of bounds" in detail
+        assert "Recipe has 3 steps" in detail
+
+    def test_add_ingredient_with_step_index_to_empty_steps_recipe(self, client, auth_headers, test_recipe_no_steps):
+        """Test adding ingredient with step_index to recipe with no steps returns 400."""
+        ingredient_data = {
+            "ingredient_name": "No Steps Ingredient",
+            "quantity": 1.0,
+            "unit": "cup",
+            "step_index": 0,
+        }
+
+        response = client.post(
+            f"/recipes/{test_recipe_no_steps.id}/ingredients",
+            json=ingredient_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "step_index 0 is out of bounds" in detail
+        assert "Recipe has 0 steps" in detail
+
+    def test_update_ingredient_step_index(self, client, auth_headers, test_recipe_with_steps, db_session):
+        """Test updating an ingredient's step_index."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        # Create an ingredient without step_index
+        ingredient = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=test_recipe_with_steps.id,
+            ingredient_name="Updateable Ingredient",
+            quantity=1.0,
+            unit="cup",
+            step_index=None,
+        )
+        db_session.add(ingredient)
+        db_session.commit()
+        db_session.refresh(ingredient)
+
+        # Update to add step_index
+        update_data = {
+            "step_index": 1,
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe_with_steps.id}/ingredients/{ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["step_index"] == 1
+
+    def test_update_ingredient_step_index_out_of_bounds(self, client, auth_headers, test_recipe_with_steps, db_session):
+        """Test updating ingredient with out of bounds step_index returns 400."""
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        ingredient = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=test_recipe_with_steps.id,
+            ingredient_name="Test Ingredient",
+            quantity=1.0,
+            unit="cup",
+            step_index=0,
+        )
+        db_session.add(ingredient)
+        db_session.commit()
+        db_session.refresh(ingredient)
+
+        # Try to update to out of bounds step_index
+        update_data = {
+            "step_index": 10,
+        }
+
+        response = client.put(
+            f"/recipes/{test_recipe_with_steps.id}/ingredients/{ingredient.id}",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "step_index 10 is out of bounds" in detail
+
+    def test_ad_hoc_recipe_with_step_index(self, client, auth_headers, test_user, db_session):
+        """Test creating ad-hoc recipe with step_index in inventory items."""
+        from src.db.models.inventory_item import InventoryItem
+
+        # Create inventory items
+        item1 = InventoryItem(
+            id=uuid4(),
+            name="Pasta",
+            quantity=500,
+            unit="g",
+            category="grain",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        item2 = InventoryItem(
+            id=uuid4(),
+            name="Tomato Sauce",
+            quantity=200,
+            unit="ml",
+            category="condiment",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add_all([item1, item2])
+        db_session.commit()
+
+        recipe_data = {
+            "name": "Quick Pasta",
+            "steps": ["Boil pasta", "Heat sauce", "Mix together"],
+            "inventory_items": [
+                {
+                    "inventory_item_id": str(item1.id),
+                    "quantity_used": 200,
+                    "unit": "g",
+                    "step_index": 0,  # For "Boil pasta" step
+                },
+                {
+                    "inventory_item_id": str(item2.id),
+                    "quantity_used": 100,
+                    "unit": "ml",
+                    "step_index": 1,  # For "Heat sauce" step
+                },
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Quick Pasta"
+        assert data["source_type"] == "ad_hoc"
+
+        # Verify ingredients were created with step_index
+        recipe_id = UUID(data["id"])
+        from src.db.models.recipe_ingredient import RecipeIngredient
+        ingredients = db_session.query(RecipeIngredient).filter(
+            RecipeIngredient.recipe_id == recipe_id
+        ).all()
+
+        assert len(ingredients) == 2
+        # Check that step_index values were preserved
+        step_indices = {ing.ingredient_name: ing.step_index for ing in ingredients}
+        assert step_indices["Pasta"] == 0
+        assert step_indices["Tomato Sauce"] == 1
+
+    def test_ad_hoc_recipe_with_step_index_out_of_bounds(self, client, auth_headers, test_user, db_session):
+        """Test creating ad-hoc recipe with out of bounds step_index returns 400."""
+        from src.db.models.inventory_item import InventoryItem
+
+        item = InventoryItem(
+            id=uuid4(),
+            name="Test Item",
+            quantity=100,
+            unit="g",
+            category="other",
+            storage_location="pantry",
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+
+        recipe_data = {
+            "name": "Invalid Recipe",
+            "steps": ["Step 1"],
+            "inventory_items": [
+                {
+                    "inventory_item_id": str(item.id),
+                    "quantity_used": 50,
+                    "unit": "g",
+                    "step_index": 5,  # Out of bounds - recipe has only 1 step
+                },
+            ],
+            "decrement_inventory": False,
+        }
+
+        response = client.post("/recipes/ad-hoc", json=recipe_data, headers=auth_headers)
+
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "step_index 5 is out of bounds" in detail
+        assert "Recipe has 1 step" in detail
