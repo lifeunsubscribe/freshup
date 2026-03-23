@@ -2715,4 +2715,4 @@ class TestRecipeIngredientStepIndex:
         assert response.status_code == 400
         detail = response.json()["detail"]
         assert "step_index 5 is out of bounds" in detail
-        assert "Recipe has 1 steps" in detail
+        assert "Recipe has 1 step" in detail
