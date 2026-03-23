@@ -25,21 +25,15 @@ function formatQuantity(quantity: number): string {
     '0.75': '3/4',
   }
 
-  const rounded = quantity.toFixed(2)
-
-  // Check if it matches a common fraction
-  if (fractions[rounded]) {
-    const whole = Math.floor(quantity)
-    const fraction = fractions[rounded]
-    return whole > 0 ? `${whole} ${fraction}` : fraction
-  }
-
   // For other decimals, check if the fractional part matches a common fraction
   const wholePart = Math.floor(quantity)
-  const fractionalPart = (quantity - wholePart).toFixed(2)
+  const fractionalPart = quantity - wholePart
 
-  if (fractions[fractionalPart]) {
-    return `${wholePart} ${fractions[fractionalPart]}`
+  // Convert fractional part to string with 2 decimals, then remove trailing zeros
+  const fractionalStr = fractionalPart.toFixed(2).replace(/\.?0+$/, '')
+
+  if (fractions[fractionalStr]) {
+    return wholePart > 0 ? `${wholePart} ${fractions[fractionalStr]}` : fractions[fractionalStr]
   }
 
   // Round to 2 decimal places for readability

@@ -24,7 +24,7 @@ export default function RecipeDetail() {
     enabled: !!id,
   })
 
-  const { data: myRating } = useMyRecipeRating(id!, {
+  const { data: myRating, isLoading: isLoadingRating } = useMyRecipeRating(id!, {
     enabled: !!id,
     retry: false,
   })
@@ -49,6 +49,10 @@ export default function RecipeDetail() {
     } catch (error) {
       console.error('Failed to toggle favorite:', error)
       setFavoriteError('Failed to update favorite status. Please try again.')
+      // Clear error after 5 seconds
+      setTimeout(() => {
+        setFavoriteError(null)
+      }, 5000)
     }
   }
 
@@ -147,7 +151,7 @@ export default function RecipeDetail() {
           isFavorited={isFavorited}
           onFavoriteToggle={handleFavoriteToggle}
           onAddToMealPlan={handleAddToMealPlan}
-          isLoading={rateRecipeMutation.isPending}
+          isLoading={rateRecipeMutation.isPending || isLoadingRating}
         />
       </>
     </>
