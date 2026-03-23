@@ -30,11 +30,7 @@ export default function SubstitutionsSection() {
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this substitution preference?')) {
-      try {
-        await deleteMutation.mutateAsync(id)
-      } catch (error) {
-        console.error('Failed to delete substitution:', error)
-      }
+      await deleteMutation.mutateAsync(id)
     }
   }
 
@@ -62,6 +58,17 @@ export default function SubstitutionsSection() {
       {isLoading && (
         <div className="p-4 text-center text-text-secondary">
           Loading substitution preferences...
+        </div>
+      )}
+
+      {/* Error message for delete failures */}
+      {deleteMutation.isError && (
+        <div className="mb-4 rounded-button border border-terra bg-terra/10 p-3">
+          <p className="text-sm text-terra-dark">
+            {deleteMutation.error instanceof Error
+              ? deleteMutation.error.message
+              : 'Failed to delete substitution. Please try again.'}
+          </p>
         </div>
       )}
 
