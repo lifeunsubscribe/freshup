@@ -8,6 +8,7 @@ import Pantry from './pages/Pantry'
 import Grocery from './pages/Grocery'
 import IShopped from './pages/IShopped'
 import Profile from './pages/Profile'
+import NotFound from './pages/NotFound'
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
           <Route path="/grocery" element={<Grocery />} />
           <Route path="/shopped" element={<IShopped />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
         <BottomNav />
       </div>

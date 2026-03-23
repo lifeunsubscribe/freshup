@@ -52,7 +52,6 @@ export default function BottomNav() {
                       ? 'text-olive fill-olive stroke-2'
                       : 'text-[#8b8b7e] stroke-2'
                   }
-                  strokeWidth={active ? 2 : 2}
                 />
                 {item.badge !== undefined && item.badge > 0 && (
                   <span className="absolute -top-1 -right-1 bg-mocha text-cream text-xs font-medium rounded-full w-4 h-4 flex items-center justify-center">
