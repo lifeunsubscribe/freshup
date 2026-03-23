@@ -243,6 +243,43 @@ class TestCreatePreparedFood:
 
         assert response.status_code == 422
 
+    def test_create_with_explicit_date_prepared(self, client, auth_headers, test_user):
+        """Should use provided date_prepared instead of server default."""
+        explicit_date = datetime(2026, 3, 20, 12, 0, 0)
+        payload = {
+            "name": "Backdated stock blocks",
+            "type": "component_ingredient",
+            "servings_remaining": 6.0,
+            "storage_location": "freezer",
+            "date_prepared": explicit_date.isoformat(),
+        }
+
+        response = client.post("/prepared-foods", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        response_date = datetime.fromisoformat(data["date_prepared"])
+        assert response_date == explicit_date
+
+    def test_create_without_date_prepared_uses_server_default(self, client, auth_headers, test_user):
+        """Should default date_prepared to server time when omitted."""
+        payload = {
+            "name": "Fresh curry",
+            "type": "complete_meal",
+            "servings_remaining": 4.0,
+            "storage_location": "fridge",
+        }
+
+        response = client.post("/prepared-foods", json=payload, headers=auth_headers)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["date_prepared"] is not None
+        response_date = datetime.fromisoformat(data["date_prepared"])
+        # func.now() may return UTC; use utcnow for comparison
+        now = datetime.utcnow()
+        assert abs((now - response_date).total_seconds()) < 60
+
 
 class TestListPreparedFoods:
     """Tests for GET /prepared-foods (list with shareability-aware filtering)."""

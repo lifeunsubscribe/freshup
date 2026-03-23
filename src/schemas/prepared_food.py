@@ -31,6 +31,7 @@ class PreparedFoodCreate(BaseModel):
     estimated_expiration: Optional[datetime] = Field(default=None, description="Estimated expiration date")
     shareability: str = Field(default=Shareability.shared.value, description="Shareability status (shared, reserved, personal)")
     notes: Optional[str] = Field(default=None, max_length=10000, description="Additional notes")
+    date_prepared: Optional[datetime] = Field(default=None, description="Date the food was prepared (defaults to server time if omitted)")
 
     @field_validator('name')
     @classmethod
