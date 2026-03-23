@@ -47,7 +47,8 @@ def create_prepared_food(
         HTTPException(500): If database error occurs
     """
     # Create new prepared food item with prepared_by set to current user
-    item_dict = item_data.model_dump()
+    # Exclude date_prepared if None so the DB default (func.now()) kicks in
+    item_dict = item_data.model_dump(exclude_none=True)
     new_item = PreparedFood(
         **item_dict,
         prepared_by=current_user.id,
