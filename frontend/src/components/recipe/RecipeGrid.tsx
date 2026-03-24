@@ -65,8 +65,9 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
   // Reset pagination when search query or filters change
   useEffect(() => {
     setOffset(0)
-    setAllRecipes([])
     setHasMore(true)
+    // Note: setAllRecipes([]) is intentionally removed to prevent race condition
+    // The next data fetch with offset=0 will replace allRecipes in the effect above
   }, [searchQuery, filters.source_type, filters.tag, filters.max_cook_time])
 
   return (
@@ -126,11 +127,12 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
         )}
 
         {/* Load More button */}
-        {hasMore && !isLoading && allRecipes.length > 0 && (
+        {hasMore && allRecipes.length > 0 && (
           <div className="flex justify-center mt-6">
             <button
               onClick={() => setOffset((prev) => prev + RECIPES_PER_PAGE)}
-              className="px-6 py-2 bg-white border border-warm-border rounded-md text-sm font-medium text-text-primary hover:bg-gray-50 transition-colors"
+              disabled={isLoading}
+              className="px-6 py-2 bg-white border border-warm-border rounded-md text-sm font-medium text-text-primary hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Load More Recipes
             </button>

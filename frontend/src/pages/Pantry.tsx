@@ -49,8 +49,9 @@ export default function Pantry() {
   // Reset pagination when tab changes
   useEffect(() => {
     setOffset(0)
-    setAllItems([])
     setHasMore(true)
+    // Note: setAllItems([]) is intentionally removed to prevent race condition
+    // The next data fetch with offset=0 will replace allItems in the effect above
   }, [activeTab])
 
   // Fetch low stock alerts
@@ -160,11 +161,12 @@ export default function Pantry() {
         )}
 
         {/* Load More button */}
-        {hasMore && !isLoadingInventory && (
+        {hasMore && (
           <div className="flex justify-center mt-6">
             <button
               onClick={() => setOffset((prev) => prev + ITEMS_PER_PAGE)}
-              className="px-6 py-2 bg-white border border-warm-border rounded-md text-sm font-medium text-text-primary hover:bg-gray-50 transition-colors"
+              disabled={isLoadingInventory}
+              className="px-6 py-2 bg-white border border-warm-border rounded-md text-sm font-medium text-text-primary hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Load More Items
             </button>
