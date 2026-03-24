@@ -46,20 +46,25 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
 
   const { data: recipes, isLoading, isError, error } = useRecipeList(apiFilters)
 
-  // Accumulate recipes and track if there are more to load
+  // Consolidated effect: reset pagination on filter changes and accumulate recipes
   useEffect(() => {
-    // Check if this response is for the current filters (not stale)
-    const isCurrentRequest =
-      searchQuery === currentFiltersRef.current.searchQuery &&
-      filters.source_type === currentFiltersRef.current.source_type &&
-      filters.tag === currentFiltersRef.current.tag &&
-      filters.max_cook_time === currentFiltersRef.current.max_cook_time
+    // Detect if filters have changed (not just offset)
+    const filtersChanged =
+      searchQuery !== currentFiltersRef.current.searchQuery ||
+      filters.source_type !== currentFiltersRef.current.source_type ||
+      filters.tag !== currentFiltersRef.current.tag ||
+      filters.max_cook_time !== currentFiltersRef.current.max_cook_time
 
-    if (!isCurrentRequest) {
-      // Ignore stale responses from previous filter states
-      return
+    if (filtersChanged) {
+      // Filters changed - reset pagination state immediately
+      currentFiltersRef.current = { searchQuery, ...filters }
+      setOffset(0)
+      setHasMore(true)
+      setAllRecipes([]) // Clear immediately to prevent showing stale data
+      return // Don't process recipes yet, wait for new data with offset=0
     }
 
+    // Filters haven't changed - process recipe data
     if (recipes && recipes.length > 0) {
       if (offset === 0) {
         // First load - replace all recipes
@@ -80,14 +85,6 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
       setHasMore(false)
     }
   }, [recipes, offset, searchQuery, filters.source_type, filters.tag, filters.max_cook_time])
-
-  // Reset pagination when search query or filters change
-  useEffect(() => {
-    currentFiltersRef.current = { searchQuery, ...filters }
-    setOffset(0)
-    setHasMore(true)
-    setAllRecipes([]) // Clear immediately to prevent showing stale data
-  }, [searchQuery, filters.source_type, filters.tag, filters.max_cook_time])
 
   return (
     <div className="space-y-4">
