@@ -72,6 +72,12 @@ export function getSourceTypeLabel(sourceType: string): string {
  */
 export function getCookTimeLabel(cookTime: number | string): string {
   const numericCookTime = typeof cookTime === 'string' ? Number(cookTime) : cookTime
+
+  // Handle invalid numeric values (NaN, Infinity, etc.)
+  if (!Number.isFinite(numericCookTime)) {
+    return String(cookTime)
+  }
+
   const option = COOK_TIME_OPTIONS.find((opt) => opt.value === numericCookTime)
   return option?.label || `${numericCookTime} min`
 }

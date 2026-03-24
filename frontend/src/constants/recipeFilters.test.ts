@@ -114,9 +114,9 @@ describe('recipeFilters', () => {
         expect(getCookTimeLabel('0')).toBe('0 min')
       })
 
-      it('handles invalid numeric strings (NaN)', () => {
-        expect(getCookTimeLabel('invalid')).toBe('NaN min')
-        expect(getCookTimeLabel('abc')).toBe('NaN min')
+      it('handles invalid numeric strings gracefully', () => {
+        expect(getCookTimeLabel('invalid')).toBe('invalid')
+        expect(getCookTimeLabel('abc')).toBe('abc')
       })
 
       it('handles empty string', () => {
@@ -137,6 +137,11 @@ describe('recipeFilters', () => {
 
       it('handles scientific notation strings', () => {
         expect(getCookTimeLabel('1e2')).toBe('100 min')
+      })
+
+      it('handles Infinity', () => {
+        expect(getCookTimeLabel(Infinity)).toBe('Infinity')
+        expect(getCookTimeLabel(-Infinity)).toBe('-Infinity')
       })
     })
   })
