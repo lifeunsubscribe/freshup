@@ -88,7 +88,9 @@ export default function RecipeDetail() {
   const servingsMultiplier = recipe.base_servings > 0
     ? selectedServings / recipe.base_servings
     : (() => {
-        console.warn(`Invalid base_servings value (${recipe.base_servings}) for recipe ${recipe.id}. Defaulting to no scaling (multiplier=1).`)
+        if (import.meta.env.DEV) {
+          console.warn(`Invalid base_servings value (${recipe.base_servings}) for recipe ${recipe.id}. Defaulting to no scaling (multiplier=1).`)
+        }
         return 1
       })()
 
