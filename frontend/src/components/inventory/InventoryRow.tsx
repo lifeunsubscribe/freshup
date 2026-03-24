@@ -47,8 +47,8 @@ export default function InventoryRow({ item }: InventoryRowProps) {
   }
 
   // Format expiry badge text using timezone-safe utility
-  const getExpiryBadgeText = (daysUntil: number | null): string | null => {
-    if (daysUntil === null || !item.expiration_date) return null
+  const getExpiryBadgeText = (): string | null => {
+    if (!item.expiration_date) return null
     return formatExpirationBadge(item.expiration_date)
   }
 
@@ -122,7 +122,7 @@ export default function InventoryRow({ item }: InventoryRowProps) {
   }
 
   const daysUntilExpiration = getDaysUntilExpiration()
-  const expiryBadgeText = getExpiryBadgeText(daysUntilExpiration)
+  const expiryBadgeText = getExpiryBadgeText()
   const showQuickActions = shouldShowQuickActions()
   const lowStock = isLowStock()
 
