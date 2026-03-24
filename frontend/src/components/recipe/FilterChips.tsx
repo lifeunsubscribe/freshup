@@ -1,4 +1,12 @@
 import { X } from 'lucide-react'
+import {
+  SOURCE_TYPE_OPTIONS,
+  COOK_TIME_OPTIONS,
+  TAG_OPTIONS,
+  getSourceTypeLabel,
+  getCookTimeLabel,
+  getTagLabel,
+} from '../../constants/recipeFilters'
 
 export interface RecipeFilters {
   source_type?: string
@@ -46,9 +54,11 @@ export default function FilterChips({ filters, onFilterChange }: FilterChipsProp
           className="px-3 py-1.5 rounded-full border border-warm-border bg-white text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
         >
           <option value="">All sources</option>
-          <option value="manual">My recipes</option>
-          <option value="hellofresh_card">HelloFresh</option>
-          <option value="ad_hoc">Ad-hoc</option>
+          {SOURCE_TYPE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
 
         {/* Cook time filter */}
@@ -58,10 +68,11 @@ export default function FilterChips({ filters, onFilterChange }: FilterChipsProp
           className="px-3 py-1.5 rounded-full border border-warm-border bg-white text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
         >
           <option value="">Any time</option>
-          <option value="15">15 min or less</option>
-          <option value="30">30 min or less</option>
-          <option value="45">45 min or less</option>
-          <option value="60">1 hour or less</option>
+          {COOK_TIME_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
 
         {/* Tag filter */}
@@ -71,15 +82,11 @@ export default function FilterChips({ filters, onFilterChange }: FilterChipsProp
           className="px-3 py-1.5 rounded-full border border-warm-border bg-white text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
         >
           <option value="">All cuisines</option>
-          <option value="italian">Italian</option>
-          <option value="mexican">Mexican</option>
-          <option value="asian">Asian</option>
-          <option value="american">American</option>
-          <option value="mediterranean">Mediterranean</option>
-          <option value="indian">Indian</option>
-          <option value="thai">Thai</option>
-          <option value="vegan">Vegan</option>
-          <option value="vegetarian">Vegetarian</option>
+          {TAG_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -94,13 +101,13 @@ export default function FilterChips({ filters, onFilterChange }: FilterChipsProp
           )}
           {filters.tag && (
             <FilterChip
-              label={`Cuisine: ${filters.tag}`}
+              label={`Cuisine: ${getTagLabel(filters.tag)}`}
               onRemove={() => removeFilter('tag')}
             />
           )}
           {filters.max_cook_time && (
             <FilterChip
-              label={`Max ${filters.max_cook_time} min`}
+              label={`Max ${getCookTimeLabel(filters.max_cook_time)}`}
               onRemove={() => removeFilter('max_cook_time')}
             />
           )}
@@ -130,15 +137,3 @@ function FilterChip({ label, onRemove }: FilterChipProps) {
   )
 }
 
-function getSourceTypeLabel(sourceType: string): string {
-  switch (sourceType) {
-    case 'manual':
-      return 'My recipes'
-    case 'hellofresh_card':
-      return 'HelloFresh'
-    case 'ad_hoc':
-      return 'Ad-hoc'
-    default:
-      return sourceType
-  }
-}
