@@ -70,9 +70,10 @@ export function getSourceTypeLabel(sourceType: string): string {
 /**
  * Helper function to get the label for a cook time value
  */
-export function getCookTimeLabel(cookTime: number): string {
-  const option = COOK_TIME_OPTIONS.find((opt) => opt.value === cookTime)
-  return option?.label || `${cookTime} min`
+export function getCookTimeLabel(cookTime: number | string): string {
+  const numericCookTime = typeof cookTime === 'string' ? Number(cookTime) : cookTime
+  const option = COOK_TIME_OPTIONS.find((opt) => opt.value === numericCookTime)
+  return option?.label || `${numericCookTime} min`
 }
 
 /**
