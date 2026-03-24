@@ -23,8 +23,9 @@ interface RecipeGridProps {
  */
 export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBack }: RecipeGridProps) {
   // Combine search query and filters for API request
+  // Using limit of 100 (backend maximum) to show more results in grid view
   const apiFilters: RecipeListFilters = {
-    limit: 50,
+    limit: 100,
     search: searchQuery || undefined,
     source_type: filters.source_type,
     tag: filters.tag,
