@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRecipeList, type RecipeListFilters } from '../../api'
 import type { RecipeListResponse } from '../../api/types'
 import RecipeCard from './RecipeCard'
@@ -31,6 +31,9 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
   const [allRecipes, setAllRecipes] = useState<RecipeListResponse[]>([])
   const [hasMore, setHasMore] = useState(true)
 
+  // Track current filter state to detect stale responses
+  const currentFiltersRef = useRef({ searchQuery, ...filters })
+
   // Combine search query and filters for API request
   const apiFilters: RecipeListFilters = {
     limit: RECIPES_PER_PAGE,
@@ -45,13 +48,29 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
 
   // Accumulate recipes and track if there are more to load
   useEffect(() => {
+    // Check if this response is for the current filters (not stale)
+    const isCurrentRequest =
+      searchQuery === currentFiltersRef.current.searchQuery &&
+      filters.source_type === currentFiltersRef.current.source_type &&
+      filters.tag === currentFiltersRef.current.tag &&
+      filters.max_cook_time === currentFiltersRef.current.max_cook_time
+
+    if (!isCurrentRequest) {
+      // Ignore stale responses from previous filter states
+      return
+    }
+
     if (recipes && recipes.length > 0) {
       if (offset === 0) {
         // First load - replace all recipes
         setAllRecipes(recipes)
       } else {
-        // Subsequent loads - append new recipes
-        setAllRecipes((prev) => [...prev, ...recipes])
+        // Subsequent loads - append new recipes with deduplication
+        setAllRecipes((prev) => {
+          const existingIds = new Set(prev.map((r) => r.id))
+          const newRecipes = recipes.filter((r) => !existingIds.has(r.id))
+          return [...prev, ...newRecipes]
+        })
       }
       // If we got fewer recipes than requested, there are no more to load
       setHasMore(recipes.length === RECIPES_PER_PAGE)
@@ -60,14 +79,14 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
       setAllRecipes([])
       setHasMore(false)
     }
-  }, [recipes, offset])
+  }, [recipes, offset, searchQuery, filters.source_type, filters.tag, filters.max_cook_time])
 
   // Reset pagination when search query or filters change
   useEffect(() => {
+    currentFiltersRef.current = { searchQuery, ...filters }
     setOffset(0)
     setHasMore(true)
-    // Note: setAllRecipes([]) is intentionally removed to prevent race condition
-    // The next data fetch with offset=0 will replace allRecipes in the effect above
+    setAllRecipes([]) // Clear immediately to prevent showing stale data
   }, [searchQuery, filters.source_type, filters.tag, filters.max_cook_time])
 
   return (

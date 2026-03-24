@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import PageContainer from '../components/layout/PageContainer'
 import { PageTitle } from '../components/ui'
 import StorageTabs from '../components/pantry/StorageTabs'
@@ -19,6 +19,9 @@ export default function Pantry() {
   const [allItems, setAllItems] = useState<InventoryItemListResponse[]>([])
   const [hasMore, setHasMore] = useState(true)
 
+  // Track current tab to detect stale responses
+  const currentTabRef = useRef(activeTab)
+
   // Fetch inventory with storage filter
   const storageFilter = activeTab === 'all' ? undefined : activeTab
   const { data: inventoryItems = [], isLoading: isLoadingInventory, error: inventoryError } = useInventoryList({
@@ -29,13 +32,23 @@ export default function Pantry() {
 
   // Accumulate items and track if there are more to load
   useEffect(() => {
+    // Check if this response is for the current tab (not stale)
+    if (activeTab !== currentTabRef.current) {
+      // Ignore stale responses from previous tab state
+      return
+    }
+
     if (inventoryItems.length > 0) {
       if (offset === 0) {
         // First load - replace all items
         setAllItems(inventoryItems)
       } else {
-        // Subsequent loads - append new items
-        setAllItems((prev) => [...prev, ...inventoryItems])
+        // Subsequent loads - append new items with deduplication
+        setAllItems((prev) => {
+          const existingIds = new Set(prev.map((item) => item.id))
+          const newItems = inventoryItems.filter((item) => !existingIds.has(item.id))
+          return [...prev, ...newItems]
+        })
       }
       // If we got fewer items than requested, there are no more to load
       setHasMore(inventoryItems.length === ITEMS_PER_PAGE)
@@ -44,14 +57,14 @@ export default function Pantry() {
       setAllItems([])
       setHasMore(false)
     }
-  }, [inventoryItems, offset])
+  }, [inventoryItems, offset, activeTab])
 
   // Reset pagination when tab changes
   useEffect(() => {
+    currentTabRef.current = activeTab
     setOffset(0)
     setHasMore(true)
-    // Note: setAllItems([]) is intentionally removed to prevent race condition
-    // The next data fetch with offset=0 will replace allItems in the effect above
+    setAllItems([]) // Clear immediately to prevent showing stale data
   }, [activeTab])
 
   // Fetch low stock alerts
@@ -161,7 +174,7 @@ export default function Pantry() {
         )}
 
         {/* Load More button */}
-        {hasMore && (
+        {hasMore && allItems.length > 0 && (
           <div className="flex justify-center mt-6">
             <button
               onClick={() => setOffset((prev) => prev + ITEMS_PER_PAGE)}
