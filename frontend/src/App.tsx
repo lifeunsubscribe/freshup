@@ -12,6 +12,8 @@ import Grocery from './pages/Grocery'
 import IShopped from './pages/IShopped'
 import Profile from './pages/Profile'
 import NotFound from './pages/NotFound'
+import { ErrorBoundary } from './components/errors'
+import AuthErrorFallback from './components/errors/AuthErrorFallback'
 
 function AppContent() {
   const location = useLocation()
@@ -98,9 +100,11 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
+      <ErrorBoundary fallback={(error, resetError) => <AuthErrorFallback error={error} resetError={resetError} />}>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </ErrorBoundary>
     </BrowserRouter>
   )
 }

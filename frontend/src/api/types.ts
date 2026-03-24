@@ -286,6 +286,7 @@ export interface RecipeResponse {
   id: string;
   name: string;
   source_type: string;
+  source_image: string | null;
   steps: string[];
   created_by: string | null;
   created_at: string;
@@ -295,6 +296,7 @@ export interface RecipeResponse {
   prep_time_minutes: number | null;
   hellofresh_card_id: string | null;
   variation_groups: Record<string, unknown> | null;
+  nutritional_info: Record<string, unknown> | null;
   ingredients: RecipeIngredientResponse[];
 }
 
@@ -489,4 +491,32 @@ export interface PreparedFoodConsumptionResponse {
 
 export interface TransferRequest {
   storage_location: string;
+}
+
+// ============================================================================
+// Substitution Types
+// ============================================================================
+
+export interface ReplacementItem {
+  ingredient: string;
+  rank: number;
+}
+
+export interface SubstitutionPreferenceCreate {
+  original_ingredient: string;
+  replacements: ReplacementItem[];
+  context?: string;
+}
+
+export interface SubstitutionPreferenceUpdate {
+  replacements?: ReplacementItem[];
+  context?: string;
+}
+
+export interface SubstitutionPreferenceResponse {
+  id: string;
+  user_id: string;
+  original_ingredient: string;
+  replacements: ReplacementItem[];
+  context: string | null;
 }

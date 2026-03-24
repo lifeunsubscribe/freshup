@@ -32,7 +32,7 @@ export default function UserSwitcher() {
   // Loading state
   if (isLoadingUsers) {
     return (
-      <div className="bg-cream-dark rounded-card border border-warm-border p-4">
+      <div className="bg-white rounded-card border border-warm-border p-4">
         <p className="text-sm text-text-secondary">Loading household members...</p>
       </div>
     );
@@ -74,7 +74,7 @@ export default function UserSwitcher() {
   };
 
   return (
-    <div className="bg-cream-dark rounded-card border border-warm-border p-4">
+    <div className="bg-white rounded-card border border-warm-border p-4">
       {/* Header */}
       <div className="mb-3">
         <h3 className="text-sm font-semibold text-text-primary">Who are you?</h3>

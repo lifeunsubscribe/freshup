@@ -5,7 +5,7 @@ export default function NotFound() {
   return (
     <PageContainer>
       <div className="py-8 text-center">
-        <h1 className="text-4xl font-bold text-text-primary mb-4">404</h1>
+        <h1 className="text-4xl font-medium text-text-primary mb-4">404</h1>
         <p className="text-lg text-text-secondary mb-8">
           Page not found
         </p>

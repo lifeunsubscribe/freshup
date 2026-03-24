@@ -26,23 +26,10 @@ export interface InventoryRowProps {
  * - Optimistic updates with error handling
  */
 export default function InventoryRow({ item }: InventoryRowProps) {
-  const consumeMutation = useConsumeInventoryItem(item.id)
-  const freezeMutation = useFreezeInventoryItem(item.id)
-  const updateMutation = useUpdateInventoryItem(item.id)
+  const consumeMutation = useConsumeInventoryItem()
+  const freezeMutation = useFreezeInventoryItem()
+  const updateMutation = useUpdateInventoryItem()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  // Track errors from mutations
-  useEffect(() => {
-    if (consumeMutation.isError) {
-      setErrorMessage('Failed to consume item. Please try again.')
-    } else if (freezeMutation.isError) {
-      setErrorMessage('Failed to freeze item. Please try again.')
-    } else if (updateMutation.isError) {
-      setErrorMessage('Failed to update storage. Please try again.')
-    } else {
-      setErrorMessage(null)
-    }
-  }, [consumeMutation.isError, freezeMutation.isError, updateMutation.isError])
 
   // Auto-dismiss error after 5 seconds
   useEffect(() => {
@@ -96,25 +83,55 @@ export default function InventoryRow({ item }: InventoryRowProps) {
 
   // Handle "Ate it" action
   const handleAteIt = () => {
+    // Clear any existing error immediately when user retries to prevent stale error messages
     setErrorMessage(null)
-    consumeMutation.mutate({
-      amount: item.quantity,
-      delete_when_empty: true,
-    })
+    consumeMutation.mutate(
+      {
+        id: item.id,
+        data: {
+          amount: item.quantity,
+          delete_when_empty: true,
+        },
+      },
+      {
+        onError: (error) => {
+          console.error('Failed to consume inventory item:', error)
+          setErrorMessage('Failed to consume item. Please try again.')
+        },
+      }
+    )
   }
 
   // Handle "Freeze" action
   const handleFreeze = () => {
+    // Clear any existing error immediately when user retries to prevent stale error messages
     setErrorMessage(null)
-    freezeMutation.mutate()
+    freezeMutation.mutate(item.id, {
+      onError: (error) => {
+        console.error('Failed to freeze inventory item:', error)
+        setErrorMessage('Failed to freeze item. Please try again.')
+      },
+    })
   }
 
   // Handle storage location cycle
   const handleStorageCycle = (newLocation: StorageLocation) => {
+    // Clear any existing error immediately when user retries to prevent stale error messages
     setErrorMessage(null)
-    updateMutation.mutate({
-      storage_location: newLocation,
-    })
+    updateMutation.mutate(
+      {
+        id: item.id,
+        data: {
+          storage_location: newLocation,
+        },
+      },
+      {
+        onError: (error) => {
+          console.error('Failed to update inventory item storage:', error)
+          setErrorMessage('Failed to update storage. Please try again.')
+        },
+      }
+    )
   }
 
   const daysUntilExpiration = getDaysUntilExpiration()

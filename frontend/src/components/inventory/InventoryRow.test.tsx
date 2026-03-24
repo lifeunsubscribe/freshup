@@ -261,10 +261,18 @@ describe('InventoryRow', () => {
       const ateItButton = screen.getByRole('button', { name: /Ate it/i })
       await user.click(ateItButton)
 
-      expect(consumeMutate).toHaveBeenCalledWith({
-        amount: 2,
-        delete_when_empty: true,
-      })
+      expect(consumeMutate).toHaveBeenCalledWith(
+        {
+          id: item.id,
+          data: {
+            amount: 2,
+            delete_when_empty: true,
+          },
+        },
+        expect.objectContaining({
+          onError: expect.any(Function),
+        })
+      )
     })
 
     it('calls freeze endpoint when "Freeze" is clicked', async () => {
@@ -279,7 +287,12 @@ describe('InventoryRow', () => {
       const freezeButton = screen.getByRole('button', { name: /Freeze/i })
       await user.click(freezeButton)
 
-      expect(freezeMutate).toHaveBeenCalled()
+      expect(freezeMutate).toHaveBeenCalledWith(
+        item.id,
+        expect.objectContaining({
+          onError: expect.any(Function),
+        })
+      )
     })
 
     it('disables "Freeze" button when item is already in freezer', () => {
@@ -328,9 +341,17 @@ describe('InventoryRow', () => {
       })
       await user.click(storageBadge)
 
-      expect(updateMutate).toHaveBeenCalledWith({
-        storage_location: StorageLocation.FRIDGE,
-      })
+      expect(updateMutate).toHaveBeenCalledWith(
+        {
+          id: item.id,
+          data: {
+            storage_location: StorageLocation.FRIDGE,
+          },
+        },
+        expect.objectContaining({
+          onError: expect.any(Function),
+        })
+      )
     })
 
     it('cycles through storage locations in correct order', async () => {
@@ -344,9 +365,17 @@ describe('InventoryRow', () => {
       await user.click(storageBadge)
 
       // Fridge → Freezer
-      expect(updateMutate).toHaveBeenCalledWith({
-        storage_location: StorageLocation.FREEZER,
-      })
+      expect(updateMutate).toHaveBeenCalledWith(
+        {
+          id: item.id,
+          data: {
+            storage_location: StorageLocation.FREEZER,
+          },
+        },
+        expect.objectContaining({
+          onError: expect.any(Function),
+        })
+      )
     })
 
     it('disables storage badge when mutation is pending', () => {
@@ -367,65 +396,126 @@ describe('InventoryRow', () => {
   })
 
   describe('Error Handling', () => {
-    it('displays error banner when consume mutation fails', () => {
+    it('displays error banner when consume mutation fails', async () => {
+      const consumeMutate = vi.fn((variables, options) => {
+        // Simulate mutation failure by calling onError
+        if (options?.onError) {
+          options.onError()
+        }
+      })
+
       vi.mocked(useConsumeInventoryItem).mockReturnValue({
         mutate: consumeMutate,
         isPending: false,
-        isError: true,
+        isError: false,
       } as any)
 
-      const item = createMockItem()
+      const item = createMockItem({
+        expiration_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+      })
       renderWithProviders(<InventoryRow item={item} />)
 
-      const errorBanner = screen.getByRole('alert')
-      expect(errorBanner).toBeInTheDocument()
-      expect(errorBanner).toHaveTextContent('Failed to consume item. Please try again.')
+      // Click "Ate it" button to trigger mutation
+      const ateItButton = screen.getByRole('button', { name: /ate it/i })
+      fireEvent.click(ateItButton)
+
+      // Error banner should appear
+      await waitFor(() => {
+        const errorBanner = screen.getByRole('alert')
+        expect(errorBanner).toBeInTheDocument()
+        expect(errorBanner).toHaveTextContent('Failed to consume item. Please try again.')
+      })
     })
 
-    it('displays error banner when freeze mutation fails', () => {
+    it('displays error banner when freeze mutation fails', async () => {
+      const freezeMutate = vi.fn((variables, options) => {
+        // Simulate mutation failure by calling onError
+        if (options?.onError) {
+          options.onError()
+        }
+      })
+
       vi.mocked(useFreezeInventoryItem).mockReturnValue({
         mutate: freezeMutate,
         isPending: false,
-        isError: true,
+        isError: false,
       } as any)
 
-      const item = createMockItem()
+      const item = createMockItem({
+        expiration_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+      })
       renderWithProviders(<InventoryRow item={item} />)
 
-      const errorBanner = screen.getByRole('alert')
-      expect(errorBanner).toBeInTheDocument()
-      expect(errorBanner).toHaveTextContent('Failed to freeze item. Please try again.')
+      // Click "Freeze" button to trigger mutation
+      const freezeButton = screen.getByRole('button', { name: /freeze/i })
+      fireEvent.click(freezeButton)
+
+      // Error banner should appear
+      await waitFor(() => {
+        const errorBanner = screen.getByRole('alert')
+        expect(errorBanner).toBeInTheDocument()
+        expect(errorBanner).toHaveTextContent('Failed to freeze item. Please try again.')
+      })
     })
 
-    it('displays error banner when update mutation fails', () => {
+    it('displays error banner when update mutation fails', async () => {
+      const updateMutate = vi.fn((variables, options) => {
+        // Simulate mutation failure by calling onError
+        if (options?.onError) {
+          options.onError()
+        }
+      })
+
       vi.mocked(useUpdateInventoryItem).mockReturnValue({
         mutate: updateMutate,
         isPending: false,
-        isError: true,
+        isError: false,
       } as any)
 
-      const item = createMockItem()
+      const item = createMockItem({ storage_location: StorageLocation.PANTRY })
       renderWithProviders(<InventoryRow item={item} />)
 
-      const errorBanner = screen.getByRole('alert')
-      expect(errorBanner).toBeInTheDocument()
-      expect(errorBanner).toHaveTextContent('Failed to update storage. Please try again.')
+      // Click StorageBadge to trigger update mutation
+      const storageBadge = screen.getByRole('button', { name: /change storage from pantry/i })
+      fireEvent.click(storageBadge)
+
+      // Error banner should appear
+      await waitFor(() => {
+        const errorBanner = screen.getByRole('alert')
+        expect(errorBanner).toBeInTheDocument()
+        expect(errorBanner).toHaveTextContent('Failed to update storage. Please try again.')
+      })
     })
 
     it('auto-dismisses error message after 5 seconds', async () => {
       vi.useFakeTimers()
 
+      const consumeMutate = vi.fn((variables, options) => {
+        // Simulate mutation failure by calling onError
+        if (options?.onError) {
+          options.onError()
+        }
+      })
+
       vi.mocked(useConsumeInventoryItem).mockReturnValue({
         mutate: consumeMutate,
         isPending: false,
-        isError: true,
+        isError: false,
       } as any)
 
-      const item = createMockItem()
+      const item = createMockItem({
+        expiration_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+      })
       renderWithProviders(<InventoryRow item={item} />)
 
+      // Click "Ate it" button to trigger error
+      const ateItButton = screen.getByRole('button', { name: /ate it/i })
+      fireEvent.click(ateItButton)
+
       // Error should be visible initially
-      expect(screen.getByRole('alert')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeInTheDocument()
+      })
 
       // Fast-forward 5 seconds
       vi.advanceTimersByTime(5000)
