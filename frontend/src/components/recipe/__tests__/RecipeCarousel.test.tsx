@@ -382,4 +382,66 @@ describe('RecipeCarousel', () => {
       expect(section?.id).toBe('')
     })
   })
+
+  describe('accessibility attributes', () => {
+    it('applies role="region" to section element', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: mockRecipes,
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+        />
+      )
+
+      const section = screen.getByRole('region', { name: 'Quick meals' })
+      expect(section).toBeInTheDocument()
+    })
+
+    it('applies aria-roledescription="carousel" to section element', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: mockRecipes,
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      const { container } = renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+        />
+      )
+
+      const section = container.querySelector('section')
+      expect(section).toHaveAttribute('aria-roledescription', 'carousel')
+    })
+
+    it('applies aria-label with title to section element', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: mockRecipes,
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      const { container } = renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+        />
+      )
+
+      const section = container.querySelector('section')
+      expect(section).toHaveAttribute('aria-label', 'Quick meals')
+    })
+  })
 })

@@ -22,6 +22,7 @@ interface RecipeCarouselProps {
  * - Last visible card has opacity 0.7 to hint scrollability
  * - Loading and error states
  * - Empty state when no recipes match filters
+ * - ARIA attributes for screen reader accessibility (role="region", aria-roledescription="carousel")
  */
 export default function RecipeCarousel({ title, filters, onSeeAll, sectionId }: RecipeCarouselProps) {
   const { data: recipes, isLoading, isError, error } = useRecipeList(filters)
@@ -81,7 +82,13 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId }: 
   }, [recipes])
 
   return (
-    <section id={sectionId} className="scroll-mt-24">
+    <section
+      id={sectionId}
+      className="scroll-mt-24"
+      role="region"
+      aria-roledescription="carousel"
+      aria-label={title}
+    >
       {/* Header with title and "See all" link */}
       <div className="flex items-center justify-between mb-3">
         <SectionHeader>{title}</SectionHeader>

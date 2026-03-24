@@ -14,12 +14,17 @@ import { formatRelativeDate } from '../../utils/dateUtils'
  * - Empty state: friendly message when no prepared foods
  * - Loading state: simple loading message
  * - Error state: displays error message if fetch fails
+ * - ARIA attributes for screen reader accessibility (role="region", aria-roledescription="carousel")
  */
 export default function ReadyToEat() {
   const { data: items, isLoading, isError, error } = usePreparedFoodList()
 
   return (
-    <section>
+    <section
+      role="region"
+      aria-roledescription="carousel"
+      aria-label="Ready to Eat"
+    >
       <SectionHeader>Ready to Eat</SectionHeader>
 
       <div className="mt-3">
