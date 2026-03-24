@@ -115,13 +115,13 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId }: 
         )}
 
         {!isLoading && !isError && recipes && recipes.length > 0 && (
-          <div className="relative">
+          <div className="relative px-12">
             {/* Left navigation button */}
             {showControls && (
               <button
                 onClick={() => scroll('left')}
                 disabled={!canScrollLeft}
-                className={`absolute left-0 top-1/2 -translate-y-1/2 z-10 w-11 h-11 flex items-center justify-center rounded-full bg-white shadow-md transition-all ${
+                className={`absolute -left-1 top-1/2 -translate-y-1/2 z-10 w-11 h-11 flex items-center justify-center rounded-full bg-white shadow-md transition-all ${
                   canScrollLeft
                     ? 'opacity-100 hover:bg-warm-gray cursor-pointer'
                     : 'opacity-40 cursor-not-allowed'
@@ -154,7 +154,7 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId }: 
               <button
                 onClick={() => scroll('right')}
                 disabled={!canScrollRight}
-                className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 w-11 h-11 flex items-center justify-center rounded-full bg-white shadow-md transition-all ${
+                className={`absolute -right-1 top-1/2 -translate-y-1/2 z-10 w-11 h-11 flex items-center justify-center rounded-full bg-white shadow-md transition-all ${
                   canScrollRight
                     ? 'opacity-100 hover:bg-warm-gray cursor-pointer'
                     : 'opacity-40 cursor-not-allowed'
