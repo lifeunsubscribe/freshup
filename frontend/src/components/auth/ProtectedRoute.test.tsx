@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import ProtectedRoute from './ProtectedRoute'
@@ -46,6 +46,10 @@ const TestWrapper = ({ children }: { children: React.ReactNode }) => {
 }
 
 describe('ProtectedRoute', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   describe('authenticated user', () => {
     it('renders children when user is authenticated', () => {
       mockIsAuthenticated.mockReturnValue(true)

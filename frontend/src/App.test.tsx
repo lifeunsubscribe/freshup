@@ -32,6 +32,7 @@ describe('App', () => {
   let queryClient: QueryClient
 
   beforeEach(() => {
+    window.history.pushState({}, '', '/')
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
