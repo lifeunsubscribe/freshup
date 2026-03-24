@@ -256,18 +256,25 @@ describe('RecipeCarousel', () => {
         />
       )
 
-      // Wait for controls to potentially show (based on scroll width)
+      // Mock the scroll container to have overflow (scrollWidth > clientWidth)
+      const scrollContainer = container.querySelector('[role="list"]') as HTMLDivElement
+      expect(scrollContainer).toBeInTheDocument()
+
+      Object.defineProperty(scrollContainer, 'scrollWidth', { value: 1000, configurable: true })
+      Object.defineProperty(scrollContainer, 'clientWidth', { value: 500, configurable: true })
+      Object.defineProperty(scrollContainer, 'scrollLeft', { value: 100, configurable: true })
+
+      // Trigger the effect to update button states
+      scrollContainer.dispatchEvent(new Event('scroll'))
+
       await waitFor(() => {
-        const scrollLeft = screen.queryByRole('button', { name: 'Scroll left' })
-        // Controls may or may not show depending on container size in test environment
-        if (scrollLeft) {
-          expect(scrollLeft).toBeInTheDocument()
-        }
+        const scrollLeft = screen.getByRole('button', { name: 'Scroll left' })
+        expect(scrollLeft).toBeInTheDocument()
       })
     })
 
     it('renders right navigation button with correct aria-label', async () => {
-      renderWithRouter(
+      const { container } = renderWithRouter(
         <RecipeCarousel
           title="Quick meals"
           filters={mockFilters}
@@ -275,12 +282,20 @@ describe('RecipeCarousel', () => {
         />
       )
 
+      // Mock the scroll container to have overflow (scrollWidth > clientWidth)
+      const scrollContainer = container.querySelector('[role="list"]') as HTMLDivElement
+      expect(scrollContainer).toBeInTheDocument()
+
+      Object.defineProperty(scrollContainer, 'scrollWidth', { value: 1000, configurable: true })
+      Object.defineProperty(scrollContainer, 'clientWidth', { value: 500, configurable: true })
+      Object.defineProperty(scrollContainer, 'scrollLeft', { value: 0, configurable: true })
+
+      // Trigger the effect to update button states
+      scrollContainer.dispatchEvent(new Event('scroll'))
+
       await waitFor(() => {
-        const scrollRight = screen.queryByRole('button', { name: 'Scroll right' })
-        // Controls may or may not show depending on container size in test environment
-        if (scrollRight) {
-          expect(scrollRight).toBeInTheDocument()
-        }
+        const scrollRight = screen.getByRole('button', { name: 'Scroll right' })
+        expect(scrollRight).toBeInTheDocument()
       })
     })
 
@@ -294,22 +309,33 @@ describe('RecipeCarousel', () => {
         />
       )
 
-      // Mock scrollTo on the carousel container
-      const scrollContainer = container.querySelector('[role="list"]')
-      if (scrollContainer) {
-        const mockScrollTo = vi.fn()
-        scrollContainer.scrollTo = mockScrollTo
+      // Mock the scroll container to have overflow and setup scrollTo
+      const scrollContainer = container.querySelector('[role="list"]') as HTMLDivElement
+      expect(scrollContainer).toBeInTheDocument()
 
-        // Try to find and click scroll buttons if they exist
-        const scrollRight = screen.queryByRole('button', { name: 'Scroll right' })
-        if (scrollRight && !scrollRight.hasAttribute('disabled')) {
-          await user.click(scrollRight)
-          // If the button was clickable, scrollTo should have been called
-          await waitFor(() => {
-            expect(mockScrollTo).toHaveBeenCalled()
-          })
-        }
-      }
+      Object.defineProperty(scrollContainer, 'scrollWidth', { value: 1000, configurable: true })
+      Object.defineProperty(scrollContainer, 'clientWidth', { value: 500, configurable: true })
+      Object.defineProperty(scrollContainer, 'scrollLeft', { value: 0, configurable: true })
+
+      const mockScrollTo = vi.fn()
+      scrollContainer.scrollTo = mockScrollTo
+
+      // Trigger the effect to update button states
+      scrollContainer.dispatchEvent(new Event('scroll'))
+
+      await waitFor(() => {
+        const scrollRight = screen.getByRole('button', { name: 'Scroll right' })
+        expect(scrollRight).toBeInTheDocument()
+        expect(scrollRight).not.toBeDisabled()
+      })
+
+      const scrollRight = screen.getByRole('button', { name: 'Scroll right' })
+      await user.click(scrollRight)
+
+      expect(mockScrollTo).toHaveBeenCalledWith({
+        left: expect.any(Number),
+        behavior: 'smooth',
+      })
     })
   })
 
