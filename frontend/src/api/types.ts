@@ -492,3 +492,31 @@ export interface PreparedFoodConsumptionResponse {
 export interface TransferRequest {
   storage_location: string;
 }
+
+// ============================================================================
+// Substitution Types
+// ============================================================================
+
+export interface ReplacementItem {
+  ingredient: string;
+  rank: number;
+}
+
+export interface SubstitutionPreferenceCreate {
+  original_ingredient: string;
+  replacements: ReplacementItem[];
+  context?: string;
+}
+
+export interface SubstitutionPreferenceUpdate {
+  replacements?: ReplacementItem[];
+  context?: string;
+}
+
+export interface SubstitutionPreferenceResponse {
+  id: string;
+  user_id: string;
+  original_ingredient: string;
+  replacements: ReplacementItem[];
+  context: string | null;
+}

@@ -1,88 +1,62 @@
-import { useState } from 'react'
 import PageContainer from '../components/layout/PageContainer'
 import UserSwitcher from '../components/auth/UserSwitcher'
+import ProfileHeader from '../components/profile/ProfileHeader'
+import DietarySection from '../components/profile/DietarySection'
+import AllergiesSection from '../components/profile/AllergiesSection'
+import DislikedIngredientsSection from '../components/profile/DislikedIngredientsSection'
+import SubstitutionsSection from '../components/profile/SubstitutionsSection'
 import { useAuth } from '../contexts/AuthContext'
 
+/**
+ * Profile page for managing user preferences and settings
+ *
+ * Features:
+ * - ProfileHeader: user info, role badge, logout
+ * - DietarySection: multi-select dietary preferences
+ * - AllergiesSection: tag input for allergies
+ * - DislikedIngredientsSection: tag input for disliked ingredients
+ * - SubstitutionsSection: CRUD for ingredient substitution preferences
+ * - UserSwitcher: switch between household members (coordinators only)
+ */
 export default function Profile() {
   const { currentUser, logout } = useAuth()
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
-  const [logoutError, setLogoutError] = useState<string | null>(null)
 
-  const handleLogout = async () => {
-    setIsLoggingOut(true)
-    setLogoutError(null)
-    try {
-      await logout()
-    } catch (error) {
-      // Handle logout errors
-      if (error instanceof Error) {
-        setLogoutError(error.message)
-      } else {
-        setLogoutError('Failed to log out. Please try again.')
-      }
-      setIsLoggingOut(false)
-    }
+  if (!currentUser) {
+    return (
+      <PageContainer>
+        <div className="py-8">
+          <p className="text-text-secondary">Loading profile...</p>
+        </div>
+      </PageContainer>
+    )
   }
 
   return (
     <PageContainer>
       <div className="py-8">
-        <h1 className="text-4xl font-bold text-text-primary mb-4">Profile</h1>
+        <h1 className="text-4xl font-medium text-text-primary mb-4">Profile</h1>
         <p className="text-text-secondary mb-6">
           Manage your preferences and settings
         </p>
 
-        <div className="space-y-4">
-          {/* User Info Card */}
-          <div className="bg-cream-dark rounded-card border border-warm-border p-6">
-            <h2 className="text-xl font-semibold text-text-primary mb-4">
-              Your Profile
-            </h2>
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-text-tertiary">Name</p>
-                <p className="text-text-primary font-medium">{currentUser?.name}</p>
-              </div>
-              <div>
-                <p className="text-sm text-text-tertiary">Email</p>
-                <p className="text-text-primary">{currentUser?.email}</p>
-              </div>
-              <div>
-                <p className="text-sm text-text-tertiary">Role</p>
-                <p className="text-text-primary capitalize">{currentUser?.role}</p>
-              </div>
-              {currentUser?.dietary_profile && currentUser.dietary_profile.length > 0 && (
-                <div>
-                  <p className="text-sm text-text-tertiary">Dietary Profile</p>
-                  <p className="text-text-primary">
-                    {currentUser.dietary_profile.join(', ')}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
+        <div className="space-y-6">
+          {/* Profile Header: name, role, logout */}
+          <ProfileHeader user={currentUser} onLogout={logout} />
+
+          {/* Dietary Preferences */}
+          <DietarySection currentProfiles={currentUser.dietary_profile} />
+
+          {/* Allergies */}
+          <AllergiesSection currentAllergies={currentUser.allergies} />
+
+          {/* Disliked Ingredients */}
+          <DislikedIngredientsSection currentDisliked={currentUser.disliked_ingredients} />
+
+          {/* Substitution Preferences */}
+          <SubstitutionsSection />
 
           {/* User Switcher (only for coordinators) */}
           <UserSwitcher />
-
-          {/* Logout Button */}
-          <div className="bg-cream-dark rounded-card border border-warm-border p-6">
-            <h2 className="text-xl font-semibold text-text-primary mb-4">
-              Account Actions
-            </h2>
-            {logoutError && (
-              <div className="mb-4 rounded-button border border-terra bg-terra/10 p-3">
-                <p className="text-sm text-terra-dark">{logoutError}</p>
-              </div>
-            )}
-            <button
-              onClick={handleLogout}
-              disabled={isLoggingOut}
-              className="px-6 py-2 rounded-button bg-terra text-cream font-medium hover:bg-terra-dark focus:outline-none focus:ring-2 focus:ring-terra focus:ring-offset-2 focus:ring-offset-cream disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isLoggingOut ? 'Logging out...' : 'Log out'}
-            </button>
-          </div>
         </div>
       </div>
     </PageContainer>

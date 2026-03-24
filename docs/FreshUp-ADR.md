@@ -243,6 +243,8 @@ FreshUp should feel like having a knowledgeable sous chef — one who knows what
 
 *Note: `component_ingredient` type items (e.g., veggie stock blocks, caramelized onion pucks) are treated as available inventory by the recipe suggestion engine. When a recipe calls for vegetable stock and stock blocks exist, the system does not add stock to the grocery list.*
 
+*Note: PreparedFood items with `shareability=shared` can be consumed by any authenticated household member. Items with `shareability=personal` or `shareability=reserved` can only be consumed by the `prepared_by` user.*
+
 #### MealPlanEntry
 | Field | Type | Notes |
 |---|---|---|
@@ -427,6 +429,30 @@ This passive tracking enables approximate per-user calorie and macro tracking ov
 - The grocery list generator groups items by target store, producing separate per-store shopping lists.
 - Store associations are learned over time from receipt parsing (if an item appears on a Costco receipt, it's marked as available at Costco).
 - Manual override is always available.
+
+### 5.10 Frontend Design System & UI Architecture
+
+The frontend design is documented in a companion file: `docs/FreshUp-Design-System.md`. Key architectural decisions are summarized here for ADR completeness.
+
+**Design philosophy:** Inspired by Mealime's warm, un-intimidating aesthetic. The UI uses earth tones (olive green, café mocha, warm cream) rather than typical SaaS blues. The palette, typography, spacing, component specs, and Tailwind theme configuration are fully defined in the design system doc.
+
+**Screen architecture:** Five bottom-nav tabs (Home, Plan, Recipes, Pantry, List) map directly to API router domains. The Recipes tab uses a Spotify-style carousel browse as the default view, with "See all" transitioning to a filtered grid. Recipe detail defaults to the Ingredients tab (budget assessment before cooking commitment), with a Cook & enjoy! tab showing inline ingredients per step.
+
+**Inline ingredients per step:** The Cook tab displays each recipe step with its relevant ingredients shown as pills directly below the instruction text, eliminating the scroll-back-and-forth problem common on recipe websites. This requires a `step_index` field on `RecipeIngredient` (nullable integer, 0-based, referencing the index in `Recipe.steps` JSON array). Recipes imported without step-ingredient mapping default to NULL.
+
+**Pantry cross-reference:** The inventory-aware features that differentiate FreshUp:
+- Recipe cards show "All ingredients in stock" badge when every required ingredient is in inventory.
+- Recipe detail shows per-ingredient "in stock" badges and a pantry check summary.
+- "Show what I can make now" toggle on the recipe browse page filters all content by ingredient availability.
+- "Add missing to list" button calculates the delta between recipe ingredients and inventory, adding missing items to the grocery list in one tap.
+
+**Household context over ratings:** Generic star ratings are replaced with personalized household data: "Cooked 7 times" (from `Recipe.times_cooked`), "In Sarah's favs" (from `UserRecipeRating.is_favorite`), and eventually "Top voted this week" (Phase 3 voting data). Passive voice is used for shared resource references ("in stock" not "you have") to avoid shareability conflicts.
+
+**"I Shopped" flow:** The primary grocery-to-inventory bridge. Default tab is receipt scanning (Phase 4 readiness, with fallback to "From grocery list" in Phase 1). Items from the grocery list are presented grouped by store with tappable storage location badges (smart defaults from purchase history). Checked items are bulk-added to inventory; unchecked items persist on the grocery list.
+
+**Recipe ingestion library:** The `recipe-scrapers` Python library (MIT, 624+ supported sites including HelloFresh and Kitchen Sanctuary) will serve as the parsing engine for Phase 2C/2D. FreshUp builds the orchestration layer (rate limiting, dedup, ingredient string decomposition, validation UI) around it. The library handles HTML-to-structured-recipe extraction. See Section 6 for recipe source strategy.
+
+**Implementation order:** Shell (routing, nav, auth) → Home screen → Recipe browse → Recipe detail → Pantry → Grocery list → "I Shopped" flow. Each screen builds on components from the previous one.
 
 ---
 

@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { existsSync } from 'fs'
 
+/// <reference types="vitest" />
+
 /**
  * Detects if the application is running inside a Docker container.
  *
@@ -55,5 +57,10 @@ export default defineConfig({
       // Use polling for file watching (required for Docker volume mounts on some systems)
       usePolling: true,
     },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
   },
 })

@@ -72,7 +72,7 @@
 
   /* Card component base */
   .card {
-    @apply bg-cream-dark rounded-card border border-warm-border;
+    @apply bg-white rounded-card border border-warm-border;
     padding: 1.5rem;
   }
 

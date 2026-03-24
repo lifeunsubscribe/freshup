@@ -10,38 +10,38 @@ export default {
       colors: {
         // Olive - Primary greens for buttons, accents, and active states
         olive: {
-          DEFAULT: '#5C6F47', // Main olive green
-          light: '#7A8F5E',
-          dark: '#4A5A38',
+          DEFAULT: '#6b7f4a',
+          light: '#8a9b6e',
+          dark: '#4a6332',
         },
         // Mocha - Browns for surfaces, cards, and secondary elements
         mocha: {
-          DEFAULT: '#6B5544',
-          light: '#8B7265',
-          dark: '#4A3B2F',
+          DEFAULT: '#a08b6e',
+          light: '#b5a48e',
+          dark: '#8a7358',
         },
         // Terra - Terracotta/clay tones for warnings, highlights, and attention
         terra: {
-          DEFAULT: '#A0522D',
-          light: '#C17B56',
-          dark: '#7A3E1F',
+          DEFAULT: '#c2715a',
+          light: '#d4937f',
+          dark: '#a85a44',
         },
         // Cream - Off-white backgrounds for pages and cards
         cream: {
-          DEFAULT: '#F8F6F0',
-          dark: '#EDE9DD',
+          DEFAULT: '#faf8f4',
+          dark: '#f0eee6',
         },
         // Warm - Neutral borders, dividers, and subtle text
         warm: {
-          DEFAULT: '#D4C5B0',
-          border: '#C9B99C',
-          gray: '#8C8174',
+          DEFAULT: '#d4d0c0',
+          border: '#e8e5d8',
+          gray: '#8b8b7e',
         },
         // Text colors (no pure black/white - following design system philosophy)
         text: {
-          primary: '#2B2621',   // Almost black, warm undertone
-          secondary: '#5A544D', // Medium warm gray
-          tertiary: '#8C8174',  // Light warm gray
+          primary: '#2c2c2a',
+          secondary: '#8b8b7e',
+          tertiary: '#a09f96',
         },
       },
 
