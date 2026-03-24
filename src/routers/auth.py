@@ -355,6 +355,28 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     return TokenResponse(access_token=access_token, token_type="bearer")
 
 
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_token(current_user: User = Depends(get_current_user)):
+    """
+    Issue a new access token for the authenticated user.
+
+    Accepts a valid (non-expired) access token and returns a fresh token
+    with updated iat/exp claims. This allows the frontend to extend sessions
+    without requiring the user to re-enter credentials.
+
+    Args:
+        current_user: Authenticated user (injected by get_current_user dependency)
+
+    Returns:
+        TokenResponse: Fresh JWT access token
+
+    Raises:
+        HTTPException(401): If current token is invalid or expired
+    """
+    access_token = create_access_token(data={"sub": str(current_user.id)})
+    return TokenResponse(access_token=access_token, token_type="bearer")
+
+
 @router.get("/me", response_model=UserResponse)
 def get_current_user_profile(current_user: User = Depends(get_current_user)):
     """

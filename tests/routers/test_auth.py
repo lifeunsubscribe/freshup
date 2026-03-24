@@ -2462,3 +2462,43 @@ class TestChangePassword:
         db_session.refresh(test_user)
         from src.services.auth_service import verify_password
         assert verify_password("AnotherSecurePass456!", test_user.hashed_password) is True
+
+
+class TestTokenRefresh:
+    """Tests for POST /auth/refresh endpoint."""
+
+    def test_refresh_returns_valid_token(self, client, auth_headers, test_user):
+        """Should return a new access token that authenticates successfully."""
+        response = client.post("/auth/refresh", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "access_token" in data
+        assert data["token_type"] == "bearer"
+
+        # Verify the new token works for authentication
+        new_headers = {"Authorization": f"Bearer {data['access_token']}"}
+        me_response = client.get("/auth/me", headers=new_headers)
+        assert me_response.status_code == 200
+        assert me_response.json()["id"] == str(test_user.id)
+
+    def test_refresh_requires_auth(self, client):
+        """Should reject request without authentication."""
+        response = client.post("/auth/refresh")
+        assert response.status_code == 401
+
+    def test_refresh_rejects_invalid_token(self, client):
+        """Should reject request with invalid token."""
+        headers = {"Authorization": "Bearer invalid-token"}
+        response = client.post("/auth/refresh", headers=headers)
+        assert response.status_code == 401
+
+    def test_refresh_rejects_expired_token(self, client, test_user):
+        """Should reject request with expired token."""
+        expired_token = create_access_token(
+            data={"sub": str(test_user.id)},
+            expires_delta=timedelta(seconds=-1),
+        )
+        headers = {"Authorization": f"Bearer {expired_token}"}
+        response = client.post("/auth/refresh", headers=headers)
+        assert response.status_code == 401
