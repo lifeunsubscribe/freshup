@@ -2,6 +2,7 @@ import { usePreparedFoodList } from '../../api'
 import type { PreparedFoodListResponse } from '../../api/types'
 import SectionHeader from '../ui/SectionHeader'
 import Pill from '../ui/Pill'
+import { formatRelativeDate } from '../../utils/dateUtils'
 
 /**
  * ReadyToEat displays a horizontal carousel of prepared food items
@@ -16,23 +17,6 @@ import Pill from '../ui/Pill'
  */
 export default function ReadyToEat() {
   const { data: items, isLoading, isError, error } = usePreparedFoodList()
-
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const prepDate = new Date(date)
-    prepDate.setHours(0, 0, 0, 0)
-
-    const diffTime = today.getTime() - prepDate.getTime()
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
-
-    if (diffDays === 0) return 'today'
-    if (diffDays === 1) return 'yesterday'
-    if (diffDays <= 7) return `${diffDays}d ago`
-
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  }
 
   return (
     <section>
@@ -63,7 +47,7 @@ export default function ReadyToEat() {
             aria-label="Prepared foods carousel"
           >
             {items.map((item) => (
-              <PreparedFoodCard key={item.id} item={item} formatDate={formatDate} />
+              <PreparedFoodCard key={item.id} item={item} />
             ))}
           </div>
         )}
@@ -74,10 +58,9 @@ export default function ReadyToEat() {
 
 interface PreparedFoodCardProps {
   item: PreparedFoodListResponse
-  formatDate: (dateString: string) => string
 }
 
-function PreparedFoodCard({ item, formatDate }: PreparedFoodCardProps) {
+function PreparedFoodCard({ item }: PreparedFoodCardProps) {
   return (
     <div
       className="flex-shrink-0 w-[240px] bg-white rounded-card p-4 border border-warm-border"
@@ -102,7 +85,7 @@ function PreparedFoodCard({ item, formatDate }: PreparedFoodCardProps) {
 
         <div className="text-xs text-text-secondary">
           <p>{item.servings_remaining} {item.servings_remaining === 1 ? 'serving' : 'servings'} left</p>
-          <p>Prepared {formatDate(item.date_prepared)}</p>
+          <p>Prepared {formatRelativeDate(item.date_prepared)}</p>
         </div>
       </div>
     </div>

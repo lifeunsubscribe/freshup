@@ -8,6 +8,7 @@ import type { InventoryItemResponse, InventoryItemListResponse } from '../../api
 import { StorageLocation } from '../../api/types'
 import Pill from '../ui/Pill'
 import StorageBadge from './StorageBadge'
+import { getDaysUntilDate, formatExpirationBadge } from '../../utils/dateUtils'
 
 export interface InventoryRowProps {
   item: InventoryItemResponse | InventoryItemListResponse
@@ -39,30 +40,16 @@ export default function InventoryRow({ item }: InventoryRowProps) {
     }
   }, [errorMessage])
 
-  // Calculate days until expiration
+  // Calculate days until expiration using timezone-safe utility
   const getDaysUntilExpiration = (): number | null => {
     if (!item.expiration_date) return null
-
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    const expiryDate = new Date(item.expiration_date)
-    expiryDate.setHours(0, 0, 0, 0)
-
-    const diffTime = expiryDate.getTime() - today.getTime()
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-
-    return diffDays
+    return getDaysUntilDate(item.expiration_date)
   }
 
-  // Format expiry badge text
+  // Format expiry badge text using timezone-safe utility
   const getExpiryBadgeText = (daysUntil: number | null): string | null => {
-    if (daysUntil === null) return null
-    if (daysUntil < 0) return 'expired'
-    if (daysUntil === 0) return 'today'
-    if (daysUntil === 1) return 'tomorrow'
-    if (daysUntil <= 7) return `${daysUntil}d`
-    return null // Don't show badge if more than 7 days
+    if (daysUntil === null || !item.expiration_date) return null
+    return formatExpirationBadge(item.expiration_date)
   }
 
   // Check if item is low stock
