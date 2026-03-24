@@ -340,6 +340,7 @@ describe('Pantry', () => {
         expect(lastCall[0]).toEqual({
           storage_location: StorageLocation.FRIDGE,
           limit: 100,
+          offset: 0,
         })
       })
     })
