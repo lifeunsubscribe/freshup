@@ -81,9 +81,18 @@ export default function RecipeDetail() {
     )
   }
 
-  // Calculate servings multiplier based on base recipe (assumes 2 servings as base)
-  // Selected 2 = 1x, Selected 4 = 2x, Selected 6 = 3x
-  const servingsMultiplier = selectedServings / 2
+  // Calculate servings multiplier based on recipe's base servings
+  // Example: if base_servings=4 and selectedServings=2, multiplier=0.5 (scale down)
+  // Example: if base_servings=4 and selectedServings=6, multiplier=1.5 (scale up)
+  // Guard against division by zero - default to 1 (no scaling) if base_servings is invalid
+  const servingsMultiplier = recipe.base_servings > 0
+    ? selectedServings / recipe.base_servings
+    : (() => {
+        if (import.meta.env.DEV) {
+          console.warn(`Invalid base_servings value (${recipe.base_servings}) for recipe ${recipe.id}. Defaulting to no scaling (multiplier=1).`)
+        }
+        return 1
+      })()
 
   const cookTime = recipe.cook_time_minutes
   const prepTime = recipe.prep_time_minutes

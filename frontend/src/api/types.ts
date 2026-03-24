@@ -294,6 +294,7 @@ export interface RecipeResponse {
   tags: string[];
   cook_time_minutes: number | null;
   prep_time_minutes: number | null;
+  base_servings: number;
   hellofresh_card_id: string | null;
   variation_groups: Record<string, unknown> | null;
   nutritional_info: Record<string, unknown> | null;
@@ -308,6 +309,7 @@ export interface RecipeListResponse {
   tags: string[];
   cook_time_minutes: number | null;
   prep_time_minutes: number | null;
+  base_servings: number;
 }
 
 export interface RecipeCreate {
