@@ -87,7 +87,10 @@ export default function RecipeDetail() {
   // Guard against division by zero - default to 1 (no scaling) if base_servings is invalid
   const servingsMultiplier = recipe.base_servings > 0
     ? selectedServings / recipe.base_servings
-    : 1
+    : (() => {
+        console.warn(`Invalid base_servings value (${recipe.base_servings}) for recipe ${recipe.id}. Defaulting to no scaling (multiplier=1).`)
+        return 1
+      })()
 
   const cookTime = recipe.cook_time_minutes
   const prepTime = recipe.prep_time_minutes
