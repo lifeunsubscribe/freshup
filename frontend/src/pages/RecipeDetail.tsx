@@ -81,9 +81,10 @@ export default function RecipeDetail() {
     )
   }
 
-  // Calculate servings multiplier based on base recipe (assumes 2 servings as base)
-  // Selected 2 = 1x, Selected 4 = 2x, Selected 6 = 3x
-  const servingsMultiplier = selectedServings / 2
+  // Calculate servings multiplier based on recipe's base servings
+  // Example: if base_servings=4 and selectedServings=2, multiplier=0.5 (scale down)
+  // Example: if base_servings=4 and selectedServings=6, multiplier=1.5 (scale up)
+  const servingsMultiplier = selectedServings / recipe.base_servings
 
   const cookTime = recipe.cook_time_minutes
   const prepTime = recipe.prep_time_minutes
