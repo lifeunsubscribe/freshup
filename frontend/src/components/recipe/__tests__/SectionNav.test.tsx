@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import SectionNav from '../SectionNav'
 
@@ -14,6 +14,11 @@ describe('SectionNav', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    cleanup()
+    document.body.innerHTML = ''
   })
 
   describe('basic rendering', () => {
@@ -101,8 +106,6 @@ describe('SectionNav', () => {
         top: 380,
         behavior: 'smooth',
       })
-
-      document.body.removeChild(mockElement)
     })
 
     it('handles missing section elements gracefully', async () => {
