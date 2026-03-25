@@ -204,6 +204,8 @@ class HelloFreshCrawler:
             # This is a regular sitemap, extract URLs directly
             recipe_urls = self._extract_urls_from_sitemap(root, namespace)
 
+        # Remove duplicates that may occur when multiple sub-sitemaps contain the same URLs
+        recipe_urls = list(set(recipe_urls))
         return recipe_urls
 
     def _extract_urls_from_sitemap(self, root: ET.Element, namespace: dict) -> list[str]:
