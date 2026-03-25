@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCreateInventoryItem } from '../../api'
 import { Category, StorageLocation } from '../../api/types'
@@ -32,6 +32,18 @@ export default function ManualAddTab() {
   const [showSuccess, setShowSuccess] = useState(false)
   const [lastAddedItemName, setLastAddedItemName] = useState('')
   const [validationError, setValidationError] = useState('')
+
+  // Ref to store timeout ID for cleanup
+  const successToastTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (successToastTimeoutRef.current) {
+        clearTimeout(successToastTimeoutRef.current)
+      }
+    }
+  }, [])
 
   /**
    * Checks if form has any user input (to decide whether "Done" should submit)
@@ -105,7 +117,17 @@ export default function ManualAddTab() {
       // Show success message
       setLastAddedItemName(name.trim())
       setShowSuccess(true)
-      setTimeout(() => setShowSuccess(false), 2000)
+
+      // Clear any existing timeout before setting a new one
+      if (successToastTimeoutRef.current) {
+        clearTimeout(successToastTimeoutRef.current)
+      }
+
+      // Set new timeout and store the ID for cleanup
+      successToastTimeoutRef.current = setTimeout(() => {
+        setShowSuccess(false)
+        successToastTimeoutRef.current = null
+      }, 2000)
 
       return true
     } catch (error) {
