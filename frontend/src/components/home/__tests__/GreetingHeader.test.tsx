@@ -128,7 +128,7 @@ describe('GreetingHeader', () => {
       expect(screen.getByText(/Good evening/i)).toBeInTheDocument()
     })
 
-    it('transitions from morning to afternoon at noon boundary', () => {
+    it('transitions from morning to afternoon at noon boundary', async () => {
       vi.setSystemTime(new Date('2026-03-25T11:59:59'))
       vi.mocked(useCurrentUser).mockReturnValue({
         data: mockUser,
@@ -144,7 +144,7 @@ describe('GreetingHeader', () => {
       vi.setSystemTime(new Date('2026-03-25T12:00:00'))
       vi.advanceTimersByTime(60000) // Advance by 1 minute to trigger interval
 
-      waitFor(() => {
+      await waitFor(() => {
         expect(screen.getByText(/Good afternoon/i)).toBeInTheDocument()
       })
     })
