@@ -100,8 +100,9 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
 
     # Step 1: Check for existing recipe with this source_url (deduplication)
     try:
+        # Check both normalized URL and original URL to handle existing unnormalized data
         existing_recipe = db.query(Recipe).filter(
-            Recipe.source_url == normalized_url
+            (Recipe.source_url == normalized_url) | (Recipe.source_url == url.strip())
         ).first()
 
         if existing_recipe:
@@ -162,7 +163,6 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
             'quantity': quantity,
             'unit': parsed['unit'] or '',
             'is_optional': parsed['is_optional'],
-            'preparation': parsed['preparation'],
         })
 
     # Step 4 & 5: Create Recipe and RecipeIngredient records in transaction
@@ -216,8 +216,9 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
 
         try:
             # Query for the existing recipe that caused the integrity error
+            # Check both normalized URL and original URL to handle existing unnormalized data
             existing_recipe = db.query(Recipe).filter(
-                Recipe.source_url == normalized_url
+                (Recipe.source_url == normalized_url) | (Recipe.source_url == url.strip())
             ).first()
 
             if existing_recipe:

@@ -403,6 +403,83 @@ class TestImportRecipeFromUrl:
         assert result.recipe_id == existing_recipe_id
         mock_scrape_recipe.assert_not_called()
 
+    @patch('src.services.import_service.scrape_recipe')
+    @patch('src.services.import_service.parse_ingredient')
+    def test_integrity_error_race_condition_returns_duplicate(self, mock_parse_ingredient, mock_scrape_recipe):
+        """Test that IntegrityError from race condition returns duplicate status.
+
+        This test verifies the defensive handling of a race condition where another
+        process inserts the same URL between the deduplication check and commit.
+        """
+        # Mock database session - initially no duplicate found
+        mock_db = Mock()
+
+        # First query (deduplication check) returns None
+        initial_query_mock = Mock()
+        initial_query_mock.filter.return_value.first.return_value = None
+
+        # Mock scraper response
+        mock_scrape_recipe.return_value = ScrapedRecipeData(
+            source_url="https://example.com/recipe",
+            source_type="url_import",
+            title="Test Recipe",
+            servings=4,
+            ingredients=["1 cup flour"],
+            instructions=["Mix it"],
+        )
+
+        # Mock ingredient parser
+        mock_parse_ingredient.return_value = {
+            'quantity': 1.0,
+            'unit': 'cup',
+            'ingredient_name': 'flour',
+            'preparation': '',
+            'is_optional': False,
+            'raw_text': '1 cup flour',
+        }
+
+        # Mock existing recipe that was created by race condition
+        existing_recipe_id = uuid4()
+        mock_existing = Mock()
+        mock_existing.id = existing_recipe_id
+
+        # Second query (after IntegrityError) returns the existing recipe
+        race_condition_query_mock = Mock()
+        race_condition_query_mock.filter.return_value.first.return_value = mock_existing
+
+        # Set up query to return different results on successive calls
+        query_call_count = 0
+        def mock_query(model):
+            nonlocal query_call_count
+            query_call_count += 1
+            if query_call_count == 1:
+                return initial_query_mock
+            else:
+                return race_condition_query_mock
+
+        mock_db.query = mock_query
+
+        # Mock database to raise IntegrityError on commit (race condition)
+        from sqlalchemy.exc import IntegrityError
+        mock_db.commit.side_effect = IntegrityError("duplicate key", None, None)
+        mock_db.add = Mock()
+        mock_db.flush = Mock()
+        mock_db.rollback = Mock()
+
+        # Execute import
+        result = import_recipe_from_url("https://example.com/recipe", mock_db)
+
+        # Assertions
+        assert result.status == ImportStatus.duplicate
+        assert result.recipe_id == existing_recipe_id
+        assert result.error_message is None
+
+        # Verify rollback was called
+        mock_db.rollback.assert_called_once()
+
+        # Verify query was called twice (dedup check + post-IntegrityError check)
+        assert query_call_count == 2
+
 
 class TestImportBatch:
     """Tests for import_batch function."""
