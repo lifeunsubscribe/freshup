@@ -73,10 +73,10 @@ app = FastAPI(
 
 # CORS — must be added before rate limiting so OPTIONS preflight isn't rejected
 if settings.environment == "local":
-    # Allow connections from any device on the home LAN (localhost, 192.168.x.x, *.local)
+    # Allow connections from any device on the home LAN (localhost, 192.168.x.x, freshup.local)
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|.*\.local)(:\d+)?",
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|freshup\.local)(:\d+)?",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

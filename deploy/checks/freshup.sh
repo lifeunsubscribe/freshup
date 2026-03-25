@@ -32,14 +32,18 @@ check_freshup() {
     if [ "$NEEDS_BUILD" = true ]; then
         log "FRESHUP REBUILD: infrastructure files changed"
         docker compose -f "$REPO_DIR/docker-compose.yml" up -d --build >> "$LOGFILE" 2>&1
-    elif [ "$NEEDS_RESTART" = true ]; then
-        log "FRESHUP RESTART: source files changed"
-        docker compose -f "$REPO_DIR/docker-compose.yml" restart api >> "$LOGFILE" 2>&1
-    elif [ "$NEEDS_FRONTEND_RESTART" = true ]; then
-        log "FRESHUP RESTART FRONTEND: frontend files changed"
-        docker compose -f "$REPO_DIR/docker-compose.yml" restart frontend >> "$LOGFILE" 2>&1
     else
-        log "FRESHUP PULL ONLY: no deploy-relevant files changed"
+        if [ "$NEEDS_RESTART" = true ]; then
+            log "FRESHUP RESTART: source files changed"
+            docker compose -f "$REPO_DIR/docker-compose.yml" restart api >> "$LOGFILE" 2>&1
+        fi
+        if [ "$NEEDS_FRONTEND_RESTART" = true ]; then
+            log "FRESHUP RESTART FRONTEND: frontend files changed"
+            docker compose -f "$REPO_DIR/docker-compose.yml" restart frontend >> "$LOGFILE" 2>&1
+        fi
+        if [ "$NEEDS_RESTART" = false ] && [ "$NEEDS_FRONTEND_RESTART" = false ]; then
+            log "FRESHUP PULL ONLY: no deploy-relevant files changed"
+        fi
     fi
 
     log "FRESHUP DONE: now at $(git rev-parse --short HEAD)"
