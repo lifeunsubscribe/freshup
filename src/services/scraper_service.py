@@ -10,6 +10,7 @@ from typing import Optional
 from urllib.parse import urlparse
 import re
 import ipaddress
+import socket
 import recipe_scrapers
 from recipe_scrapers._exceptions import WebsiteNotImplementedError
 
@@ -135,17 +136,50 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
         if hostname in ('169.254.169.254', 'metadata.google.internal', 'metadata.azure.com', 'metadata.aws.amazon.com'):
             raise ScraperError("Access to cloud metadata endpoints is not allowed")
 
+        # Function to check if an IP address is safe
+        def _is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+            """Check if an IP address is safe (not private, loopback, link-local, etc.)."""
+            return not (ip.is_private or ip.is_loopback or ip.is_link_local or
+                       ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+
         # Validate IP addresses using ipaddress module for comprehensive checking
         try:
             ip = ipaddress.ip_address(hostname)
             # Block private, loopback, link-local, multicast, and reserved IP addresses
-            if (ip.is_private or ip.is_loopback or ip.is_link_local or
-                ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+            if not _is_safe_ip(ip):
                 raise ScraperError("Access to private, loopback, link-local, or reserved IP addresses is not allowed")
         except ValueError:
-            # hostname is not an IP address (it's a domain name), which is fine
-            # Additional domain name validations could be added here if needed
-            pass
+            # hostname is a domain name, not an IP address
+            # Resolve DNS to prevent DNS rebinding attacks
+            try:
+                # Get all IP addresses the hostname resolves to
+                addr_info = socket.getaddrinfo(hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+
+                # Check each resolved IP address
+                for info in addr_info:
+                    resolved_ip_str = info[4][0]
+                    # Remove IPv6 scope ID if present (e.g., "fe80::1%eth0" -> "fe80::1")
+                    if '%' in resolved_ip_str:
+                        resolved_ip_str = resolved_ip_str.split('%')[0]
+
+                    try:
+                        resolved_ip = ipaddress.ip_address(resolved_ip_str)
+                        if not _is_safe_ip(resolved_ip):
+                            raise ScraperError(
+                                f"Domain resolves to a private, loopback, link-local, or reserved IP address: {resolved_ip_str}"
+                            )
+                    except ValueError:
+                        # Should not happen with valid getaddrinfo results, but be defensive
+                        raise ScraperError(f"Invalid IP address returned from DNS: {resolved_ip_str}")
+
+            except socket.gaierror as e:
+                # DNS resolution failed - this is acceptable for valid public domains that don't exist
+                # or in test environments. The actual scraper will fail later if the domain is invalid.
+                # We only care about blocking domains that DO resolve to private IPs.
+                pass
+            except socket.timeout:
+                # DNS timeout - allow to proceed, scraper will handle timeout errors
+                pass
 
     except ScraperError:
         raise  # Re-raise our validation errors
