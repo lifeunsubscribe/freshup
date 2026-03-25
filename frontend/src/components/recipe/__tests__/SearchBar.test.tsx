@@ -183,6 +183,30 @@ describe('SearchBar', () => {
         expect(screen.queryByLabelText('Clear search')).not.toBeInTheDocument()
       })
     })
+
+    it('prevents stale debounced value after clear button is clicked', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<SearchBar value="" onChange={mockOnChange} />)
+      const input = screen.getByPlaceholderText('Search recipes...')
+
+      // Type text to trigger debounce
+      await user.type(input, 'pizza')
+
+      // Click clear button before debounce fires
+      const clearButton = screen.getByLabelText('Clear search')
+      await user.click(clearButton)
+
+      // Clear should call onChange immediately with empty string
+      expect(mockOnChange).toHaveBeenCalledTimes(1)
+      expect(mockOnChange).toHaveBeenCalledWith('')
+
+      // Advance past the original debounce delay
+      vi.advanceTimersByTime(300)
+
+      // Should still only have been called once (from clear), not with stale 'pizza' value
+      expect(mockOnChange).toHaveBeenCalledTimes(1)
+      expect(mockOnChange).toHaveBeenCalledWith('')
+    })
   })
 
   describe('accessibility', () => {
