@@ -15,6 +15,7 @@ Note: All external HTTP requests are mocked - no live site access in unit tests.
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from recipe_scrapers._exceptions import WebsiteNotImplementedError
+import requests
 
 from src.services.scraper_service import (
     scrape_recipe,
@@ -25,6 +26,14 @@ from src.services.scraper_service import (
     ParseError,
 )
 from src.schemas.scraper import ScrapedRecipeData
+
+
+def _mock_successful_http_response():
+    """Helper to create a mock HTTP response."""
+    mock_response = Mock()
+    mock_response.content = b"<html>Mock HTML content</html>"
+    mock_response.status_code = 200
+    return mock_response
 
 
 class TestDetectSourceType:
@@ -68,8 +77,15 @@ class TestScrapeRecipe:
             scrape_recipe("   ")
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_successful_scrape_hellofresh(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_successful_scrape_hellofresh(self, mock_requests_get, mock_scrape_html):
         """Test successful scraping of HelloFresh URL."""
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.content = b"<html>Mock HTML content</html>"
+        mock_response.status_code = 200
+        mock_requests_get.return_value = mock_response
+
         # Mock the scraper object returned by recipe_scrapers.scrape_html
         mock_scraper = Mock()
         mock_scraper.title.return_value = "Beef Tacos"
@@ -101,16 +117,26 @@ class TestScrapeRecipe:
         assert result.servings == 4
         assert len(result.instructions) == 3  # Split by newline
 
-        # Verify scrape_html was called correctly
+        # Verify requests.get was called with timeout
+        mock_requests_get.assert_called_once_with(url, timeout=30.0)
+
+        # Verify scrape_html was called with the fetched HTML
         mock_scrape_html.assert_called_once_with(
-            html=None,
+            html=b"<html>Mock HTML content</html>",
             org_url=url,
             wild_mode=False
         )
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_successful_scrape_kitchen_sanctuary(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_successful_scrape_kitchen_sanctuary(self, mock_requests_get, mock_scrape_html):
         """Test successful scraping of Kitchen Sanctuary URL."""
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.content = b"<html>Mock HTML content</html>"
+        mock_response.status_code = 200
+        mock_requests_get.return_value = mock_response
+
         mock_scraper = Mock()
         mock_scraper.title.return_value = "Chocolate Cake"
         mock_scraper.ingredients.return_value = ["2 cups flour", "1 cup sugar", "1/2 cup cocoa"]
@@ -134,8 +160,12 @@ class TestScrapeRecipe:
         assert result.servings == 8  # Extracted from "8 servings" string
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_wild_mode_fallback_for_unsupported_site(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_wild_mode_fallback_for_unsupported_site(self, mock_requests_get, mock_scrape_html):
         """Test that wild_mode is attempted for unsupported sites."""
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
         # First call raises WebsiteNotImplementedError (site not supported)
         # Second call (with wild_mode=True) succeeds
         mock_scraper = Mock()
@@ -168,8 +198,12 @@ class TestScrapeRecipe:
         assert mock_scrape_html.call_args_list[1][1]["wild_mode"] is True
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_unsupported_site_error_when_wild_mode_fails(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_unsupported_site_error_when_wild_mode_fails(self, mock_requests_get, mock_scrape_html):
         """Test that UnsupportedSiteError is raised when wild_mode also fails."""
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
         mock_scrape_html.side_effect = [
             WebsiteNotImplementedError("Site not supported"),
             WebsiteNotImplementedError("Wild mode also failed")
@@ -179,27 +213,53 @@ class TestScrapeRecipe:
         with pytest.raises(UnsupportedSiteError, match="Site not supported"):
             scrape_recipe(url)
 
-    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_network_error_on_connection_failure(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_network_error_on_connection_failure(self, mock_requests_get):
         """Test that NetworkError is raised on connection failures."""
-        mock_scrape_html.side_effect = ConnectionError("Failed to connect")
+        mock_requests_get.side_effect = requests.exceptions.ConnectionError("Failed to connect")
 
         url = "https://www.hellofresh.com/recipes/test"
         with pytest.raises(NetworkError, match="Network request failed"):
             scrape_recipe(url)
 
-    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_network_error_on_timeout(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_network_error_on_timeout(self, mock_requests_get):
         """Test that NetworkError is raised on timeout."""
-        mock_scrape_html.side_effect = TimeoutError("Request timed out")
+        mock_requests_get.side_effect = requests.exceptions.Timeout("Request timed out")
 
         url = "https://www.hellofresh.com/recipes/test"
-        with pytest.raises(NetworkError, match="Request timed out"):
+        with pytest.raises(NetworkError, match="Request timed out after 30.0 seconds"):
             scrape_recipe(url)
 
+    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service.get_settings')
+    def test_uses_configured_timeout(self, mock_get_settings, mock_requests_get):
+        """Test that the configured timeout value is used for HTTP requests."""
+        # Mock settings with custom timeout
+        mock_settings = Mock()
+        mock_settings.scraper_request_timeout = 45.0
+        mock_get_settings.return_value = mock_settings
+
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
+        # Trigger a timeout to verify the timeout value is included in error message
+        mock_requests_get.side_effect = requests.exceptions.Timeout("Connection timeout")
+
+        url = "https://www.example.com/recipe"
+        with pytest.raises(NetworkError, match="Request timed out after 45.0 seconds"):
+            scrape_recipe(url)
+
+        # Verify requests.get was called with the configured timeout
+        mock_requests_get.assert_called_once_with(url, timeout=45.0)
+
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_parse_error_on_data_extraction_failure(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_parse_error_on_data_extraction_failure(self, mock_requests_get, mock_scrape_html):
         """Test that ParseError is raised when data extraction fails."""
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
         mock_scraper = Mock()
         # Make all methods raise exceptions to trigger ParseError
         mock_scraper.title.side_effect = Exception("Parse failed")
@@ -225,8 +285,12 @@ class TestScrapeRecipe:
         assert result.ingredients == []
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_scraper_error_on_generic_failure(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_scraper_error_on_generic_failure(self, mock_requests_get, mock_scrape_html):
         """Test that ScraperError is raised on generic exceptions."""
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
         mock_scrape_html.side_effect = Exception("Generic error")
 
         url = "https://www.hellofresh.com/recipes/test"
@@ -234,8 +298,12 @@ class TestScrapeRecipe:
             scrape_recipe(url)
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_handles_missing_optional_fields(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_handles_missing_optional_fields(self, mock_requests_get, mock_scrape_html):
         """Test that missing optional fields are handled gracefully."""
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
         mock_scraper = Mock()
         mock_scraper.title.return_value = "Minimal Recipe"
         mock_scraper.ingredients.return_value = []
@@ -262,8 +330,12 @@ class TestScrapeRecipe:
         assert result.servings is None
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_instructions_string_split_into_list(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_instructions_string_split_into_list(self, mock_requests_get, mock_scrape_html):
         """Test that instruction strings are split into lists."""
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
         mock_scraper = Mock()
         mock_scraper.title.return_value = "Recipe"
         mock_scraper.ingredients.return_value = []
@@ -288,8 +360,12 @@ class TestScrapeRecipe:
         assert result.instructions[2] == "Step 3: Finish"
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_yields_string_extraction(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_yields_string_extraction(self, mock_requests_get, mock_scrape_html):
         """Test that servings are extracted from yields strings."""
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
         mock_scraper = Mock()
         mock_scraper.title.return_value = "Recipe"
         mock_scraper.ingredients.return_value = []
@@ -310,8 +386,15 @@ class TestScrapeRecipe:
         assert result.servings == 6
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    def test_url_whitespace_trimming(self, mock_scrape_html):
+    @patch('src.services.scraper_service.requests.get')
+    def test_url_whitespace_trimming(self, mock_requests_get, mock_scrape_html):
         """Test that URL whitespace is trimmed."""
+        # Mock HTTP response
+        mock_response = Mock()
+        mock_response.content = b"<html>Mock HTML content</html>"
+        mock_response.status_code = 200
+        mock_requests_get.return_value = mock_response
+
         mock_scraper = Mock()
         mock_scraper.title.return_value = "Recipe"
         mock_scraper.ingredients.return_value = []
@@ -332,8 +415,13 @@ class TestScrapeRecipe:
 
         # Verify the trimmed URL is used
         assert result.source_url == "https://www.hellofresh.com/recipes/test"
+
+        # Verify requests.get was called with trimmed URL
+        mock_requests_get.assert_called_once_with("https://www.hellofresh.com/recipes/test", timeout=30.0)
+
+        # Verify scrape_html was called with the fetched HTML
         mock_scrape_html.assert_called_once_with(
-            html=None,
+            html=b"<html>Mock HTML content</html>",
             org_url="https://www.hellofresh.com/recipes/test",
             wild_mode=False
         )
@@ -479,8 +567,12 @@ class TestSsrfProtection:
         with pytest.raises(ScraperError, match="Invalid URL: missing hostname"):
             scrape_recipe("https://")
 
-    def test_allows_valid_public_urls(self):
+    @patch('src.services.scraper_service.requests.get')
+    def test_allows_valid_public_urls(self, mock_requests_get):
         """Test that valid public URLs are allowed through SSRF checks."""
+        # Mock requests to simulate network errors (we only test SSRF validation)
+        mock_requests_get.side_effect = requests.exceptions.ConnectionError("Simulated network error")
+
         # These should pass SSRF validation (though they'll fail at scraping without mocks)
         # We're only testing that SSRF validation doesn't block them
         test_urls = [
@@ -496,6 +588,10 @@ class TestSsrfProtection:
             try:
                 # We expect these to fail at the scraping stage, not SSRF validation
                 scrape_recipe(url)
+            except NetworkError:
+                # NetworkError is expected (simulated network failure)
+                # The important thing is it passed SSRF validation
+                pass
             except ScraperError as e:
                 # If it's an SSRF-related error, the test should fail
                 error_msg = str(e).lower()
@@ -504,9 +600,6 @@ class TestSsrfProtection:
                 assert "metadata" not in error_msg, f"URL {url} was incorrectly blocked as metadata"
                 assert "scheme" not in error_msg, f"URL {url} was incorrectly blocked for scheme"
                 assert "hostname" not in error_msg, f"URL {url} was incorrectly blocked for hostname"
-            except Exception:
-                # Other exceptions (NetworkError, etc.) are fine - we only care about SSRF validation
-                pass
 
     def test_handles_urls_with_ports(self):
         """Test that SSRF protection works correctly with URLs containing ports."""

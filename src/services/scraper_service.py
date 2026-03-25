@@ -11,11 +11,13 @@ from urllib.parse import urlparse
 import re
 import ipaddress
 import socket
+import requests
 import recipe_scrapers
 from recipe_scrapers._exceptions import WebsiteNotImplementedError
 
 from src.schemas.scraper import ScrapedRecipeData
 from src.db.models.recipe import SourceType
+from src.config import get_settings
 
 
 # Custom exceptions for scraping errors
@@ -186,10 +188,29 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
     except Exception as e:
         raise ScraperError(f"Invalid URL: {str(e)}")
 
+    # Fetch HTML with timeout configuration to prevent indefinite hangs
+    # The recipe_scrapers library doesn't handle HTTP timeouts directly, so we
+    # fetch the HTML ourselves using requests with a configurable timeout
+    settings = get_settings()
+    timeout = settings.scraper_request_timeout
+
+    try:
+        # Fetch the HTML content with timeout
+        response = requests.get(url, timeout=timeout)
+        response.raise_for_status()  # Raise exception for 4xx/5xx status codes
+        html_content = response.content
+    except requests.exceptions.Timeout as e:
+        raise NetworkError(f"Request timed out after {timeout} seconds: {str(e)}")
+    except requests.exceptions.ConnectionError as e:
+        raise NetworkError(f"Network request failed: {str(e)}")
+    except requests.exceptions.RequestException as e:
+        # Catch other requests-related errors (like HTTPError from raise_for_status)
+        raise NetworkError(f"HTTP request failed: {str(e)}")
+
     try:
         # Attempt to scrape the recipe
         scraper = recipe_scrapers.scrape_html(
-            html=None,
+            html=html_content,
             org_url=url,
             wild_mode=False  # Try site-specific scraper first
         )
@@ -197,7 +218,7 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
         # Site not supported - try wild_mode (JSON-LD extraction)
         try:
             scraper = recipe_scrapers.scrape_html(
-                html=None,
+                html=html_content,
                 org_url=url,
                 wild_mode=True
             )
@@ -207,10 +228,6 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
             )
         except Exception as e:
             raise ParseError(f"Failed to parse recipe in wild_mode: {str(e)}")
-    except ConnectionError as e:
-        raise NetworkError(f"Network request failed: {str(e)}")
-    except TimeoutError as e:
-        raise NetworkError(f"Request timed out: {str(e)}")
     except Exception as e:
         # Catch other exceptions from recipe-scrapers
         raise ScraperError(f"Failed to scrape recipe: {str(e)}")

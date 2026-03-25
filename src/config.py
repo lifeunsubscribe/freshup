@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     redis_health_check_interval: int = Field(default=30, ge=0)  # Health check interval (seconds, 0=disabled)
     redis_retry_on_timeout: bool = True  # Retry operations that timeout
 
+    # Recipe Scraper Configuration
+    # Timeout for HTTP requests when scraping recipe URLs
+    scraper_request_timeout: float = Field(default=30.0, gt=0)  # Timeout in seconds (default: 30s)
+
 
 @lru_cache
 def get_settings() -> Settings:
