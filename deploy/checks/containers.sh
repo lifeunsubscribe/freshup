@@ -7,6 +7,7 @@ REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 EXPECTED_CONTAINERS=(
     "freshup-api"
     "freshup-minio"
+    "freshup-frontend"
 )
 
 check_containers() {

@@ -23,9 +23,11 @@ check_freshup() {
 
     local NEEDS_BUILD=false
     local NEEDS_RESTART=false
+    local NEEDS_FRONTEND_RESTART=false
 
     echo "$CHANGED" | grep -qE '^(Dockerfile|requirements\.txt|docker-compose\.yml)' && NEEDS_BUILD=true
     echo "$CHANGED" | grep -qE '^src/' && NEEDS_RESTART=true
+    echo "$CHANGED" | grep -qE '^frontend/' && NEEDS_FRONTEND_RESTART=true
 
     if [ "$NEEDS_BUILD" = true ]; then
         log "FRESHUP REBUILD: infrastructure files changed"
@@ -33,6 +35,9 @@ check_freshup() {
     elif [ "$NEEDS_RESTART" = true ]; then
         log "FRESHUP RESTART: source files changed"
         docker compose -f "$REPO_DIR/docker-compose.yml" restart api >> "$LOGFILE" 2>&1
+    elif [ "$NEEDS_FRONTEND_RESTART" = true ]; then
+        log "FRESHUP RESTART FRONTEND: frontend files changed"
+        docker compose -f "$REPO_DIR/docker-compose.yml" restart frontend >> "$LOGFILE" 2>&1
     else
         log "FRESHUP PULL ONLY: no deploy-relevant files changed"
     fi
