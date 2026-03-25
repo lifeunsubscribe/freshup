@@ -25,6 +25,7 @@ export default function SectionHeader({ children, linkTo, linkText = 'See all' }
         <Link
           to={linkTo}
           className="flex items-center gap-1 text-xs text-olive hover:text-olive-dark transition-colors"
+          aria-label={`${linkText} ${children}`}
         >
           {linkText}
           <ChevronRight size={14} />
