@@ -18,9 +18,13 @@ export interface InventoryRowProps {
 /**
  * InventoryRow component for pantry category lists and snack checklists
  *
- * Features:
- * - Item name: 14px primary text
- * - Expiry badge: relative time ("3d", "tomorrow", "today") in mocha pill
+ * Design System Alignment (Section 5):
+ * - Item name: 13px/500 weight (font-medium)
+ * - Expiration color coding:
+ *   - Green >7 days (healthy)
+ *   - Mocha 3-7 days (attention)
+ *   - Terra <3 days (urgent)
+ * - Expiry badge: relative time ("3d", "tomorrow", "today")
  * - Low stock badge: "low" in terra pill (when below minimum_threshold)
  * - Quantity: right-aligned secondary text (e.g., "2.5 lb")
  * - StorageBadge: tappable, cycles through fridge/freezer/pantry/counter
@@ -59,6 +63,17 @@ export default function InventoryRow({ item }: InventoryRowProps) {
   const shouldShowQuickActions = (): boolean => {
     const daysUntil = getDaysUntilExpiration()
     return daysUntil !== null && daysUntil >= 0 && daysUntil <= 3
+  }
+
+  // Get expiration color coding per Design System Section 5:
+  // Green >7d, Mocha 3-7d, Terra <3d, Terra for expired (food safety)
+  const getExpirationColor = (): string => {
+    const daysUntil = getDaysUntilExpiration()
+    if (daysUntil === null) return 'text-text-primary'
+    if (daysUntil < 0) return 'text-terra' // Expired items (urgent, food safety)
+    if (daysUntil <= 3) return 'text-terra' // Urgent: <3 days
+    if (daysUntil <= 7) return 'text-mocha' // Attention: 3-7 days
+    return 'text-olive' // Healthy: >7 days
   }
 
   // Handle "Ate it" action
@@ -105,10 +120,10 @@ export default function InventoryRow({ item }: InventoryRowProps) {
     )
   }
 
-  const daysUntilExpiration = getDaysUntilExpiration()
   const expiryBadgeText = getExpiryBadgeText()
   const showQuickActions = shouldShowQuickActions()
   const lowStock = isLowStock()
+  const expirationColor = getExpirationColor()
 
   // Check if any mutation is pending
   const isPending =
@@ -122,8 +137,8 @@ export default function InventoryRow({ item }: InventoryRowProps) {
         {/* Item name and badges */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Item name: 14px primary text */}
-            <span className="text-[14px] font-normal text-text-primary">
+            {/* Item name: 13px/500 weight with expiration color coding */}
+            <span className={`text-[13px] font-medium ${expirationColor}`}>
               {item.name}
             </span>
 

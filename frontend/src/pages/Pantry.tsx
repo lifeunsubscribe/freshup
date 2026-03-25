@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import PageContainer from '../components/layout/PageContainer'
 import { PageTitle } from '../components/ui'
 import StorageTabs from '../components/pantry/StorageTabs'
@@ -166,12 +167,24 @@ export default function Pantry() {
               <CategoryGroup key={category} category={category} items={items} />
             ))}
           </div>
+        ) : allItems.length === 0 ? (
+          /* Empty state: "Your pantry is empty" with CTA to "I shopped" flow */
+          <div className="bg-white rounded-card border border-warm-border p-8 text-center">
+            <p className="text-text-primary text-base font-medium mb-4">
+              Your pantry is empty
+            </p>
+            <Link
+              to="/shopped"
+              className="inline-block px-6 py-2.5 bg-olive text-cream text-sm font-medium rounded-button hover:bg-olive-dark transition-colors"
+            >
+              I shopped
+            </Link>
+          </div>
         ) : (
+          /* All items are expiring - show message */
           <div className="bg-white rounded-card border border-warm-border p-6">
             <p className="text-text-secondary">
-              {allItems.length === 0
-                ? 'No items in pantry yet. Add items to get started!'
-                : 'All items are expiring soon. Check the triage sections above.'}
+              All items are expiring soon. Check the triage sections above.
             </p>
           </div>
         )}
