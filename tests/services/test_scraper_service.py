@@ -117,8 +117,13 @@ class TestScrapeRecipe:
         assert result.servings == 4
         assert len(result.instructions) == 3  # Split by newline
 
-        # Verify requests.get was called with timeout
-        mock_requests_get.assert_called_once_with(url, timeout=30.0)
+        # Verify requests.get was called with timeout, headers, and allow_redirects=False
+        # The URL will be an IP address due to SSRF protection, with Host header set
+        mock_requests_get.assert_called_once()
+        call_args = mock_requests_get.call_args
+        assert call_args[1]['timeout'] == 30.0
+        assert call_args[1]['headers'] == {'Host': 'www.hellofresh.com'}
+        assert call_args[1]['allow_redirects'] is False
 
         # Verify scrape_html was called with the fetched HTML
         mock_scrape_html.assert_called_once_with(
@@ -250,8 +255,13 @@ class TestScrapeRecipe:
         with pytest.raises(NetworkError, match="Request timed out after 45.0 seconds"):
             scrape_recipe(url)
 
-        # Verify requests.get was called with the configured timeout
-        mock_requests_get.assert_called_once_with(url, timeout=45.0)
+        # Verify requests.get was called with the configured timeout, headers, and allow_redirects=False
+        # The URL will be an IP address due to SSRF protection, with Host header set
+        mock_requests_get.assert_called_once()
+        call_args = mock_requests_get.call_args
+        assert call_args[1]['timeout'] == 45.0
+        assert call_args[1]['headers'] == {'Host': 'www.example.com'}
+        assert call_args[1]['allow_redirects'] is False
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
     @patch('src.services.scraper_service.requests.get')
@@ -416,8 +426,12 @@ class TestScrapeRecipe:
         # Verify the trimmed URL is used
         assert result.source_url == "https://www.hellofresh.com/recipes/test"
 
-        # Verify requests.get was called with trimmed URL
-        mock_requests_get.assert_called_once_with("https://www.hellofresh.com/recipes/test", timeout=30.0)
+        # Verify requests.get was called with trimmed URL (as IP due to SSRF protection)
+        mock_requests_get.assert_called_once()
+        call_args = mock_requests_get.call_args
+        assert call_args[1]['timeout'] == 30.0
+        assert call_args[1]['headers'] == {'Host': 'www.hellofresh.com'}
+        assert call_args[1]['allow_redirects'] is False
 
         # Verify scrape_html was called with the fetched HTML
         mock_scrape_html.assert_called_once_with(
