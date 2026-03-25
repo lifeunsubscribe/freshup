@@ -8,6 +8,7 @@ import LowStockSection from '../components/pantry/LowStockSection'
 import CategoryGroup from '../components/pantry/CategoryGroup'
 import { useInventoryList, useLowStockAlerts } from '../api'
 import { StorageLocation, type InventoryItemListResponse } from '../api/types'
+import { getDaysUntilDate } from '../utils/dateUtils'
 
 type StorageTab = 'all' | StorageLocation
 
@@ -71,14 +72,16 @@ export default function Pantry() {
   const { data: lowStockItems = [], isLoading: isLoadingLowStock, error: lowStockError } = useLowStockAlerts()
 
   // Calculate expiring items (within 3 days)
+  // Uses timezone-safe date utilities to avoid off-by-one errors
   const expiringItems = useMemo(() => {
-    const now = new Date()
-    const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000)
-
     return allItems.filter((item) => {
       if (!item.expiration_date) return false
-      const expiryDate = new Date(item.expiration_date)
-      return expiryDate >= now && expiryDate <= threeDaysFromNow
+
+      // getDaysUntilDate returns positive for future dates, negative for past dates
+      const daysUntil = getDaysUntilDate(item.expiration_date)
+
+      // Include items expiring today (0) through 3 days from now (inclusive)
+      return daysUntil >= 0 && daysUntil <= 3
     })
   }, [allItems])
 
