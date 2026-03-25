@@ -7,5 +7,6 @@ rate limiting and robots.txt compliance.
 """
 
 from src.services.crawlers.hellofresh_crawler import HelloFreshCrawler
+from src.services.crawlers.kitchen_sanctuary_crawler import KitchenSanctuaryCrawler
 
-__all__ = ['HelloFreshCrawler']
+__all__ = ['HelloFreshCrawler', 'KitchenSanctuaryCrawler']
