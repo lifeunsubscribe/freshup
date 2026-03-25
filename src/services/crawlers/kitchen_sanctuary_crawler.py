@@ -115,7 +115,7 @@ class KitchenSanctuaryCrawler:
             logger.info(f"Discovered {len(urls)} URLs from sitemap.xml")
             return urls
         except Exception as e:
-            logger.error(f"Sitemap strategy failed: {e}")
+            logger.exception(f"Sitemap strategy failed: {e}")
             raise
 
     def _discover_from_sitemap(self, max_pages: Optional[int] = None) -> list[str]:
