@@ -111,3 +111,9 @@ export {
   useDeleteSubstitution,
   substitutionKeys,
 } from './hooks/useSubstitutions';
+
+// User hooks
+export {
+  useUsers,
+  usersKeys,
+} from './hooks/useUsers';
