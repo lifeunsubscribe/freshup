@@ -848,4 +848,148 @@ describe('Pantry', () => {
       expect(screen.getByText('produce')).toBeInTheDocument()
     })
   })
+
+  describe('Timezone Safety', () => {
+    it('correctly calculates expiring items using date-only strings without timezone conversion', () => {
+      // Use date-only format (YYYY-MM-DD) as backend typically sends
+      const today = new Date()
+      const todayDateStr = today.toISOString().split('T')[0]
+
+      const tomorrow = new Date(today)
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      const tomorrowDateStr = tomorrow.toISOString().split('T')[0]
+
+      const threeDaysFromNow = new Date(today)
+      threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3)
+      const threeDaysDateStr = threeDaysFromNow.toISOString().split('T')[0]
+
+      const fourDaysFromNow = new Date(today)
+      fourDaysFromNow.setDate(fourDaysFromNow.getDate() + 4)
+      const fourDaysDateStr = fourDaysFromNow.toISOString().split('T')[0]
+
+      const items = [
+        createMockInventoryItem({
+          id: 'item-today',
+          name: 'Expires Today',
+          expiration_date: todayDateStr,
+        }),
+        createMockInventoryItem({
+          id: 'item-tomorrow',
+          name: 'Expires Tomorrow',
+          expiration_date: tomorrowDateStr,
+        }),
+        createMockInventoryItem({
+          id: 'item-3days',
+          name: 'Expires in 3 Days',
+          expiration_date: threeDaysDateStr,
+        }),
+        createMockInventoryItem({
+          id: 'item-4days',
+          name: 'Expires in 4 Days',
+          expiration_date: fourDaysDateStr,
+        }),
+      ]
+
+      vi.mocked(useInventoryList).mockReturnValue({
+        data: items,
+        isLoading: false,
+        error: null,
+      } as any)
+
+      vi.mocked(useLowStockAlerts).mockReturnValue({
+        data: [],
+        isLoading: false,
+        error: null,
+      } as any)
+
+      renderWithProviders(<Pantry />)
+
+      // Should include items expiring today through 3 days from now (4 items)
+      // Should exclude item expiring in 4 days
+      expect(screen.getByText('Expiring Soon: 3')).toBeInTheDocument()
+    })
+
+    it('handles date-only strings at midnight without off-by-one errors', () => {
+      // Test at 11:59 PM (edge case near midnight)
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(2026, 2, 20, 23, 59, 0)) // March 20, 2026 at 11:59 PM
+
+      const items = [
+        createMockInventoryItem({
+          id: 'item-1',
+          name: 'Expires Today',
+          expiration_date: '2026-03-20', // Today
+        }),
+        createMockInventoryItem({
+          id: 'item-2',
+          name: 'Expires Tomorrow',
+          expiration_date: '2026-03-21', // Tomorrow
+        }),
+        createMockInventoryItem({
+          id: 'item-3',
+          name: 'Expired Yesterday',
+          expiration_date: '2026-03-19', // Yesterday
+        }),
+      ]
+
+      vi.mocked(useInventoryList).mockReturnValue({
+        data: items,
+        isLoading: false,
+        error: null,
+      } as any)
+
+      vi.mocked(useLowStockAlerts).mockReturnValue({
+        data: [],
+        isLoading: false,
+        error: null,
+      } as any)
+
+      renderWithProviders(<Pantry />)
+
+      // Even at 11:59 PM, should correctly identify:
+      // - Today's item as expiring (not expired)
+      // - Tomorrow's item as expiring
+      // - Yesterday's item as NOT expiring (already expired)
+      expect(screen.getByText('Expiring Soon: 2')).toBeInTheDocument()
+
+      vi.useRealTimers()
+    })
+
+    it('handles ISO datetime strings with timezone info correctly', () => {
+      const items = [
+        createMockInventoryItem({
+          id: 'item-1',
+          name: 'Expires Today',
+          expiration_date: '2026-03-20T00:00:00Z', // UTC midnight on March 20
+        }),
+        createMockInventoryItem({
+          id: 'item-2',
+          name: 'Expires Today Later',
+          expiration_date: '2026-03-20T23:59:59Z', // UTC almost midnight March 20
+        }),
+      ]
+
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(2026, 2, 20, 10, 0, 0)) // March 20, 2026 at 10 AM local
+
+      vi.mocked(useInventoryList).mockReturnValue({
+        data: items,
+        isLoading: false,
+        error: null,
+      } as any)
+
+      vi.mocked(useLowStockAlerts).mockReturnValue({
+        data: [],
+        isLoading: false,
+        error: null,
+      } as any)
+
+      renderWithProviders(<Pantry />)
+
+      // Both items should be treated as expiring on March 20 (date portion only)
+      expect(screen.getByText('Expiring Soon: 2')).toBeInTheDocument()
+
+      vi.useRealTimers()
+    })
+  })
 })
