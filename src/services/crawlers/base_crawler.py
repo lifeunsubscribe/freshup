@@ -20,7 +20,7 @@ from urllib3.util.retry import Retry
 logger = logging.getLogger(__name__)
 
 # Polite User-Agent header for crawler identification
-USER_AGENT = "FreshUp-Crawler/1.0 (+https://github.com/yourusername/freshup)"
+USER_AGENT = "FreshUp-Crawler/1.0 (+https://github.com/freshup/freshup)"
 
 
 class RateLimiter:

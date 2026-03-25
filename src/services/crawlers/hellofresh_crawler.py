@@ -49,9 +49,22 @@ class HelloFreshCrawler:
         Args:
             base_url: Base URL for HelloFresh (default: https://www.hellofresh.com)
             rate_limit_delay: Default delay between requests in seconds (default: 2.0)
+
+        Raises:
+            ValueError: If base_url is invalid or malformed
         """
+        # Validate base_url
+        if not base_url or not isinstance(base_url, str):
+            raise ValueError("base_url must be a non-empty string")
+
+        parsed = urlparse(base_url)
+        if not parsed.scheme or parsed.scheme not in ['http', 'https']:
+            raise ValueError(f"base_url must have http or https scheme, got: {base_url}")
+        if not parsed.netloc:
+            raise ValueError(f"base_url must include a valid domain, got: {base_url}")
+
         self.base_url = base_url.rstrip('/')
-        self.domain = urlparse(base_url).netloc
+        self.domain = parsed.netloc
 
         # Initialize utilities
         self.session = create_http_session(retries=3, backoff_factor=0.5, timeout=10)
@@ -141,8 +154,15 @@ class HelloFreshCrawler:
         response = self.session.get(sitemap_url, timeout=10)
         response.raise_for_status()
 
-        # Parse XML
-        root = ET.fromstring(response.content)
+        # Parse XML with error handling for invalid/empty content
+        try:
+            if not response.content:
+                raise ValueError("Sitemap response is empty")
+            root = ET.fromstring(response.content)
+        except ET.ParseError as e:
+            raise ValueError(f"Failed to parse sitemap XML from {sitemap_url}: {e}")
+        except Exception as e:
+            raise ValueError(f"Error processing sitemap from {sitemap_url}: {e}")
 
         # Handle sitemap index (sitemaps that link to other sitemaps)
         recipe_urls = []
@@ -167,8 +187,15 @@ class HelloFreshCrawler:
                         recipe_response = self.session.get(recipe_sitemap_url, timeout=10)
                         recipe_response.raise_for_status()
 
-                        # Parse recipe sitemap
-                        recipe_root = ET.fromstring(recipe_response.content)
+                        # Parse recipe sitemap with error handling
+                        try:
+                            if not recipe_response.content:
+                                raise ValueError(f"Recipe sitemap response is empty: {recipe_sitemap_url}")
+                            recipe_root = ET.fromstring(recipe_response.content)
+                        except ET.ParseError as e:
+                            raise ValueError(f"Failed to parse recipe sitemap XML from {recipe_sitemap_url}: {e}")
+                        except Exception as e:
+                            raise ValueError(f"Error processing recipe sitemap from {recipe_sitemap_url}: {e}")
                         urls = self._extract_urls_from_sitemap(recipe_root, namespace)
                         recipe_urls.extend(urls)
                     else:
