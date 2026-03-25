@@ -1,7 +1,8 @@
 import { usePurchaseGroceryItem, useUnpurchaseGroceryItem } from '../../api'
 import Pill from '../ui/Pill'
+import ErrorBanner from '../ui/ErrorBanner'
 import type { GroceryItemResponse } from '../../api/types'
-import { useState, useEffect } from 'react'
+import { useMutationErrorHandler } from '../../utils/mutationErrorUtils'
 
 export interface GroceryItemProps {
   item: GroceryItemResponse
@@ -23,36 +24,22 @@ export interface GroceryItemProps {
 export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
   const purchaseMutation = usePurchaseGroceryItem()
   const unpurchaseMutation = useUnpurchaseGroceryItem()
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  // Auto-dismiss error after 5 seconds
-  useEffect(() => {
-    if (errorMessage) {
-      const timer = setTimeout(() => setErrorMessage(null), 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [errorMessage])
+  const { errorMessage, clearError, handleError } = useMutationErrorHandler()
 
   const handleCheckboxClick = () => {
     // Clear any existing error immediately when user retries to prevent stale error messages
-    setErrorMessage(null)
+    clearError()
 
     // Mutations use optimistic updates configured in the hooks
     // (see useGrocery.ts lines 200-241 for purchase, 257-286 for unpurchase)
     // Error handling is done via onError callbacks to avoid timing issues
     if (item.purchased) {
       unpurchaseMutation.mutate(item.id, {
-        onError: (error) => {
-          console.error('Failed to unmark grocery item:', error)
-          setErrorMessage('Failed to unmark item. Please try again.')
-        },
+        onError: (error) => handleError(error, 'Failed to unmark item. Please try again.'),
       })
     } else {
       purchaseMutation.mutate(item.id, {
-        onError: (error) => {
-          console.error('Failed to mark grocery item as purchased:', error)
-          setErrorMessage('Failed to mark item as purchased. Please try again.')
-        },
+        onError: (error) => handleError(error, 'Failed to mark item as purchased. Please try again.'),
       })
     }
   }
@@ -165,14 +152,7 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
       </div>
 
       {/* Error message banner */}
-      {errorMessage && (
-        <div
-          className="mt-1 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-sm text-red-800"
-          role="alert"
-        >
-          {errorMessage}
-        </div>
-      )}
+      <ErrorBanner message={errorMessage} />
     </div>
   )
 }
