@@ -48,8 +48,11 @@ export default function ManualAddTab() {
       return 'Item name is required'
     }
     const qtyNum = parseFloat(quantity)
-    if (isNaN(qtyNum) || qtyNum <= 0) {
+    if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
       return 'Quantity must be greater than 0'
+    }
+    if (qtyNum > 999999) {
+      return 'Quantity must be less than 1,000,000'
     }
     if (!unit.trim()) {
       return 'Unit is required'
@@ -106,8 +109,9 @@ export default function ManualAddTab() {
 
       return true
     } catch (error) {
-      // Error is handled by mutation's error state
+      // Provide user feedback for submission failure
       console.error('Failed to create inventory item:', error)
+      setValidationError('Failed to add item. Please try again.')
       return false
     }
   }
@@ -331,7 +335,6 @@ export default function ManualAddTab() {
           <div className="flex gap-3">
             <button
               type="submit"
-              onClick={handleAddAnother}
               disabled={createInventoryMutation.isPending}
               className="flex-1 py-3 bg-white text-olive border-2 border-olive rounded-button font-medium hover:bg-cream transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
