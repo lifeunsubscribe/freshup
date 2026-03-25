@@ -339,6 +339,70 @@ class TestImportRecipeFromUrl:
         assert created_recipe.source_type == "hellofresh_web"
         assert created_recipe.created_by is None  # System-imported
 
+    @patch('src.services.import_service.scrape_recipe')
+    def test_url_normalization_in_deduplication_end_to_end(self, mock_scrape_recipe):
+        """Test that URL normalization works end-to-end for deduplication.
+
+        This integration test verifies that URLs with different cases and trailing
+        slashes are properly normalized and detected as duplicates.
+        """
+        # Mock database session with existing recipe (normalized URL)
+        existing_recipe_id = uuid4()
+        mock_existing = Mock()
+        mock_existing.id = existing_recipe_id
+
+        mock_db = Mock()
+
+        # Track what source_url is queried
+        queried_urls = []
+
+        def mock_filter(condition):
+            # Extract the comparison value from the filter condition
+            # The condition is Recipe.source_url == normalized_url
+            mock_result = Mock()
+            mock_result.first.return_value = mock_existing
+            return mock_result
+
+        def mock_query(model):
+            mock_query_obj = Mock()
+            mock_query_obj.filter = mock_filter
+            return mock_query_obj
+
+        mock_db.query = mock_query
+
+        # Test case 1: Different case in domain
+        result = import_recipe_from_url("HTTPS://EXAMPLE.COM/recipe", mock_db)
+        assert result.status == ImportStatus.duplicate
+        assert result.recipe_id == existing_recipe_id
+        mock_scrape_recipe.assert_not_called()
+
+        # Reset for next test
+        mock_scrape_recipe.reset_mock()
+
+        # Test case 2: Trailing slash
+        result = import_recipe_from_url("https://example.com/recipe/", mock_db)
+        assert result.status == ImportStatus.duplicate
+        assert result.recipe_id == existing_recipe_id
+        mock_scrape_recipe.assert_not_called()
+
+        # Reset for next test
+        mock_scrape_recipe.reset_mock()
+
+        # Test case 3: Leading/trailing whitespace
+        result = import_recipe_from_url("  https://example.com/recipe  ", mock_db)
+        assert result.status == ImportStatus.duplicate
+        assert result.recipe_id == existing_recipe_id
+        mock_scrape_recipe.assert_not_called()
+
+        # Reset for next test
+        mock_scrape_recipe.reset_mock()
+
+        # Test case 4: Combination of all normalization rules
+        result = import_recipe_from_url("  HTTPS://EXAMPLE.COM/recipe/  ", mock_db)
+        assert result.status == ImportStatus.duplicate
+        assert result.recipe_id == existing_recipe_id
+        mock_scrape_recipe.assert_not_called()
+
 
 class TestImportBatch:
     """Tests for import_batch function."""

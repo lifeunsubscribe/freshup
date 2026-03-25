@@ -11,7 +11,7 @@ import time
 from typing import Optional
 from urllib.parse import urlparse
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.services.scraper_service import scrape_recipe, ScraperError
 from src.services.ingredient_parser import parse_ingredient
@@ -209,6 +209,38 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
             source_url=url,
         )
 
+    except IntegrityError as e:
+        # Handle race condition: another process inserted same URL between check and commit
+        db.rollback()
+        logger.info(f"IntegrityError during import, checking for duplicate: {e}")
+
+        try:
+            # Query for the existing recipe that caused the integrity error
+            existing_recipe = db.query(Recipe).filter(
+                Recipe.source_url == normalized_url
+            ).first()
+
+            if existing_recipe:
+                logger.info(f"Recipe already exists for URL (race condition): {normalized_url}")
+                return ImportResult(
+                    status=ImportStatus.duplicate,
+                    recipe_id=existing_recipe.id,
+                    warnings=[],
+                    error_message=None,
+                    source_url=url,
+                )
+        except SQLAlchemyError as query_error:
+            logger.error(f"Error querying for duplicate after IntegrityError: {query_error}")
+
+        # If we can't find the duplicate or there's another integrity issue, return error
+        return ImportResult(
+            status=ImportStatus.error,
+            recipe_id=None,
+            warnings=warnings,
+            error_message=f"Database integrity error: {str(e)}",
+            source_url=url,
+        )
+
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error during recipe import: {e}", exc_info=True)
@@ -255,6 +287,7 @@ def import_batch(
         - Rate limiting applies between ALL imports, not just successful ones
         - Database session is reused across all imports (ensure proper error handling)
         - No delay is applied after the final import
+        - Invalid URLs (empty, whitespace-only, or malformed) are skipped with error status
     """
     results = []
     imported_count = 0
@@ -262,6 +295,45 @@ def import_batch(
     error_count = 0
 
     for i, url in enumerate(urls):
+        # Validate URL input
+        if not url or not url.strip():
+            logger.warning(f"Skipping empty URL at index {i}")
+            results.append(ImportResult(
+                status=ImportStatus.error,
+                recipe_id=None,
+                warnings=[],
+                error_message="Invalid URL: empty or whitespace-only",
+                source_url=url or "",
+            ))
+            error_count += 1
+            continue
+
+        # Basic URL format validation
+        url_stripped = url.strip()
+        try:
+            parsed = urlparse(url_stripped)
+            if not parsed.scheme or not parsed.netloc:
+                logger.warning(f"Skipping malformed URL at index {i}: {url_stripped}")
+                results.append(ImportResult(
+                    status=ImportStatus.error,
+                    recipe_id=None,
+                    warnings=[],
+                    error_message="Invalid URL: missing scheme or domain",
+                    source_url=url,
+                ))
+                error_count += 1
+                continue
+        except Exception as e:
+            logger.warning(f"Skipping invalid URL at index {i}: {e}")
+            results.append(ImportResult(
+                status=ImportStatus.error,
+                recipe_id=None,
+                warnings=[],
+                error_message=f"Invalid URL format: {str(e)}",
+                source_url=url,
+            ))
+            error_count += 1
+            continue
         # Import recipe
         result = import_recipe_from_url(url, db)
         results.append(result)
