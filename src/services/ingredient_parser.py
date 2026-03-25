@@ -7,8 +7,11 @@ structured components (quantity, unit, name, preparation, optional flag).
 No LLM usage per ADR-003 - pure rule-based parsing.
 """
 
+import logging
 import re
 from typing import TypedDict
+
+logger = logging.getLogger(__name__)
 
 
 class ParsedIngredient(TypedDict):
@@ -346,7 +349,17 @@ def parse_ingredient(raw: str) -> ParsedIngredient:
             raw_text=raw,
         )
 
-    except Exception:
+    except Exception as e:
+        # Log parsing failure for debuggability and parser improvement
+        logger.warning(
+            "Failed to parse ingredient string",
+            extra={
+                "raw_text": raw,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            },
+            exc_info=True,
+        )
         # Graceful fallback: return unparsed with full text as ingredient_name
         return ParsedIngredient(
             quantity=0.0,
