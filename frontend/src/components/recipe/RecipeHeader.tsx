@@ -14,7 +14,7 @@ interface RecipeHeaderProps {
  * - Back navigation button (top-left)
  * - Recipe title (26px/500) with olive period
  * - Subtitle below title
- * - Hero image with 16:9 aspect ratio
+ * - Hero image with 4:3 aspect ratio
  */
 export default function RecipeHeader({ title, subtitle, imageUrl }: RecipeHeaderProps) {
   const navigate = useNavigate()
@@ -31,9 +31,9 @@ export default function RecipeHeader({ title, subtitle, imageUrl }: RecipeHeader
         <span className="text-sm font-medium">Back</span>
       </button>
 
-      {/* Hero image (16:9 aspect ratio) */}
+      {/* Hero image (4:3 aspect ratio) */}
       {imageUrl && (
-        <div className="relative w-full mb-4 rounded-card overflow-hidden bg-warm-gray" style={{ paddingBottom: '56.25%' }}>
+        <div className="relative w-full mb-4 rounded-card overflow-hidden bg-warm-gray" style={{ paddingBottom: '75%' }}>
           <img
             src={imageUrl}
             alt={title}

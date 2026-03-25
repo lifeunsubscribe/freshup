@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import PageContainer from '../components/layout/PageContainer'
 import RecipeHeader from '../components/recipe/RecipeHeader'
@@ -17,7 +17,6 @@ export default function RecipeDetail() {
   const { currentUser } = useAuth()
 
   const [activeTab, setActiveTab] = useState<TabType>('ingredients')
-  const [selectedServings, setSelectedServings] = useState<2 | 4 | 6>(2)
   const [favoriteError, setFavoriteError] = useState<string | null>(null)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
@@ -30,6 +29,22 @@ export default function RecipeDetail() {
   })
 
   const rateRecipeMutation = useRateRecipe()
+
+  // Default to recipe's base_servings if it's one of the valid options (2, 4, 6)
+  // Otherwise default to 2
+  const defaultServings = recipe?.base_servings && [2, 4, 6].includes(recipe.base_servings)
+    ? (recipe.base_servings as 2 | 4 | 6)
+    : 2
+
+  const [selectedServings, setSelectedServings] = useState<2 | 4 | 6>(defaultServings)
+
+  // Update selectedServings when recipe loads or changes
+  // This ensures the correct default is set after the recipe data arrives
+  useEffect(() => {
+    if (recipe?.base_servings && [2, 4, 6].includes(recipe.base_servings)) {
+      setSelectedServings(recipe.base_servings as 2 | 4 | 6)
+    }
+  }, [recipe?.base_servings])
 
   const handleFavoriteToggle = async () => {
     if (!id) return
@@ -125,6 +140,7 @@ export default function RecipeDetail() {
           <ServingsControl
             selectedServings={selectedServings}
             onServingsChange={setSelectedServings}
+            baseServings={recipe.base_servings}
           />
 
           <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
