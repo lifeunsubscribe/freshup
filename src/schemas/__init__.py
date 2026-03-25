@@ -24,6 +24,9 @@ from src.schemas.prepared_food import (
     PreparedFoodListResponse,
     PreparedFoodConsumptionResponse,
 )
+from src.schemas.scraper import (
+    ScrapedRecipeData,
+)
 
 __all__ = [
     "InventoryItemCreate",
@@ -43,4 +46,5 @@ __all__ = [
     "PreparedFoodResponse",
     "PreparedFoodListResponse",
     "PreparedFoodConsumptionResponse",
+    "ScrapedRecipeData",
 ]
