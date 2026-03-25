@@ -10,7 +10,7 @@ import { useCurrentUser } from '../../api'
  * - Morning: 5:00-11:59, Afternoon: 12:00-16:59, Evening: 17:00-4:59
  */
 export default function GreetingHeader() {
-  const { data: user } = useCurrentUser()
+  const { data: user, isLoading, isError } = useCurrentUser()
 
   // Get time-based greeting
   const getGreeting = () => {
@@ -31,7 +31,15 @@ export default function GreetingHeader() {
   }
 
   const greeting = getGreeting()
-  const displayName = user?.display_name || user?.username || 'there'
+
+  // Handle loading and error states for user data
+  const getDisplayName = () => {
+    if (isLoading) return '...'
+    if (isError) return 'there'
+    return user?.display_name || user?.username || 'there'
+  }
+
+  const displayName = getDisplayName()
 
   return (
     <div className="mb-2">
