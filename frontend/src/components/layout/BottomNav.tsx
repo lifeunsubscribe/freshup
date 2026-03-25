@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { Home, Calendar, ChefHat, UtensilsCrossed, ShoppingCart } from 'lucide-react'
+import { useGroceryList } from '../../api'
 
 interface NavItem {
   to: string
@@ -11,12 +12,17 @@ interface NavItem {
 export default function BottomNav() {
   const location = useLocation()
 
+  // Fetch unpurchased grocery items for badge count
+  const { data: unpurchasedItems = [] } = useGroceryList({
+    purchased: false,
+  })
+
   const navItems: NavItem[] = [
     { to: '/', icon: Home, label: 'Home' },
     { to: '/plan', icon: Calendar, label: 'Plan' },
     { to: '/recipes', icon: ChefHat, label: 'Recipes' },
     { to: '/pantry', icon: UtensilsCrossed, label: 'Pantry' },
-    { to: '/grocery', icon: ShoppingCart, label: 'List', badge: 0 },
+    { to: '/grocery', icon: ShoppingCart, label: 'List', badge: unpurchasedItems.length },
   ]
 
   /**
