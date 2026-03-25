@@ -176,7 +176,7 @@ def create_http_session(
     timeout: int = 10
 ) -> requests.Session:
     """
-    Create an HTTP session with retry logic and timeout.
+    Create an HTTP session with retry logic.
 
     Configures exponential backoff for failed requests, retrying on:
     - Connection errors
@@ -187,14 +187,16 @@ def create_http_session(
         retries: Maximum number of retry attempts (default: 3)
         backoff_factor: Backoff factor for exponential delay (default: 0.5)
                        Delay = {backoff_factor} * (2 ** (retry_number - 1))
-        timeout: Request timeout in seconds (default: 10)
+        timeout: Default timeout in seconds (default: 10). Note: This parameter
+                is for reference only. Timeout must be passed explicitly in each
+                request call (e.g., session.get(url, timeout=timeout)).
 
     Returns:
         Configured requests.Session object
 
     Example:
-        >>> session = create_http_session(retries=3, backoff_factor=0.5)
-        >>> response = session.get("https://example.com")
+        >>> session = create_http_session(retries=3, backoff_factor=0.5, timeout=10)
+        >>> response = session.get("https://example.com", timeout=10)
     """
     session = requests.Session()
 
@@ -210,9 +212,6 @@ def create_http_session(
     adapter = HTTPAdapter(max_retries=retry_strategy)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
-
-    # Set default timeout
-    session.timeout = timeout
 
     # Set polite User-Agent
     session.headers.update({"User-Agent": USER_AGENT})
