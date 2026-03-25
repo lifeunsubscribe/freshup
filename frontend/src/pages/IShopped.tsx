@@ -4,14 +4,16 @@ import PageTitle from '../components/ui/PageTitle'
 import ModeSelector, { type ModeType } from '../components/shopped/ModeSelector'
 import ScanReceiptTab from '../components/shopped/ScanReceiptTab'
 import FromListTab from '../components/shopped/FromListTab'
+import ManualAddTab from '../components/shopped/ManualAddTab'
 
 /**
  * IShopped page - Bulk grocery→inventory conversion flow
  *
  * Features:
- * - Three modes: Scan receipt (coming soon) | From list (functional) | Add manually (coming soon)
+ * - Three modes: Scan receipt (coming soon) | From list (functional) | Add manually (functional)
  * - Default mode: Scan receipt with fallback to From list
  * - From list: Shows grocery items with storage location selection and bulk confirm
+ * - Add manually: Manual inventory entry form with validation
  * - Success flow: Add items to inventory, navigate to pantry
  */
 export default function IShopped() {
@@ -35,16 +37,7 @@ export default function IShopped() {
         {/* Tab content */}
         {activeMode === 'scan' && <ScanReceiptTab onSwitchToList={handleSwitchToList} />}
         {activeMode === 'list' && <FromListTab />}
-        {activeMode === 'manual' && (
-          <div className="flex flex-col items-center justify-center py-12 px-6">
-            <h2 className="text-xl font-medium text-text-primary mb-2 text-center">
-              Manual entry coming soon
-            </h2>
-            <p className="text-sm text-text-secondary text-center max-w-md">
-              For now, use your grocery list to add items to your pantry.
-            </p>
-          </div>
-        )}
+        {activeMode === 'manual' && <ManualAddTab />}
       </div>
     </PageContainer>
   )
