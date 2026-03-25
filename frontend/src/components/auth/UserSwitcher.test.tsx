@@ -290,4 +290,60 @@ describe('UserSwitcher', () => {
     const { container } = renderWithProviders(<UserSwitcher />)
     expect(container.firstChild).toBeNull()
   })
+
+  it('shows loading state during user switch', async () => {
+    const mockSwitchUser = vi.fn(() => new Promise((resolve) => setTimeout(resolve, 100)))
+    vi.mocked(useAuth).mockReturnValue({
+      currentUser: mockCoordinator,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchUser: mockSwitchUser,
+    })
+
+    vi.mocked(useUsers).mockReturnValue({
+      data: mockHouseholdMembers,
+      isLoading: false,
+      error: null,
+    } as any)
+
+    renderWithProviders(<UserSwitcher />)
+
+    const memberButton = screen.getByText('Member User').closest('button')
+    fireEvent.click(memberButton!)
+
+    // Button should be disabled and have cursor-wait while switching
+    await waitFor(() => {
+      expect(memberButton).toBeDisabled()
+      expect(memberButton?.className).toContain('cursor-wait')
+    })
+  })
+
+  it('displays error message when switchUser fails', async () => {
+    const mockSwitchUser = vi.fn().mockRejectedValue(new Error('Network error'))
+    vi.mocked(useAuth).mockReturnValue({
+      currentUser: mockCoordinator,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchUser: mockSwitchUser,
+    })
+
+    vi.mocked(useUsers).mockReturnValue({
+      data: mockHouseholdMembers,
+      isLoading: false,
+      error: null,
+    } as any)
+
+    renderWithProviders(<UserSwitcher />)
+
+    const memberButton = screen.getByText('Member User').closest('button')
+    fireEvent.click(memberButton!)
+
+    await waitFor(() => {
+      expect(screen.getByText('Network error')).toBeInTheDocument()
+    })
+  })
 })
