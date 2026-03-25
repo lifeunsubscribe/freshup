@@ -904,7 +904,7 @@ describe('Pantry', () => {
 
       renderWithProviders(<Pantry />)
 
-      // Should include items expiring today through 3 days from now (4 items)
+      // Should include items expiring today through 3 days from now (3 items)
       // Should exclude item expiring in 4 days
       expect(screen.getByText('Expiring Soon: 3')).toBeInTheDocument()
     })
