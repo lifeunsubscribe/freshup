@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import {
   useConsumeInventoryItem,
   useFreezeInventoryItem,
@@ -7,8 +6,10 @@ import {
 import type { InventoryItemResponse, InventoryItemListResponse } from '../../api/types'
 import { StorageLocation } from '../../api/types'
 import Pill from '../ui/Pill'
+import ErrorBanner from '../ui/ErrorBanner'
 import StorageBadge from './StorageBadge'
 import { getDaysUntilDate, formatExpirationBadge } from '../../utils/dateUtils'
+import { useMutationErrorHandler } from '../../utils/mutationErrorUtils'
 
 export interface InventoryRowProps {
   item: InventoryItemResponse | InventoryItemListResponse
@@ -30,15 +31,7 @@ export default function InventoryRow({ item }: InventoryRowProps) {
   const consumeMutation = useConsumeInventoryItem()
   const freezeMutation = useFreezeInventoryItem()
   const updateMutation = useUpdateInventoryItem()
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  // Auto-dismiss error after 5 seconds
-  useEffect(() => {
-    if (errorMessage) {
-      const timer = setTimeout(() => setErrorMessage(null), 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [errorMessage])
+  const { errorMessage, clearError, handleError } = useMutationErrorHandler()
 
   // Calculate days until expiration using timezone-safe utility
   const getDaysUntilExpiration = (): number | null => {
@@ -71,7 +64,7 @@ export default function InventoryRow({ item }: InventoryRowProps) {
   // Handle "Ate it" action
   const handleAteIt = () => {
     // Clear any existing error immediately when user retries to prevent stale error messages
-    setErrorMessage(null)
+    clearError()
     consumeMutation.mutate(
       {
         id: item.id,
@@ -81,10 +74,7 @@ export default function InventoryRow({ item }: InventoryRowProps) {
         },
       },
       {
-        onError: (error) => {
-          console.error('Failed to consume inventory item:', error)
-          setErrorMessage('Failed to consume item. Please try again.')
-        },
+        onError: (error) => handleError(error, 'Failed to consume item. Please try again.'),
       }
     )
   }
@@ -92,19 +82,16 @@ export default function InventoryRow({ item }: InventoryRowProps) {
   // Handle "Freeze" action
   const handleFreeze = () => {
     // Clear any existing error immediately when user retries to prevent stale error messages
-    setErrorMessage(null)
+    clearError()
     freezeMutation.mutate(item.id, {
-      onError: (error) => {
-        console.error('Failed to freeze inventory item:', error)
-        setErrorMessage('Failed to freeze item. Please try again.')
-      },
+      onError: (error) => handleError(error, 'Failed to freeze item. Please try again.'),
     })
   }
 
   // Handle storage location cycle
   const handleStorageCycle = (newLocation: StorageLocation) => {
     // Clear any existing error immediately when user retries to prevent stale error messages
-    setErrorMessage(null)
+    clearError()
     updateMutation.mutate(
       {
         id: item.id,
@@ -113,10 +100,7 @@ export default function InventoryRow({ item }: InventoryRowProps) {
         },
       },
       {
-        onError: (error) => {
-          console.error('Failed to update inventory item storage:', error)
-          setErrorMessage('Failed to update storage. Please try again.')
-        },
+        onError: (error) => handleError(error, 'Failed to update storage. Please try again.'),
       }
     )
   }
@@ -193,14 +177,7 @@ export default function InventoryRow({ item }: InventoryRowProps) {
       </div>
 
       {/* Error message banner */}
-      {errorMessage && (
-        <div
-          className="mt-1 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-sm text-red-800"
-          role="alert"
-        >
-          {errorMessage}
-        </div>
-      )}
+      <ErrorBanner message={errorMessage} />
     </div>
   )
 }
