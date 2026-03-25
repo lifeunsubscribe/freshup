@@ -73,26 +73,35 @@ class TestScrapedRecipeData:
 
     def test_negative_servings_validation(self):
         """Test that negative servings are rejected."""
-        with pytest.raises(ValueError, match="Value must be non-negative"):
+        with pytest.raises(ValueError, match="servings must be positive"):
             ScrapedRecipeData(
                 source_url="https://example.com/recipe",
                 source_type="url_import",
                 servings=-2
             )
 
-    def test_zero_values_allowed(self):
-        """Test that zero values are allowed for time and servings."""
+    def test_zero_time_values_allowed(self):
+        """Test that zero values are allowed for time fields (e.g., no-cook recipes)."""
         data = ScrapedRecipeData(
             source_url="https://example.com/recipe",
             source_type="url_import",
             prep_time_minutes=0,
             cook_time_minutes=0,
-            servings=0
+            total_time_minutes=0
         )
 
         assert data.prep_time_minutes == 0
         assert data.cook_time_minutes == 0
-        assert data.servings == 0
+        assert data.total_time_minutes == 0
+
+    def test_zero_servings_rejected(self):
+        """Test that zero servings are rejected (semantically invalid)."""
+        with pytest.raises(ValueError, match="servings must be positive"):
+            ScrapedRecipeData(
+                source_url="https://example.com/recipe",
+                source_type="url_import",
+                servings=0
+            )
 
     def test_title_whitespace_stripping(self):
         """Test that title whitespace is stripped."""

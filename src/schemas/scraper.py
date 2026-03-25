@@ -43,12 +43,25 @@ class ScrapedRecipeData(BaseModel):
     author: Optional[str] = Field(default=None, description="Recipe author name")
     site_name: Optional[str] = Field(default=None, description="Name of the source website")
 
-    @field_validator('prep_time_minutes', 'cook_time_minutes', 'total_time_minutes', 'servings')
+    @field_validator('prep_time_minutes', 'cook_time_minutes', 'total_time_minutes')
     @classmethod
-    def validate_non_negative(cls, v: Optional[int]) -> Optional[int]:
-        """Ensure time and serving fields are non-negative if provided."""
+    def validate_non_negative_time(cls, v: Optional[int]) -> Optional[int]:
+        """Ensure time fields are non-negative if provided."""
         if v is not None and v < 0:
             raise ValueError("Value must be non-negative")
+        return v
+
+    @field_validator('servings')
+    @classmethod
+    def validate_positive_servings(cls, v: Optional[int]) -> Optional[int]:
+        """
+        Ensure servings is positive if provided (at least 1).
+
+        Zero servings is semantically invalid and could cause division-by-zero
+        errors in downstream calculations (e.g., scaling recipes per-serving).
+        """
+        if v is not None and v <= 0:
+            raise ValueError("servings must be positive (at least 1)")
         return v
 
     @field_validator('title')
