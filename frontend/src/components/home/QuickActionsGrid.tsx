@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { ShoppingBag, Snowflake, Cookie, Search } from 'lucide-react'
+import { ShoppingBag, Snowflake, Cookie, UtensilsCrossed } from 'lucide-react'
 import QuickActionCard from './QuickActionCard'
 
 /**
@@ -9,7 +9,7 @@ import QuickActionCard from './QuickActionCard'
  * - "I shopped": Navigate to /shopped (bulk purchase flow)
  * - "I froze/thawed": Navigate to /pantry (storage management)
  * - "I ate snacks": Navigate to /pantry with category filter (snack tracking)
- * - "What's around?": Navigate to /pantry (inventory overview)
+ * - "What's for dinner?": Navigate to /plan (meal planning)
  */
 export default function QuickActionsGrid() {
   const navigate = useNavigate()
@@ -35,10 +35,10 @@ export default function QuickActionsGrid() {
         onClick={() => navigate('/pantry')}
       />
       <QuickActionCard
-        icon={<Search size={18} className="stroke-olive" strokeWidth={2} />}
-        title="What's around?"
-        description="View all inventory"
-        onClick={() => navigate('/pantry')}
+        icon={<UtensilsCrossed size={18} className="stroke-olive" strokeWidth={2} />}
+        title="What's for dinner?"
+        description="Plan your meals"
+        onClick={() => navigate('/plan')}
       />
     </div>
   )

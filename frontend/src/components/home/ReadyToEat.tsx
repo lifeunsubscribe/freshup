@@ -25,7 +25,7 @@ export default function ReadyToEat() {
       aria-roledescription="carousel"
       aria-label="Ready to Eat"
     >
-      <SectionHeader>Ready to Eat</SectionHeader>
+      <SectionHeader linkTo="/pantry">Ready to Eat</SectionHeader>
 
       <div className="mt-3">
         {isLoading && (
@@ -51,8 +51,12 @@ export default function ReadyToEat() {
             role="list"
             aria-label="Prepared foods carousel"
           >
-            {items.map((item) => (
-              <PreparedFoodCard key={item.id} item={item} />
+            {items.map((item, index) => (
+              <PreparedFoodCard
+                key={item.id}
+                item={item}
+                isLast={index === items.length - 1}
+              />
             ))}
           </div>
         )}
@@ -63,12 +67,15 @@ export default function ReadyToEat() {
 
 interface PreparedFoodCardProps {
   item: PreparedFoodListResponse
+  isLast?: boolean
 }
 
-function PreparedFoodCard({ item }: PreparedFoodCardProps) {
+function PreparedFoodCard({ item, isLast = false }: PreparedFoodCardProps) {
   return (
     <div
-      className="flex-shrink-0 w-[240px] bg-white rounded-card p-4 border border-warm-border"
+      className={`flex-shrink-0 w-[240px] bg-white rounded-card p-4 border border-warm-border ${
+        isLast ? 'opacity-70' : ''
+      }`}
       role="listitem"
     >
       <div className="flex items-start justify-between mb-2">

@@ -23,7 +23,7 @@ export default function ExpirationAlerts() {
 
   return (
     <section>
-      <SectionHeader>Expiring Soon</SectionHeader>
+      <SectionHeader linkTo="/pantry">Expiring Soon</SectionHeader>
 
       <div className="mt-3">
         {isLoading && (
