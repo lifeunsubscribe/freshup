@@ -66,11 +66,11 @@ export default function InventoryRow({ item }: InventoryRowProps) {
   }
 
   // Get expiration color coding per Design System Section 5:
-  // Green >7d, Mocha 3-7d, Terra <3d
+  // Green >7d, Mocha 3-7d, Terra <3d, Terra for expired (food safety)
   const getExpirationColor = (): string => {
     const daysUntil = getDaysUntilExpiration()
     if (daysUntil === null) return 'text-text-primary'
-    if (daysUntil < 0) return 'text-text-primary' // Expired items (default color)
+    if (daysUntil < 0) return 'text-terra' // Expired items (urgent, food safety)
     if (daysUntil <= 3) return 'text-terra' // Urgent: <3 days
     if (daysUntil <= 7) return 'text-mocha' // Attention: 3-7 days
     return 'text-olive' // Healthy: >7 days
