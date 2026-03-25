@@ -93,11 +93,17 @@ export function getDaysSinceDate(dateString: string): number {
 /**
  * Format a date string as a relative time description.
  *
- * Examples:
+ * Examples (past dates):
  * - 0 days ago: "today"
  * - 1 day ago: "yesterday"
  * - 2-7 days ago: "2d ago", "3d ago", etc.
  * - 8+ days ago: "Mar 15", "Jan 3", etc.
+ *
+ * Examples (future dates):
+ * - 0 days from now: "today"
+ * - 1 day from now: "tomorrow"
+ * - 2-7 days from now: "in 2d", "in 3d", etc.
+ * - 8+ days from now: "Mar 25", "Apr 10", etc.
  *
  * @param dateString - Date string in YYYY-MM-DD or ISO 8601 format
  * @returns Human-readable relative date string
@@ -105,11 +111,18 @@ export function getDaysSinceDate(dateString: string): number {
 export function formatRelativeDate(dateString: string): string {
   const daysSince = getDaysSinceDate(dateString)
 
+  // Handle today
   if (daysSince === 0) return 'today'
+
+  // Handle past dates
   if (daysSince === 1) return 'yesterday'
   if (daysSince >= 2 && daysSince <= 7) return `${daysSince}d ago`
 
-  // For older dates, show "Mon DD" format
+  // Handle future dates
+  if (daysSince === -1) return 'tomorrow'
+  if (daysSince <= -2 && daysSince >= -7) return `in ${Math.abs(daysSince)}d`
+
+  // For dates beyond 7 days (past or future), show "Mon DD" format
   const date = parseDateOnly(dateString)
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
