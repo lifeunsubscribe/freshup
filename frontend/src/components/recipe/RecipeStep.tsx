@@ -14,7 +14,7 @@ interface RecipeStepProps {
  * Matches patterns like "30 minutes", "2 hours", "15 min", "1 hr"
  */
 function extractTimers(text: string): string[] {
-  const timerRegex = /(\d+)\s*(minute|min|hour|hr)s?/gi
+  const timerRegex = /\b(\d+)\s*(minute|min|hour|hr)s?\b/gi
   const matches = text.matchAll(timerRegex)
   const timers: string[] = []
 
