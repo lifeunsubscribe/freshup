@@ -1,0 +1,317 @@
+"""
+HelloFresh URL discovery crawler.
+
+Discovers recipe URLs from HelloFresh via sitemap.xml with paginated
+category crawl fallback. Includes rate limiting and robots.txt compliance.
+"""
+
+import logging
+import xml.etree.ElementTree as ET
+from typing import Optional
+from urllib.parse import urljoin, urlparse
+
+from src.services.crawlers.base_crawler import (
+    RateLimiter,
+    RobotsTxtParser,
+    create_http_session,
+)
+
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# HelloFresh base URL
+HELLOFRESH_BASE_URL = "https://www.hellofresh.com"
+
+
+class HelloFreshCrawler:
+    """
+    Crawler for discovering HelloFresh recipe URLs.
+
+    Uses a two-strategy approach:
+    1. Primary: Parse sitemap.xml to extract recipe URLs
+    2. Fallback: Crawl paginated recipe category pages
+
+    Features:
+    - Rate limiting (2s default, respects robots.txt Crawl-delay)
+    - robots.txt compliance
+    - HTTP retry logic with exponential backoff
+    """
+
+    def __init__(
+        self,
+        base_url: str = HELLOFRESH_BASE_URL,
+        rate_limit_delay: float = 2.0,
+    ):
+        """
+        Initialize HelloFresh crawler.
+
+        Args:
+            base_url: Base URL for HelloFresh (default: https://www.hellofresh.com)
+            rate_limit_delay: Default delay between requests in seconds (default: 2.0)
+        """
+        self.base_url = base_url.rstrip('/')
+        self.domain = urlparse(base_url).netloc
+
+        # Initialize utilities
+        self.session = create_http_session(retries=3, backoff_factor=0.5, timeout=10)
+        self.rate_limiter = RateLimiter(default_delay=rate_limit_delay)
+        self.robots_parser = RobotsTxtParser()
+
+        # Check robots.txt and adjust rate limiting if needed
+        self._configure_from_robots_txt()
+
+    def _configure_from_robots_txt(self) -> None:
+        """
+        Configure crawler based on robots.txt directives.
+
+        Checks for Crawl-delay directive and updates rate limiter accordingly.
+        """
+        crawl_delay = self.robots_parser.get_crawl_delay(self.base_url)
+        if crawl_delay:
+            self.rate_limiter.set_domain_delay(self.domain, crawl_delay)
+            logger.info(f"Using Crawl-delay from robots.txt: {crawl_delay}s")
+
+    def discover_recipe_urls(self, max_pages: Optional[int] = None) -> list[str]:
+        """
+        Discover recipe URLs from HelloFresh.
+
+        Attempts to discover URLs using sitemap.xml first, falling back to
+        paginated category crawling if sitemap is unavailable or fails.
+
+        Args:
+            max_pages: Maximum number of pages to crawl (for fallback strategy only).
+                      None means no limit. Used primarily for testing.
+
+        Returns:
+            List of discovered recipe URLs
+
+        Raises:
+            Exception: If both strategies fail or network errors occur
+
+        Example:
+            >>> crawler = HelloFreshCrawler()
+            >>> urls = crawler.discover_recipe_urls(max_pages=5)
+            >>> print(f"Discovered {len(urls)} recipe URLs")
+        """
+        logger.info("Starting HelloFresh recipe URL discovery")
+
+        # Strategy 1: Try sitemap.xml first
+        try:
+            urls = self._discover_from_sitemap()
+            if urls:
+                logger.info(f"Discovered {len(urls)} URLs from sitemap.xml")
+                return urls
+            else:
+                logger.warning("Sitemap.xml returned no URLs, trying fallback strategy")
+        except Exception as e:
+            logger.warning(f"Sitemap strategy failed: {e}, trying fallback strategy")
+
+        # Strategy 2: Fallback to paginated category crawl
+        try:
+            urls = self._discover_from_paginated_categories(max_pages=max_pages)
+            logger.info(f"Discovered {len(urls)} URLs from paginated categories")
+            return urls
+        except Exception as e:
+            logger.error(f"Paginated category strategy failed: {e}")
+            raise
+
+    def _discover_from_sitemap(self) -> list[str]:
+        """
+        Discover recipe URLs from sitemap.xml.
+
+        Parses the sitemap.xml file and extracts URLs containing '/recipes/'.
+
+        Returns:
+            List of recipe URLs found in sitemap
+
+        Raises:
+            Exception: If sitemap fetch or parsing fails
+        """
+        sitemap_url = urljoin(self.base_url, "/sitemap.xml")
+
+        # Check robots.txt before fetching
+        if not self.robots_parser.can_fetch(sitemap_url):
+            raise Exception(f"robots.txt disallows access to {sitemap_url}")
+
+        # Rate limit
+        self.rate_limiter.wait_if_needed(self.domain)
+
+        logger.info(f"Fetching sitemap from {sitemap_url}")
+        response = self.session.get(sitemap_url, timeout=10)
+        response.raise_for_status()
+
+        # Parse XML
+        root = ET.fromstring(response.content)
+
+        # Handle sitemap index (sitemaps that link to other sitemaps)
+        recipe_urls = []
+
+        # Define sitemap XML namespace for parsing
+        namespace = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+
+        # Check if this is a sitemap index (references other sitemaps)
+        sitemap_elements = root.findall('.//ns:sitemap', namespace)
+
+        if sitemap_elements:
+            # This is a sitemap index, fetch recipe sitemap
+            for sitemap_elem in sitemap_elements:
+                loc = sitemap_elem.find('ns:loc', namespace)
+                if loc is not None and loc.text and 'recipe' in loc.text.lower():
+                    recipe_sitemap_url = loc.text
+                    logger.info(f"Found recipe sitemap: {recipe_sitemap_url}")
+
+                    # Fetch recipe sitemap
+                    if self.robots_parser.can_fetch(recipe_sitemap_url):
+                        self.rate_limiter.wait_if_needed(self.domain)
+                        recipe_response = self.session.get(recipe_sitemap_url, timeout=10)
+                        recipe_response.raise_for_status()
+
+                        # Parse recipe sitemap
+                        recipe_root = ET.fromstring(recipe_response.content)
+                        urls = self._extract_urls_from_sitemap(recipe_root, namespace)
+                        recipe_urls.extend(urls)
+                    else:
+                        logger.warning(f"robots.txt disallows {recipe_sitemap_url}")
+        else:
+            # This is a regular sitemap, extract URLs directly
+            recipe_urls = self._extract_urls_from_sitemap(root, namespace)
+
+        return recipe_urls
+
+    def _extract_urls_from_sitemap(self, root: ET.Element, namespace: dict) -> list[str]:
+        """
+        Extract recipe URLs from a sitemap XML element.
+
+        Args:
+            root: XML root element
+            namespace: XML namespace dictionary
+
+        Returns:
+            List of recipe URLs
+        """
+        urls = []
+        url_elements = root.findall('.//ns:url', namespace)
+
+        for url_elem in url_elements:
+            loc = url_elem.find('ns:loc', namespace)
+            if loc is not None and loc.text:
+                url = loc.text
+                # Filter for recipe URLs (HelloFresh uses /recipes/ or /recipe/ in paths)
+                if '/recipes/' in url or '/recipe/' in url:
+                    urls.append(url)
+
+        logger.debug(f"Extracted {len(urls)} recipe URLs from sitemap")
+        return urls
+
+    def _discover_from_paginated_categories(self, max_pages: Optional[int] = None) -> list[str]:
+        """
+        Discover recipe URLs by crawling paginated category pages.
+
+        Fallback strategy when sitemap.xml is unavailable. Crawls the main
+        recipes page and follows pagination links.
+
+        Args:
+            max_pages: Maximum number of pages to crawl (None = no limit)
+
+        Returns:
+            List of discovered recipe URLs
+
+        Raises:
+            Exception: If crawling fails
+        """
+        recipe_urls = []
+        page_num = 1
+        base_recipes_url = urljoin(self.base_url, "/recipes")
+
+        logger.info(f"Starting paginated category crawl (max_pages={max_pages})")
+
+        while True:
+            # Stop if we've reached max_pages
+            if max_pages is not None and page_num > max_pages:
+                logger.info(f"Reached max_pages limit ({max_pages})")
+                break
+
+            # Construct pagination URL (adjust based on HelloFresh's actual pagination)
+            if page_num == 1:
+                page_url = base_recipes_url
+            else:
+                # HelloFresh may use ?page=N or /recipes/page/N - adjust as needed
+                page_url = f"{base_recipes_url}?page={page_num}"
+
+            # Check robots.txt
+            if not self.robots_parser.can_fetch(page_url):
+                logger.warning(f"robots.txt disallows {page_url}, stopping")
+                break
+
+            # Rate limit
+            self.rate_limiter.wait_if_needed(self.domain)
+
+            logger.info(f"Fetching page {page_num}: {page_url}")
+
+            try:
+                response = self.session.get(page_url, timeout=10)
+                response.raise_for_status()
+            except Exception as e:
+                logger.error(f"Failed to fetch page {page_num}: {e}")
+                break
+
+            # Parse HTML to find recipe URLs
+            # This is a simplified approach - in production, use BeautifulSoup or similar
+            html = response.text
+            page_urls = self._extract_recipe_urls_from_html(html)
+
+            if not page_urls:
+                logger.info(f"No recipe URLs found on page {page_num}, stopping")
+                break
+
+            recipe_urls.extend(page_urls)
+            logger.info(f"Found {len(page_urls)} URLs on page {page_num}")
+
+            page_num += 1
+
+        logger.info(f"Paginated crawl complete: {len(recipe_urls)} URLs from {page_num - 1} pages")
+        return recipe_urls
+
+    def _extract_recipe_urls_from_html(self, html: str) -> list[str]:
+        """
+        Extract recipe URLs from HTML content.
+
+        Uses regex to find recipe links. In production, consider using
+        BeautifulSoup for more robust HTML parsing.
+
+        Args:
+            html: HTML content to parse
+
+        Returns:
+            List of recipe URLs found in HTML
+        """
+        import re
+
+        # Find all href links containing /recipes/
+        pattern = r'href=["\']([^"\']*?/recipes?/[^"\']+?)["\']'
+        matches = re.findall(pattern, html)
+
+        # Normalize and deduplicate URLs
+        urls = []
+        seen = set()
+
+        for match in matches:
+            # Convert relative URLs to absolute
+            if match.startswith('/'):
+                url = urljoin(self.base_url, match)
+            elif match.startswith('http'):
+                url = match
+            else:
+                # Skip relative URLs without leading slash (e.g., "../page")
+                continue
+
+            # Normalize: remove query params and fragments for deduplication
+            url = url.split('?')[0].split('#')[0]
+
+            # Deduplicate URLs
+            if url not in seen:
+                seen.add(url)
+                urls.append(url)
+
+        return urls
