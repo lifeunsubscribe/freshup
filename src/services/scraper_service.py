@@ -238,6 +238,16 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
         # Fetch the HTML content with timeout and disabled redirects
         # Redirects are disabled to prevent redirect-based SSRF bypasses
         response = requests.get(request_url, timeout=timeout, headers=headers, allow_redirects=False, verify=True)
+
+        # Check for redirect responses (3xx status codes)
+        # Since allow_redirects=False, we need to explicitly handle these
+        if 300 <= response.status_code < 400:
+            raise NetworkError(
+                f"URL returned a redirect (HTTP {response.status_code}). "
+                f"Redirects are not followed for security reasons. "
+                f"Please use the final destination URL directly."
+            )
+
         response.raise_for_status()  # Raise exception for 4xx/5xx status codes
         html_content = response.content
     except requests.exceptions.Timeout as e:
