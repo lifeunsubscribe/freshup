@@ -581,6 +581,17 @@ Each phase produces a usable increment of the system. Phases are broken into cle
 
 **Goal:** Populate the recipe database at scale through automated parsing of HelloFresh cards, web scraping, and URL import.
 
+**Note on Execution Order:** While the development areas below are numbered 2A-2D for logical grouping, the recommended execution order differs to prioritize immediate value and manage Ollama dependencies efficiently:
+
+1. **2C (Web Scrapers)** — No Ollama dependency; provides immediate recipe database population
+2. **2A (Ollama Integration Layer)** — LLM infrastructure setup required for subsequent OCR work
+3. **4A (Costco Digital Receipts)** — Receipt ingestion solves a daily pain point; execute before card OCR
+4. **4B (Paper Receipt OCR)** — Extends receipt pipeline to physical receipts
+5. **2B (HelloFresh Card OCR)** — Physical cards are static; can be deferred without urgency
+6. **2D (URL Import & Photo Upload)** — Most URL imports succeed via `recipe-scrapers` wild_mode without LLM
+
+**Rationale:** This order delivers functional value sooner (populated recipe database via 2C, receipt-to-inventory automation via 4A/4B) while deferring lower-urgency OCR work (2B card digitization). The HelloFresh card binder isn't going anywhere; receipt ingestion solves a daily workflow friction point.
+
 **Development Areas:**
 
 #### 2A: Ollama Integration Layer
@@ -788,6 +799,8 @@ The following ideas were generated during brainstorming and are documented for f
 ## 12. Appendix: Development Area Index
 
 For Sharkrite issue generation, each development area maps to a focused set of issues:
+
+**Recommended Execution Order:** While the table below shows logical dependencies and sequential numbering, the recommended execution order for Phases 2 and 4 differs to prioritize immediate-value work and manage dependencies efficiently. Execute in this order: **2C → 2A → 4A → 4B → 2B → 2D**. See Section 8 (Phase 2 — Recipe Ingestion) for detailed rationale.
 
 | Code | Area | Phase | Dependencies |
 |---|---|---|---|
