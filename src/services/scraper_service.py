@@ -219,9 +219,8 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
                 ip_with_brackets = validated_ip
 
             # Reconstruct URL with validated IP, preserving port if present
-            if ':' in parsed.netloc and ']' not in parsed.netloc:  # Has port (not IPv6)
-                port = parsed.netloc.split(':')[1]
-                request_url = f"{parsed.scheme}://{ip_with_brackets}:{port}{parsed.path}"
+            if parsed.port:
+                request_url = f"{parsed.scheme}://{ip_with_brackets}:{parsed.port}{parsed.path}"
                 if parsed.query:
                     request_url += f"?{parsed.query}"
             else:
@@ -238,7 +237,7 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
 
         # Fetch the HTML content with timeout and disabled redirects
         # Redirects are disabled to prevent redirect-based SSRF bypasses
-        response = requests.get(request_url, timeout=timeout, headers=headers, allow_redirects=False)
+        response = requests.get(request_url, timeout=timeout, headers=headers, allow_redirects=False, verify=True)
         response.raise_for_status()  # Raise exception for 4xx/5xx status codes
         html_content = response.content
     except requests.exceptions.Timeout as e:
