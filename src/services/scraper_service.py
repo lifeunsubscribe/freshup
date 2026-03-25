@@ -9,6 +9,7 @@ through the recipe-scrapers library (MIT licensed).
 from typing import Optional
 from urllib.parse import urlparse
 import re
+import ipaddress
 import recipe_scrapers
 from recipe_scrapers._exceptions import WebsiteNotImplementedError
 
@@ -114,35 +115,37 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
             raise ScraperError("Invalid URL: missing hostname")
 
         # Block private/internal IP addresses and localhost
-        hostname = parsed.netloc.split(':')[0].lower()  # Remove port if present
+        hostname = parsed.netloc.lower()
 
-        # Block localhost variants
-        if hostname in ('localhost', '127.0.0.1', '::1', '0.0.0.0'):
+        # Handle IPv6 addresses with brackets (e.g., [::1]:8080 or [::1])
+        if '[' in hostname:
+            # Extract IPv6 address from brackets
+            start = hostname.index('[')
+            end = hostname.index(']')
+            hostname = hostname[start+1:end]
+        else:
+            # For IPv4 or domain names, remove port if present
+            hostname = hostname.split(':')[0]
+
+        # Block localhost variants by name
+        if hostname in ('localhost', 'localhost.localdomain'):
             raise ScraperError("Access to localhost is not allowed")
 
-        # Block private IP ranges (IPv4)
-        if hostname.replace('.', '').isdigit() or ':' in hostname:
-            # Check for private IPv4 ranges
-            if (hostname.startswith('10.') or
-                hostname.startswith('192.168.') or
-                hostname.startswith('172.16.') or hostname.startswith('172.17.') or
-                hostname.startswith('172.18.') or hostname.startswith('172.19.') or
-                hostname.startswith('172.20.') or hostname.startswith('172.21.') or
-                hostname.startswith('172.22.') or hostname.startswith('172.23.') or
-                hostname.startswith('172.24.') or hostname.startswith('172.25.') or
-                hostname.startswith('172.26.') or hostname.startswith('172.27.') or
-                hostname.startswith('172.28.') or hostname.startswith('172.29.') or
-                hostname.startswith('172.30.') or hostname.startswith('172.31.') or
-                hostname.startswith('169.254.')):  # Link-local
-                raise ScraperError("Access to private IP addresses is not allowed")
-
-            # Block IPv6 private addresses
-            if hostname.startswith('fc') or hostname.startswith('fd') or hostname.startswith('fe80'):
-                raise ScraperError("Access to private IP addresses is not allowed")
-
-        # Block common metadata endpoints
-        if 'metadata' in hostname and ('169.254.169.254' in hostname or 'metadata.google.internal' in hostname):
+        # Block common cloud metadata endpoints
+        if hostname in ('169.254.169.254', 'metadata.google.internal', 'metadata.azure.com', 'metadata.aws.amazon.com'):
             raise ScraperError("Access to cloud metadata endpoints is not allowed")
+
+        # Validate IP addresses using ipaddress module for comprehensive checking
+        try:
+            ip = ipaddress.ip_address(hostname)
+            # Block private, loopback, link-local, multicast, and reserved IP addresses
+            if (ip.is_private or ip.is_loopback or ip.is_link_local or
+                ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+                raise ScraperError("Access to private, loopback, link-local, or reserved IP addresses is not allowed")
+        except ValueError:
+            # hostname is not an IP address (it's a domain name), which is fine
+            # Additional domain name validations could be added here if needed
+            pass
 
     except ScraperError:
         raise  # Re-raise our validation errors
