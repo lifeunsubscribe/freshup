@@ -160,6 +160,29 @@ describe('dateUtils', () => {
       expect(formatRelativeDate('2026-03-20T14:30:00Z')).toBe('today')
       expect(formatRelativeDate('2026-03-19T08:00:00Z')).toBe('yesterday')
     })
+
+    it('returns "tomorrow" for one day in future', () => {
+      expect(formatRelativeDate('2026-03-21')).toBe('tomorrow')
+    })
+
+    it('returns "in Nd" for 2-7 days in future', () => {
+      expect(formatRelativeDate('2026-03-22')).toBe('in 2d')
+      expect(formatRelativeDate('2026-03-25')).toBe('in 5d')
+      expect(formatRelativeDate('2026-03-27')).toBe('in 7d')
+    })
+
+    it('returns formatted date for 8+ days in future', () => {
+      const result = formatRelativeDate('2026-03-30')
+      expect(result).toBe('Mar 30')
+
+      const aprResult = formatRelativeDate('2026-04-15')
+      expect(aprResult).toBe('Apr 15')
+    })
+
+    it('handles future dates with ISO datetime strings', () => {
+      expect(formatRelativeDate('2026-03-21T14:30:00Z')).toBe('tomorrow')
+      expect(formatRelativeDate('2026-03-22T08:00:00Z')).toBe('in 2d')
+    })
   })
 
   describe('formatExpirationBadge', () => {
