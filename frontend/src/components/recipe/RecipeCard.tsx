@@ -21,6 +21,7 @@ export interface RecipeCardProps {
   }
   imageUrl?: string
   servings?: number
+  allIngredientsInStock?: boolean
 }
 
 /**
@@ -30,6 +31,7 @@ export interface RecipeCardProps {
  * - 4:3 aspect ratio image with rounded top corners (10px)
  * - Favorite heart overlay (top-right): filled when favorited, outline when not
  * - Source badge (top-left): conditional based on source_type
+ * - "All in stock" badge (bottom-left): shown when all ingredients available in pantry
  * - Recipe name: truncates at 2 lines, 13px/500 weight
  * - Metadata: cook time, servings, cuisine tag with " · " separator
  * - Household context: "✓ Cooked Nx" (olive) or "Never cooked" (mocha)
@@ -47,6 +49,7 @@ export default function RecipeCard({
   householdContext,
   imageUrl,
   servings,
+  allIngredientsInStock = false,
 }: RecipeCardProps) {
   const { id, name, source_type, cook_time_minutes, tags } = recipe
 
@@ -112,6 +115,13 @@ export default function RecipeCard({
         {sourceBadge && (
           <div className="absolute top-2 left-2">
             <Pill variant="default">{sourceBadge}</Pill>
+          </div>
+        )}
+
+        {/* "All in stock" badge (bottom-left) */}
+        {allIngredientsInStock && (
+          <div className="absolute bottom-2 left-2">
+            <Pill variant="success">All in stock</Pill>
           </div>
         )}
 

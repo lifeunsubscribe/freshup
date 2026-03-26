@@ -1,4 +1,8 @@
 import type { RecipeIngredientResponse } from '../../api/types'
+import { useInventoryList } from '../../api/hooks/useInventory'
+import { checkIngredientAvailability } from '../../utils/pantryMatcher'
+import PantryCheck from './PantryCheck'
+import Pill from '../ui/Pill'
 
 interface IngredientsTabProps {
   ingredients: RecipeIngredientResponse[]
@@ -57,10 +61,17 @@ function formatQuantity(quantity: number): string {
  * Features:
  * - Lists all ingredients with scaled quantities
  * - Shows quantity, unit, and ingredient name
- * - Grouped presentation (can be enhanced with categories later)
+ * - Pantry cross-reference: "In stock" badges for available ingredients
+ * - PantryCheck summary card at bottom
  * - Quantities scaled by servingsMultiplier
  */
 export default function IngredientsTab({ ingredients, servingsMultiplier }: IngredientsTabProps) {
+  // Fetch pantry inventory for cross-reference
+  const { data: inventoryItems = [] } = useInventoryList({})
+
+  // Check ingredient availability against pantry
+  const stockStatus = checkIngredientAvailability(ingredients, inventoryItems)
+
   if (ingredients.length === 0) {
     return (
       <div className="text-center py-8 text-text-secondary">
@@ -69,11 +80,18 @@ export default function IngredientsTab({ ingredients, servingsMultiplier }: Ingr
     )
   }
 
+  // Create a map for quick lookup of stock status
+  const stockStatusMap = new Map<string, boolean>()
+  stockStatus.inStock.forEach((item) => {
+    stockStatusMap.set(item.ingredient.id, true)
+  })
+
   return (
     <div className="space-y-3">
       {ingredients.map((ingredient) => {
         const scaledQuantity = ingredient.quantity * servingsMultiplier
         const formattedQuantity = formatQuantity(scaledQuantity)
+        const isInStock = stockStatusMap.has(ingredient.id)
 
         return (
           <div
@@ -86,9 +104,19 @@ export default function IngredientsTab({ ingredients, servingsMultiplier }: Ingr
             <div className="flex-1 text-sm text-text-primary">
               {ingredient.ingredient_name}
             </div>
+            {isInStock && (
+              <div className="flex-shrink-0">
+                <Pill variant="success">
+                  <span className="text-xs">In stock</span>
+                </Pill>
+              </div>
+            )}
           </div>
         )
       })}
+
+      {/* PantryCheck summary card */}
+      <PantryCheck stockStatus={stockStatus} />
     </div>
   )
 }
