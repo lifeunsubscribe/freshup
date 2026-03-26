@@ -142,6 +142,8 @@ describe('App', () => {
       if (window.location !== originalLocation) {
         window.location = originalLocation
       }
+      // Clean up localStorage to prevent test pollution
+      localStorage.removeItem('access_token')
     })
 
     it('catches errors from AuthProvider and renders AuthErrorFallback', async () => {
