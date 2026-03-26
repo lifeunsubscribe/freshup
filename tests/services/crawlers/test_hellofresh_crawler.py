@@ -160,7 +160,7 @@ class TestHelloFreshCrawlerUnit:
             assert "?" not in url, "Query params should be stripped"
             assert "#" not in url, "Fragments should be stripped"
 
-    @patch('src.services.crawlers.hellofresh_crawler.ET.fromstring')
+    @patch('defusedxml.ElementTree.fromstring')
     @patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._configure_from_robots_txt')
     def test_discover_from_sitemap_success(self, mock_robots_config, mock_fromstring):
         """Test successful sitemap parsing."""
