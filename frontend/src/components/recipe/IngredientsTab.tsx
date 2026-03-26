@@ -67,7 +67,7 @@ function formatQuantity(quantity: number): string {
  */
 export default function IngredientsTab({ ingredients, servingsMultiplier }: IngredientsTabProps) {
   // Fetch pantry inventory for cross-reference
-  const { data: inventoryItems = [] } = useInventoryList({})
+  const { data: inventoryItems = [], isError: inventoryError } = useInventoryList({})
 
   // Check ingredient availability against pantry
   const stockStatus = checkIngredientAvailability(ingredients, inventoryItems)
@@ -88,6 +88,13 @@ export default function IngredientsTab({ ingredients, servingsMultiplier }: Ingr
 
   return (
     <div className="space-y-3">
+      {inventoryError && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
+          <p className="text-sm text-yellow-800">
+            Unable to load pantry inventory. Stock status may not be accurate.
+          </p>
+        </div>
+      )}
       {ingredients.map((ingredient) => {
         const scaledQuantity = ingredient.quantity * servingsMultiplier
         const formattedQuantity = formatQuantity(scaledQuantity)

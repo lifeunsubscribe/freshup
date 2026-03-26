@@ -44,15 +44,17 @@ export default function ActionBar({
     setAddToListError(null)
 
     try {
-      // Add each missing ingredient to grocery list
-      for (const { ingredient } of missingIngredients) {
-        await createGroceryItem.mutateAsync({
-          item_name: ingredient.ingredient_name,
-          quantity: ingredient.quantity,
-          unit: ingredient.unit,
-          source: 'recipe',
-        })
-      }
+      // Add all missing ingredients to grocery list in parallel
+      await Promise.all(
+        missingIngredients.map(({ ingredient }) =>
+          createGroceryItem.mutateAsync({
+            item_name: ingredient.ingredient_name,
+            quantity: ingredient.quantity,
+            unit: ingredient.unit,
+            source: 'recipe',
+          })
+        )
+      )
     } catch (error) {
       console.error('Failed to add ingredients to grocery list:', error)
       setAddToListError('Failed to add ingredients. Please try again.')
