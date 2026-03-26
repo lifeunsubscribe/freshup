@@ -53,24 +53,24 @@ export default function BottomNav() {
             >
               <div className="relative">
                 <Icon
-                  size={24}
+                  size={22}
                   className={
                     active
                       ? 'text-olive fill-olive stroke-2'
-                      : 'text-tertiary stroke-2'
+                      : 'text-text-secondary stroke-2'
                   }
                 />
                 {item.badge !== undefined && item.badge > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-mocha text-cream text-xs font-medium rounded-full w-4 h-4 flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 bg-mocha text-cream text-tiny font-medium rounded-full w-4 h-4 flex items-center justify-center">
                     {item.badge}
                   </span>
                 )}
               </div>
               <span
-                className={`text-xs mt-1 ${
+                className={`text-tiny mt-1 ${
                   active
                     ? 'text-olive font-medium'
-                    : 'text-tertiary font-normal'
+                    : 'text-text-secondary font-normal'
                 }`}
               >
                 {item.label}

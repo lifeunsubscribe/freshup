@@ -16,6 +16,7 @@ interface PillProps {
  * - warning: Mocha background with cream text (caution state)
  * - alert: Terra background with cream text (attention state)
  *
+ * Typography: 10px font-weight 500 (per design system "Tiny labels" spec)
  * Border radius: 6px (within design system 4-6px spec)
  */
 export default function Pill({ children, variant = 'default' }: PillProps) {
@@ -28,7 +29,7 @@ export default function Pill({ children, variant = 'default' }: PillProps) {
 
   return (
     <span
-      className={`inline-block px-3 py-1 text-sm font-medium rounded-[6px] ${variantStyles[variant]}`}
+      className={`inline-block px-2.5 py-1 text-tiny font-medium rounded-pill ${variantStyles[variant]}`}
     >
       {children}
     </span>

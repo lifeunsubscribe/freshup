@@ -190,7 +190,7 @@ class TestKitchenSanctuaryCrawlerUnit:
         for url in invalid_urls:
             assert not crawler._is_recipe_url(url), f"Should reject non-recipe URL: {url}"
 
-    @patch('src.services.crawlers.kitchen_sanctuary_crawler.ET.fromstring')
+    @patch('defusedxml.ElementTree.fromstring')
     @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._configure_from_robots_txt')
     def test_extract_recipe_urls_from_sitemap(self, mock_robots_config, mock_fromstring):
         """Test recipe URL extraction from sitemap with filtering."""

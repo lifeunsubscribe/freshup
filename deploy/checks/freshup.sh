@@ -17,6 +17,10 @@ check_freshup() {
 
     log "FRESHUP UPDATE: ${LOCAL:0:7} -> ${REMOTE:0:7}"
     git pull origin main >> "$LOGFILE" 2>&1
+    if [ $? -ne 0 ]; then
+        alert "Git pull failed — check $LOGFILE"
+        return 1
+    fi
 
     local CHANGED
     CHANGED=$(git diff --name-only "$LOCAL" "$REMOTE")
@@ -32,14 +36,23 @@ check_freshup() {
     if [ "$NEEDS_BUILD" = true ]; then
         log "FRESHUP REBUILD: infrastructure files changed"
         docker compose -f "$REPO_DIR/docker-compose.yml" up -d --build >> "$LOGFILE" 2>&1
+        if [ $? -ne 0 ]; then
+            alert "Docker rebuild failed — check $LOGFILE"
+        fi
     else
         if [ "$NEEDS_RESTART" = true ]; then
             log "FRESHUP RESTART: source files changed"
             docker compose -f "$REPO_DIR/docker-compose.yml" restart api >> "$LOGFILE" 2>&1
+            if [ $? -ne 0 ]; then
+                alert "API restart failed — check $LOGFILE"
+            fi
         fi
         if [ "$NEEDS_FRONTEND_RESTART" = true ]; then
             log "FRESHUP RESTART FRONTEND: frontend files changed"
             docker compose -f "$REPO_DIR/docker-compose.yml" restart frontend >> "$LOGFILE" 2>&1
+            if [ $? -ne 0 ]; then
+                alert "Frontend restart failed — check $LOGFILE"
+            fi
         fi
         if [ "$NEEDS_RESTART" = false ] && [ "$NEEDS_FRONTEND_RESTART" = false ]; then
             log "FRESHUP PULL ONLY: no deploy-relevant files changed"

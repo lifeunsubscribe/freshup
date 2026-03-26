@@ -22,6 +22,40 @@ from src.db.models.recipe_ingredient import RecipeIngredient
 logger = logging.getLogger(__name__)
 
 
+# Sentinel value for unparseable ingredient quantities
+# This is a WORKAROUND for validation requiring quantity > 0 in RecipeIngredientCreate.
+# Unparseable ingredients (e.g., "salt to taste") have no meaningful numeric quantity,
+# but the schema validation forces us to use a non-zero value.
+#
+# IMPORTANT: This is a code smell and should be replaced with a proper solution:
+# - Option 1: Add nullable quantity field to RecipeIngredient model (requires migration)
+# - Option 2: Add separate schema for system-imported ingredients
+# - Option 3: Use quantity >= 0 validation instead of > 0
+#
+# Related: Issue #335 - Sentinel Value 0.001 Workaround
+# Parent PR: #333 - Import pipeline & deduplication
+UNPARSEABLE_QUANTITY_SENTINEL = 0.001
+
+
+def is_unparseable_quantity(quantity: float) -> bool:
+    """
+    Check if a quantity value represents an unparseable ingredient.
+
+    This helper function centralizes the detection logic so that when we eventually
+    implement a proper solution, we only need to update this function and the constant.
+
+    Uses tolerance-based comparison to handle floating-point arithmetic edge cases
+    (e.g., from JSON serialization/deserialization between frontend and backend).
+
+    Args:
+        quantity: The quantity value to check
+
+    Returns:
+        True if the quantity is the sentinel value, False otherwise
+    """
+    return abs(quantity - UNPARSEABLE_QUANTITY_SENTINEL) < 0.0001
+
+
 def _normalize_url(url: str) -> str:
     """
     Normalize URL for deduplication comparisons.
@@ -90,8 +124,8 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
         ImportResult with status, recipe_id (on success), warnings, and errors
 
     Note:
-        - Unparseable ingredients are imported with qty=0.001 (workaround for
-          validation requiring qty > 0). A warning is added to ImportResult.
+        - Unparseable ingredients are imported with qty=UNPARSEABLE_QUANTITY_SENTINEL
+          (workaround for validation requiring qty > 0). A warning is added to ImportResult.
         - Duplicate detection is case-insensitive and URL-normalized.
         - All database operations are wrapped in a transaction.
     """
@@ -152,11 +186,11 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
         parsed = parse_ingredient(raw_ingredient)
 
         # Handle unparseable ingredients (qty=0 from parser)
-        # Use sentinel value 0.001 as workaround for validation requiring qty > 0
+        # Use sentinel value as workaround for validation requiring qty > 0
         quantity = parsed['quantity']
         if quantity == 0.0:
-            quantity = 0.001
-            warnings.append(f"Unparseable ingredient (using minimal qty): {raw_ingredient}")
+            quantity = UNPARSEABLE_QUANTITY_SENTINEL
+            warnings.append(f"Unparseable ingredient (using sentinel qty): {raw_ingredient}")
 
         parsed_ingredients.append({
             'ingredient_name': parsed['ingredient_name'] or raw_ingredient,

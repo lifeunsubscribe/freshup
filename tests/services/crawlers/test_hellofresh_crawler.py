@@ -160,7 +160,7 @@ class TestHelloFreshCrawlerUnit:
             assert "?" not in url, "Query params should be stripped"
             assert "#" not in url, "Fragments should be stripped"
 
-    @patch('src.services.crawlers.hellofresh_crawler.ET.fromstring')
+    @patch('defusedxml.ElementTree.fromstring')
     @patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._configure_from_robots_txt')
     def test_discover_from_sitemap_success(self, mock_robots_config, mock_fromstring):
         """Test successful sitemap parsing."""
@@ -279,3 +279,79 @@ class TestBaseCrawlerUtilities:
             # Second call to same domain should use cache
             parser.can_fetch("https://example.com/page2")
             assert mock_fetch.call_count == 1  # Still 1, not 2
+
+    def test_robots_txt_fetch_failure_allows_crawling(self):
+        """Test that fetch failure results in a parser that allows all crawling."""
+        from src.services.crawlers.base_crawler import RobotsTxtParser
+        from urllib.robotparser import RobotFileParser
+
+        parser = RobotsTxtParser()
+
+        # Mock RobotFileParser.read() to raise an exception (simulating fetch failure)
+        with patch.object(RobotFileParser, 'read', side_effect=Exception("Network error")):
+            # This should not raise an exception
+            can_fetch_result = parser.can_fetch("https://example.com/page")
+
+            # Should allow crawling (fail-open policy)
+            assert can_fetch_result is True
+
+            # Verify parser was cached
+            assert "example.com" in parser._parsers
+
+    def test_robots_txt_fetch_failure_returns_no_crawl_delay(self):
+        """Test that fetch failure results in no crawl delay."""
+        from src.services.crawlers.base_crawler import RobotsTxtParser
+        from urllib.robotparser import RobotFileParser
+
+        parser = RobotsTxtParser()
+
+        # Mock RobotFileParser.read() to raise an exception
+        with patch.object(RobotFileParser, 'read', side_effect=Exception("Network error")):
+            crawl_delay = parser.get_crawl_delay("https://example.com/page")
+
+            # Should return None (no crawl delay)
+            assert crawl_delay is None
+
+    def test_robots_txt_fetch_failure_caches_parser(self):
+        """Test that failed fetch still caches the parser to avoid repeated failures."""
+        from src.services.crawlers.base_crawler import RobotsTxtParser
+        from urllib.robotparser import RobotFileParser
+
+        parser = RobotsTxtParser()
+
+        # Mock RobotFileParser.read() to raise an exception
+        with patch.object(RobotFileParser, 'read', side_effect=Exception("Network error")) as mock_read:
+            # First call - should attempt fetch
+            parser.can_fetch("https://example.com/page1")
+            assert mock_read.call_count == 1
+
+            # Second call - should use cached parser (no additional fetch)
+            parser.can_fetch("https://example.com/page2")
+            assert mock_read.call_count == 1  # Still 1, not 2
+
+            # Verify consistent behavior on both calls
+            assert parser.can_fetch("https://example.com/page3") is True
+
+    def test_robots_txt_fetch_failure_consistent_behavior(self):
+        """Test that parser behavior is consistent after fetch failure."""
+        from src.services.crawlers.base_crawler import RobotsTxtParser
+        from urllib.robotparser import RobotFileParser
+
+        parser = RobotsTxtParser()
+
+        # Mock RobotFileParser.read() to raise an exception
+        with patch.object(RobotFileParser, 'read', side_effect=Exception("Timeout")):
+            # Multiple calls should return consistent results
+            url1 = "https://example.com/page1"
+            url2 = "https://example.com/admin"
+            url3 = "https://example.com/api/private"
+
+            # All should be allowed (fail-open policy)
+            assert parser.can_fetch(url1) is True
+            assert parser.can_fetch(url2) is True
+            assert parser.can_fetch(url3) is True
+
+            # All crawl delays should be None
+            assert parser.get_crawl_delay(url1) is None
+            assert parser.get_crawl_delay(url2) is None
+            assert parser.get_crawl_delay(url3) is None

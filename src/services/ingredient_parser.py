@@ -170,12 +170,18 @@ def _extract_quantity(text: str) -> tuple[float, str]:
     Returns:
         Tuple of (quantity, remaining_text)
         Returns (0.0, original_text) if no quantity found
+
+    Security:
+        Pattern uses explicit alternation (decimal|integer) instead of optional groups
+        to prevent catastrophic backtracking (ReDoS vulnerability).
     """
     text = text.strip()
 
     # Pattern for quantity extraction (handles ranges, mixed numbers, fractions, decimals)
     # Matches: "1-2", "1 1/2", "1/2", "1.5", "1"
-    quantity_pattern = r'^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)|^(\d+)\s+(\d+/\d+)|^(\d+/\d+)|^(\d+(?:\.\d+)?)'
+    # Security: Uses (\d+\.\d+|\d+) instead of (\d+(?:\.\d+)?) to prevent ReDoS
+    # The alternation forces a definite choice (decimal OR integer) with no backtracking
+    quantity_pattern = r'^(\d+\.\d+|\d+)\s*-\s*(\d+\.\d+|\d+)|^(\d+)\s+(\d+/\d+)|^(\d+/\d+)|^(\d+\.\d+|\d+)'
 
     match = re.match(quantity_pattern, text)
 
@@ -300,12 +306,24 @@ def parse_ingredient(raw: str) -> ParsedIngredient:
     Returns:
         ParsedIngredient with all fields populated
 
+    Raises:
+        ValueError: If input exceeds maximum length (500 characters) - ReDoS protection
+
     Note:
         Never crashes - returns graceful fallback with full text as ingredient_name
         if parsing fails completely.
     """
     # Preserve original for debugging
     original = raw.strip()
+
+    # Security: Input length validation to prevent ReDoS attacks
+    # Recipe ingredient strings are typically < 100 chars; 500 is generous
+    MAX_INGREDIENT_LENGTH = 500
+    if len(original) > MAX_INGREDIENT_LENGTH:
+        raise ValueError(
+            f"Ingredient string exceeds maximum length of {MAX_INGREDIENT_LENGTH} characters "
+            f"(got {len(original)}). This limit prevents ReDoS attacks."
+        )
 
     if not original:
         return ParsedIngredient(

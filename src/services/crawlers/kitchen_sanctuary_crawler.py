@@ -6,7 +6,7 @@ Includes rate limiting and robots.txt compliance.
 """
 
 import logging
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET  # Use defusedxml for defense-in-depth XXE protection
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 

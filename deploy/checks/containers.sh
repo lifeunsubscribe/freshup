@@ -23,10 +23,16 @@ check_containers() {
         if docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
             alert "Container $container is stopped — restarting"
             docker start "$container" >> "$LOGFILE" 2>&1
+            if [ $? -ne 0 ]; then
+                alert "Failed to start $container — check $LOGFILE"
+            fi
         else
             # Container doesn't exist at all — bring up the whole stack
             alert "Container $container not found — bringing up stack"
             docker compose -f "$REPO_DIR/docker-compose.yml" up -d >> "$LOGFILE" 2>&1
+            if [ $? -ne 0 ]; then
+                alert "Failed to bring up stack — check $LOGFILE"
+            fi
             return  # up -d handles all containers, no need to continue the loop
         fi
     done
