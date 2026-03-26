@@ -1,5 +1,5 @@
 import { Heart, ShoppingCart } from 'lucide-react'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useCreateGroceryItem } from '../../api/hooks/useGrocery'
 import type { IngredientStockStatus } from '../../utils/pantryMatcher'
 
@@ -37,6 +37,18 @@ export default function ActionBar({
   const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Cleanup timeouts on component unmount
+  useEffect(() => {
+    return () => {
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current)
+      }
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const missingCount = missingIngredients.length
   const allInStock = missingCount === 0
 
@@ -54,7 +66,7 @@ export default function ActionBar({
 
     try {
       // Add all missing ingredients to grocery list in parallel
-      await Promise.all(
+      const results = await Promise.allSettled(
         missingIngredients.map(({ ingredient }) =>
           createGroceryItem.mutateAsync({
             item_name: ingredient.ingredient_name,
@@ -65,14 +77,36 @@ export default function ActionBar({
         )
       )
 
-      // Show success feedback
-      setAddToListSuccess(true)
-      successTimeoutRef.current = setTimeout(() => {
-        setAddToListSuccess(false)
-        successTimeoutRef.current = null
-      }, 3000)
+      // Count successes and failures
+      const successCount = results.filter(r => r.status === 'fulfilled').length
+      const failureCount = results.filter(r => r.status === 'rejected').length
+
+      if (failureCount === 0) {
+        // All ingredients added successfully
+        setAddToListSuccess(true)
+        successTimeoutRef.current = setTimeout(() => {
+          setAddToListSuccess(false)
+          successTimeoutRef.current = null
+        }, 3000)
+      } else if (successCount > 0) {
+        // Partial success
+        console.error('Some ingredients failed to add:', results.filter(r => r.status === 'rejected'))
+        setAddToListError(`Added ${successCount} of ${missingCount} ingredients. Some failed to add.`)
+        errorTimeoutRef.current = setTimeout(() => {
+          setAddToListError(null)
+          errorTimeoutRef.current = null
+        }, 5000)
+      } else {
+        // Complete failure
+        console.error('Failed to add ingredients to grocery list:', results.filter(r => r.status === 'rejected'))
+        setAddToListError('Failed to add ingredients. Please try again.')
+        errorTimeoutRef.current = setTimeout(() => {
+          setAddToListError(null)
+          errorTimeoutRef.current = null
+        }, 5000)
+      }
     } catch (error) {
-      console.error('Failed to add ingredients to grocery list:', error)
+      console.error('Unexpected error adding ingredients to grocery list:', error)
       setAddToListError('Failed to add ingredients. Please try again.')
       errorTimeoutRef.current = setTimeout(() => {
         setAddToListError(null)
