@@ -1,4 +1,5 @@
 import PageContainer from '../components/layout/PageContainer'
+import PageTitle from '../components/ui/PageTitle'
 import UserSwitcher from '../components/auth/UserSwitcher'
 import ProfileHeader from '../components/profile/ProfileHeader'
 import DietarySection from '../components/profile/DietarySection'
@@ -34,8 +35,8 @@ export default function Profile() {
   return (
     <PageContainer>
       <div className="py-8">
-        <h1 className="text-4xl font-medium text-text-primary mb-4">Profile</h1>
-        <p className="text-text-secondary mb-6">
+        <PageTitle>Profile</PageTitle>
+        <p className="text-text-secondary mb-6 mt-2">
           Manage your preferences and settings
         </p>
 
