@@ -163,9 +163,12 @@ class RobotsTxtParser:
             parser.read()
             logger.info(f"Successfully fetched robots.txt from {robots_url}")
         except Exception as e:
-            # If robots.txt fetch fails, assume crawling is allowed
-            logger.warning(f"Failed to fetch robots.txt from {robots_url}: {e}")
+            # If robots.txt fetch fails, initialize parser with empty rules
+            # to allow all crawling (consistent with "fail-open" policy)
+            logger.warning(f"Failed to fetch robots.txt from {robots_url}: {type(e).__name__}: {e}")
             logger.info(f"Assuming crawling is allowed for {domain}")
+            # Parse empty robots.txt (allows all URLs, no crawl delay)
+            parser.parse([])
 
         self._parsers[domain] = parser
 
