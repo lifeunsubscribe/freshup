@@ -243,14 +243,22 @@ describe('App', () => {
 
     it('supports error recovery via Try Again button', async () => {
       const user = userEvent.setup()
-      let shouldThrow = true
 
-      // Mock useCurrentUser to throw initially, then succeed
+      // Flag to control when the mock should start succeeding
+      let shouldSucceed = false
+      let callCount = 0
+
+      // Mock useCurrentUser to throw until we set shouldSucceed to true
       const { useCurrentUser } = await import('./api/hooks/useAuth')
       vi.mocked(useCurrentUser).mockImplementation(() => {
-        if (shouldThrow) {
+        callCount++
+
+        // Throw error until shouldSucceed is true
+        if (!shouldSucceed) {
           throw new Error('Temporary network error')
         }
+
+        // After shouldSucceed is set to true, return success
         return {
           data: { id: 'user-1', email: 'test@example.com', name: 'Test User' },
           isLoading: false,
@@ -259,27 +267,38 @@ describe('App', () => {
         }
       })
 
-      const { rerender } = render(<App />)
+      // Wrap App in QueryClientProvider to support successful rendering after recovery
+      render(
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      )
 
+      // Should show error on first render
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Authentication Error' })).toBeInTheDocument()
       })
 
-      // Click Try Again
+      // Verify we're in error state
+      expect(callCount).toBeGreaterThanOrEqual(1)
+      const callCountBeforeReset = callCount
+
+      // Now allow the mock to succeed
+      shouldSucceed = true
+
+      // Click Try Again - this should call resetError() which resets the ErrorBoundary state
+      // and re-renders the children, triggering useCurrentUser again
       const tryAgainButton = screen.getByRole('button', { name: 'Try Again' })
-
-      // Fix the error condition
-      shouldThrow = false
-
       await user.click(tryAgainButton)
 
-      // Rerender with fixed state
-      rerender(<App />)
-
-      // After retry, should render successfully (no error boundary UI)
+      // After clicking Try Again, the ErrorBoundary should reset and re-render children
+      // This should trigger useCurrentUser again and successfully render the app
       await waitFor(() => {
         expect(screen.queryByRole('heading', { name: 'Authentication Error' })).not.toBeInTheDocument()
       })
+
+      // Verify that useCurrentUser was called again after reset
+      expect(callCount).toBeGreaterThan(callCountBeforeReset)
     })
 
     it('handles errors during AuthProvider initialization', async () => {
