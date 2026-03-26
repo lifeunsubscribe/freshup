@@ -1,5 +1,5 @@
 import { Heart, ShoppingCart } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useCreateGroceryItem } from '../../api/hooks/useGrocery'
 import type { IngredientStockStatus } from '../../utils/pantryMatcher'
 
@@ -33,15 +33,24 @@ export default function ActionBar({
   const createGroceryItem = useCreateGroceryItem()
   const [isAddingToList, setIsAddingToList] = useState(false)
   const [addToListError, setAddToListError] = useState<string | null>(null)
+  const [addToListSuccess, setAddToListSuccess] = useState(false)
+  const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const successTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const missingCount = missingIngredients.length
   const allInStock = missingCount === 0
 
   const handleAddMissingToList = async () => {
-    if (missingCount === 0) return
+    if (missingCount === 0 || addToListSuccess) return
 
     setIsAddingToList(true)
     setAddToListError(null)
+
+    // Clear any existing error timeout
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current)
+      errorTimeoutRef.current = null
+    }
 
     try {
       // Add all missing ingredients to grocery list in parallel
@@ -55,10 +64,20 @@ export default function ActionBar({
           })
         )
       )
+
+      // Show success feedback
+      setAddToListSuccess(true)
+      successTimeoutRef.current = setTimeout(() => {
+        setAddToListSuccess(false)
+        successTimeoutRef.current = null
+      }, 3000)
     } catch (error) {
       console.error('Failed to add ingredients to grocery list:', error)
       setAddToListError('Failed to add ingredients. Please try again.')
-      setTimeout(() => setAddToListError(null), 5000)
+      errorTimeoutRef.current = setTimeout(() => {
+        setAddToListError(null)
+        errorTimeoutRef.current = null
+      }, 5000)
     } finally {
       setIsAddingToList(false)
     }
@@ -71,14 +90,19 @@ export default function ActionBar({
           <p className="text-sm text-red-800">{addToListError}</p>
         </div>
       )}
+      {addToListSuccess && (
+        <div className="fixed bottom-20 left-4 right-4 bg-green-50 border border-green-200 rounded-lg p-3 shadow-lg z-40">
+          <p className="text-sm text-green-800">Ingredients added to grocery list!</p>
+        </div>
+      )}
       <div className="fixed bottom-0 left-0 right-0 bg-cream border-t border-warm-border shadow-lg z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
           {/* Add missing to list button (pantry cross-reference) */}
           <button
             onClick={handleAddMissingToList}
-            disabled={isLoading || isAddingToList || allInStock}
+            disabled={isLoading || isAddingToList || allInStock || addToListSuccess}
             className="flex-1 bg-olive text-cream font-medium py-3 px-4 rounded-button hover:bg-olive-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            title={allInStock ? 'All ingredients are in stock' : `Add ${missingCount} missing ingredient${missingCount === 1 ? '' : 's'} to grocery list`}
+            title={allInStock ? 'All ingredients are in stock' : addToListSuccess ? 'Ingredients added to list' : `Add ${missingCount} missing ingredient${missingCount === 1 ? '' : 's'} to grocery list`}
           >
             <ShoppingCart size={18} />
             <span>
