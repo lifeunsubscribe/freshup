@@ -83,6 +83,16 @@ def import_single_url(
     """
     logger.info(f"User {current_user.id} importing recipe from URL")
 
+    # Validate URL is from a supported domain
+    allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
+    url_lower = request.url.lower()
+    if not any(domain in url_lower for domain in allowed_domains):
+        logger.warning(f"User {current_user.id} attempted to import from unsupported domain: {request.url}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"URL must be from a supported domain: {', '.join(allowed_domains)}"
+        )
+
     try:
         result = import_recipe_from_url(request.url, db)
         return result

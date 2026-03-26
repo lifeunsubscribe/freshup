@@ -155,12 +155,12 @@ class TestImportUrl:
             recipe_id=recipe_id,
             warnings=[],
             error_message=None,
-            source_url="https://example.com/recipe"
+            source_url="https://www.hellofresh.com/recipes/test-recipe"
         )
 
         response = client.post(
             "/scraper/import-url",
-            json={"url": "https://example.com/recipe"},
+            json={"url": "https://www.hellofresh.com/recipes/test-recipe"},
             headers=member_headers
         )
 
@@ -179,12 +179,12 @@ class TestImportUrl:
             recipe_id=recipe_id,
             warnings=[],
             error_message=None,
-            source_url="https://example.com/recipe"
+            source_url="https://www.hellofresh.com/recipes/test-recipe"
         )
 
         response = client.post(
             "/scraper/import-url",
-            json={"url": "https://example.com/recipe"},
+            json={"url": "https://www.hellofresh.com/recipes/test-recipe"},
             headers=member_headers
         )
 
@@ -197,7 +197,7 @@ class TestImportUrl:
         """Import URL requires authentication."""
         response = client.post(
             "/scraper/import-url",
-            json={"url": "https://example.com/recipe"}
+            json={"url": "https://www.hellofresh.com/recipes/test-recipe"}
         )
 
         assert response.status_code == 401
@@ -219,7 +219,7 @@ class TestImportBatch:
 
         response = client.post(
             "/scraper/import-batch",
-            json={"urls": ["https://example.com/1", "https://example.com/2", "https://example.com/3"]},
+            json={"urls": ["https://www.hellofresh.com/recipes/1", "https://www.hellofresh.com/recipes/2", "https://www.hellofresh.com/recipes/3"]},
             headers=coordinator_headers
         )
 
@@ -234,7 +234,7 @@ class TestImportBatch:
         """Member cannot import batch URLs (coordinator only)."""
         response = client.post(
             "/scraper/import-batch",
-            json={"urls": ["https://example.com/1"]},
+            json={"urls": ["https://www.hellofresh.com/recipes/1"]},
             headers=member_headers
         )
 
@@ -245,7 +245,7 @@ class TestImportBatch:
         """Import batch requires authentication."""
         response = client.post(
             "/scraper/import-batch",
-            json={"urls": ["https://example.com/1"]}
+            json={"urls": ["https://www.hellofresh.com/recipes/1"]}
         )
 
         assert response.status_code == 401
@@ -316,6 +316,24 @@ class TestDiscover:
         )
 
         assert response.status_code == 422
+
+    @patch("src.routers.scraper.HelloFreshCrawler")
+    def test_discover_with_max_pages_parameter(self, mock_crawler_class, client, coordinator_headers):
+        """Max_pages parameter is passed to crawler."""
+        mock_crawler = MagicMock()
+        mock_crawler.discover_recipe_urls.return_value = [
+            "https://www.hellofresh.com/recipes/recipe-1"
+        ]
+        mock_crawler_class.return_value = mock_crawler
+
+        response = client.post(
+            "/scraper/discover/hellofresh?max_pages=5",
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 200
+        # Verify that max_pages was passed to the crawler
+        mock_crawler.discover_recipe_urls.assert_called_once_with(max_pages=5)
 
 
 class TestDiscoverAndImport:

@@ -81,7 +81,7 @@ class ImportUrlRequest(BaseModel):
 
 class ImportBatchRequest(BaseModel):
     """Request schema for batch URL import."""
-    urls: list[str] = Field(..., description="List of recipe URLs to import", min_length=1)
+    urls: list[str] = Field(..., description="List of recipe URLs to import", min_length=1, max_length=500)
 
 
 class DiscoverAndImportRequest(BaseModel):
