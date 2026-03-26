@@ -6,13 +6,36 @@ interface IngredientsTabProps {
 }
 
 /**
+ * Sentinel value for unparseable ingredient quantities.
+ * This matches the backend constant UNPARSEABLE_QUANTITY_SENTINEL in import_service.py.
+ *
+ * This is a WORKAROUND for validation requiring quantity > 0 in RecipeIngredientCreate.
+ * Unparseable ingredients (e.g., "salt to taste") have no meaningful numeric quantity.
+ *
+ * Related: Issue #335 - Sentinel Value 0.001 Workaround
+ */
+const UNPARSEABLE_QUANTITY_SENTINEL = 0.001
+
+/**
+ * Check if a quantity represents an unparseable ingredient
+ */
+function isUnparseableQuantity(quantity: number): boolean {
+  return Math.abs(quantity - UNPARSEABLE_QUANTITY_SENTINEL) < 0.0001
+}
+
+/**
  * Formats a quantity for display, handling fractions and decimals appropriately
  * Uses tolerance-based matching to handle floating-point arithmetic edge cases
+ * - Returns empty string for unparseable quantities (sentinel value)
  * - Converts common fractions to readable format (0.25 -> 1/4, 0.33 -> 1/3, etc.)
  * - Matches fractional values within ±0.01 tolerance to account for floating-point errors
  * - Rounds to 2 decimal places for values that don't match common fractions
  */
 function formatQuantity(quantity: number): string {
+  // Handle sentinel value for unparseable ingredients
+  if (isUnparseableQuantity(quantity)) {
+    return ''
+  }
   // Handle whole numbers (with small tolerance for floating-point errors)
   // Use stricter tolerance (0.001) for whole numbers to avoid matching values like 1.008
   if (Math.abs(quantity - Math.round(quantity)) < 0.001) {

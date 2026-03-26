@@ -21,6 +21,8 @@ from src.services.import_service import (
     import_recipe_from_url,
     import_batch,
     _normalize_url,
+    UNPARSEABLE_QUANTITY_SENTINEL,
+    is_unparseable_quantity,
 )
 from src.schemas.import_service import ImportResult, ImportStatus, BatchImportResult
 from src.schemas.scraper import ScrapedRecipeData
@@ -238,10 +240,11 @@ class TestImportRecipeFromUrl:
         assert "Unparseable ingredient" in result.warnings[0]
         assert "Salt to taste" in result.warnings[0]
 
-        # Verify ingredient was created with sentinel value 0.001
+        # Verify ingredient was created with sentinel value
         ingredients = [obj for obj in created_objects if isinstance(obj, RecipeIngredient)]
         assert len(ingredients) == 1
-        assert ingredients[0].quantity == 0.001
+        assert ingredients[0].quantity == UNPARSEABLE_QUANTITY_SENTINEL
+        assert is_unparseable_quantity(ingredients[0].quantity)
 
     @patch('src.services.import_service.scrape_recipe')
     @patch('src.services.import_service.parse_ingredient')
