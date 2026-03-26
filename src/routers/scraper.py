@@ -56,6 +56,11 @@ def validate_domain(url: str, allowed_domains: list[str]) -> bool:
     """
     try:
         parsed = urlparse(url)
+
+        # Validate URL scheme (only allow http and https)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+
         hostname = parsed.hostname
         if not hostname:
             return False

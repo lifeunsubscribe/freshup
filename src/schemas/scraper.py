@@ -76,12 +76,21 @@ class ScrapedRecipeData(BaseModel):
 
 class ImportUrlRequest(BaseModel):
     """Request schema for single URL import."""
-    url: str = Field(..., description="Recipe URL to import", min_length=1)
+    url: str = Field(..., description="Recipe URL to import", min_length=1, max_length=2048)
 
 
 class ImportBatchRequest(BaseModel):
     """Request schema for batch URL import."""
-    urls: list[str] = Field(..., description="List of recipe URLs to import", min_length=1, max_length=500)
+    urls: list[str] = Field(..., description="List of recipe URLs to import (each URL max 2048 chars)", min_length=1, max_length=500)
+
+    @field_validator('urls')
+    @classmethod
+    def validate_url_lengths(cls, v: list[str]) -> list[str]:
+        """Ensure each URL doesn't exceed maximum length."""
+        for url in v:
+            if len(url) > 2048:
+                raise ValueError("Each URL must not exceed 2048 characters")
+        return v
 
 
 class DiscoverAndImportRequest(BaseModel):
