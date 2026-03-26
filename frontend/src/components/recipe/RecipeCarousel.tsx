@@ -142,7 +142,7 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId }: 
             {/* Carousel container */}
             <div
               ref={scrollContainerRef}
-              className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide"
+              className="flex gap-[10px] overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide"
               role="list"
               aria-label={`${title} carousel`}
             >
