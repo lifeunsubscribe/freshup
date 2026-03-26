@@ -17,6 +17,12 @@ interface IngredientsTabProps {
 const UNPARSEABLE_QUANTITY_SENTINEL = 0.001
 
 /**
+ * Tolerance for detecting sentinel values after scaling.
+ * Used to handle floating-point arithmetic imprecision when comparing scaled quantities.
+ */
+const SENTINEL_TOLERANCE = 0.0001
+
+/**
  * Check if a quantity represents an unparseable ingredient.
  * Handles scaled quantities by checking if they originated from the sentinel value.
  *
@@ -25,9 +31,13 @@ const UNPARSEABLE_QUANTITY_SENTINEL = 0.001
  * @returns true if the original (unscaled) quantity was the sentinel value
  */
 function isUnparseableQuantity(quantity: number, multiplier: number = 1): boolean {
+  // Guard against division by zero
+  if (multiplier === 0) {
+    return false
+  }
   // Divide by multiplier to get the original quantity before scaling
   const originalQuantity = quantity / multiplier
-  return Math.abs(originalQuantity - UNPARSEABLE_QUANTITY_SENTINEL) < 0.0001
+  return Math.abs(originalQuantity - UNPARSEABLE_QUANTITY_SENTINEL) < SENTINEL_TOLERANCE
 }
 
 /**
