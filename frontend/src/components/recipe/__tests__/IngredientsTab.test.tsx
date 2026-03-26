@@ -311,6 +311,26 @@ describe('IngredientsTab', () => {
       expect(screen.queryByText(/0\.00/)).not.toBeInTheDocument()
     })
 
+    it('handles multiplier = 0 edge case without division by zero', () => {
+      const ingredients = [
+        createIngredient({
+          id: 'ing-1',
+          ingredient_name: 'flour',
+          quantity: 0.001,
+          unit: 'cup',
+        }),
+      ]
+
+      // With multiplier = 0, the defensive guard should prevent division by zero
+      // and treat the quantity as a regular number (not unparseable)
+      render(<IngredientsTab ingredients={ingredients} servingsMultiplier={0} />)
+
+      // Should display the ingredient name
+      expect(screen.getByText('flour')).toBeInTheDocument()
+      // With quantity 0.001 * 0 = 0, should display as "0"
+      expect(screen.getByText(/0/)).toBeInTheDocument()
+    })
+
     it('displays multiple unparseable ingredients correctly', () => {
       const ingredients = [
         createIngredient({
