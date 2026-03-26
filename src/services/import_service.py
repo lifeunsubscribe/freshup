@@ -44,13 +44,16 @@ def is_unparseable_quantity(quantity: float) -> bool:
     This helper function centralizes the detection logic so that when we eventually
     implement a proper solution, we only need to update this function and the constant.
 
+    Uses tolerance-based comparison to handle floating-point arithmetic edge cases
+    (e.g., from JSON serialization/deserialization between frontend and backend).
+
     Args:
         quantity: The quantity value to check
 
     Returns:
         True if the quantity is the sentinel value, False otherwise
     """
-    return quantity == UNPARSEABLE_QUANTITY_SENTINEL
+    return abs(quantity - UNPARSEABLE_QUANTITY_SENTINEL) < 0.0001
 
 
 def _normalize_url(url: str) -> str:

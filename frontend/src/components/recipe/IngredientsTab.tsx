@@ -17,10 +17,17 @@ interface IngredientsTabProps {
 const UNPARSEABLE_QUANTITY_SENTINEL = 0.001
 
 /**
- * Check if a quantity represents an unparseable ingredient
+ * Check if a quantity represents an unparseable ingredient.
+ * Handles scaled quantities by checking if they originated from the sentinel value.
+ *
+ * @param quantity - The quantity to check (may be scaled)
+ * @param multiplier - The scaling multiplier applied to the original quantity
+ * @returns true if the original (unscaled) quantity was the sentinel value
  */
-function isUnparseableQuantity(quantity: number): boolean {
-  return Math.abs(quantity - UNPARSEABLE_QUANTITY_SENTINEL) < 0.0001
+function isUnparseableQuantity(quantity: number, multiplier: number = 1): boolean {
+  // Divide by multiplier to get the original quantity before scaling
+  const originalQuantity = quantity / multiplier
+  return Math.abs(originalQuantity - UNPARSEABLE_QUANTITY_SENTINEL) < 0.0001
 }
 
 /**
@@ -30,10 +37,13 @@ function isUnparseableQuantity(quantity: number): boolean {
  * - Converts common fractions to readable format (0.25 -> 1/4, 0.33 -> 1/3, etc.)
  * - Matches fractional values within ±0.01 tolerance to account for floating-point errors
  * - Rounds to 2 decimal places for values that don't match common fractions
+ *
+ * @param quantity - The quantity to format (may be scaled)
+ * @param multiplier - The scaling multiplier applied to the original quantity
  */
-function formatQuantity(quantity: number): string {
+function formatQuantity(quantity: number, multiplier: number = 1): string {
   // Handle sentinel value for unparseable ingredients
-  if (isUnparseableQuantity(quantity)) {
+  if (isUnparseableQuantity(quantity, multiplier)) {
     return ''
   }
   // Handle whole numbers (with small tolerance for floating-point errors)
@@ -96,7 +106,7 @@ export default function IngredientsTab({ ingredients, servingsMultiplier }: Ingr
     <div className="space-y-3">
       {ingredients.map((ingredient) => {
         const scaledQuantity = ingredient.quantity * servingsMultiplier
-        const formattedQuantity = formatQuantity(scaledQuantity)
+        const formattedQuantity = formatQuantity(scaledQuantity, servingsMultiplier)
 
         return (
           <div
