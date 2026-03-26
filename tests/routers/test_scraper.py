@@ -202,6 +202,99 @@ class TestImportUrl:
 
         assert response.status_code == 401
 
+    def test_import_url_rejects_invalid_domain(self, client, member_headers):
+        """Import URL rejects URLs from unsupported domains."""
+        response = client.post(
+            "/scraper/import-url",
+            json={"url": "https://evil.com/recipes/test-recipe"},
+            headers=member_headers
+        )
+
+        assert response.status_code == 400
+        assert "supported domain" in response.json()["detail"].lower()
+
+    def test_import_url_rejects_subdomain_bypass_attempt(self, client, member_headers):
+        """Import URL rejects SSRF attempts via path-based domain spoofing."""
+        response = client.post(
+            "/scraper/import-url",
+            json={"url": "https://evil.com/hellofresh.com/recipes/test"},
+            headers=member_headers
+        )
+
+        assert response.status_code == 400
+        assert "supported domain" in response.json()["detail"].lower()
+
+    def test_import_url_rejects_subdomain_suffix_bypass_attempt(self, client, member_headers):
+        """Import URL rejects SSRF attempts via domain suffix spoofing."""
+        response = client.post(
+            "/scraper/import-url",
+            json={"url": "https://hellofresh.com.evil.com/recipes/test"},
+            headers=member_headers
+        )
+
+        assert response.status_code == 400
+        assert "supported domain" in response.json()["detail"].lower()
+
+    @patch("src.routers.scraper.import_recipe_from_url")
+    def test_import_url_accepts_valid_hellofresh_domain(self, mock_import, client, member_headers):
+        """Import URL accepts valid HelloFresh domain."""
+        recipe_id = uuid4()
+        mock_import.return_value = ImportResult(
+            status=ImportStatus.success,
+            recipe_id=recipe_id,
+            warnings=[],
+            error_message=None,
+            source_url="https://www.hellofresh.com/recipes/test"
+        )
+
+        response = client.post(
+            "/scraper/import-url",
+            json={"url": "https://www.hellofresh.com/recipes/test"},
+            headers=member_headers
+        )
+
+        assert response.status_code == 200
+
+    @patch("src.routers.scraper.import_recipe_from_url")
+    def test_import_url_accepts_valid_kitchen_sanctuary_domain(self, mock_import, client, member_headers):
+        """Import URL accepts valid Kitchen Sanctuary domain."""
+        recipe_id = uuid4()
+        mock_import.return_value = ImportResult(
+            status=ImportStatus.success,
+            recipe_id=recipe_id,
+            warnings=[],
+            error_message=None,
+            source_url="https://www.kitchensanctuary.com/recipe/test"
+        )
+
+        response = client.post(
+            "/scraper/import-url",
+            json={"url": "https://www.kitchensanctuary.com/recipe/test"},
+            headers=member_headers
+        )
+
+        assert response.status_code == 200
+
+    @patch("src.routers.scraper.import_recipe_from_url")
+    def test_import_url_accepts_subdomain(self, mock_import, client, member_headers):
+        """Import URL accepts legitimate subdomains of allowed domains."""
+        recipe_id = uuid4()
+        mock_import.return_value = ImportResult(
+            status=ImportStatus.success,
+            recipe_id=recipe_id,
+            warnings=[],
+            error_message=None,
+            source_url="https://recipes.hellofresh.com/test"
+        )
+
+        response = client.post(
+            "/scraper/import-url",
+            json={"url": "https://recipes.hellofresh.com/test"},
+            headers=member_headers
+        )
+
+        assert response.status_code == 200
+
 
 class TestImportBatch:
     """Test POST /scraper/import-batch endpoint."""
@@ -249,6 +342,56 @@ class TestImportBatch:
         )
 
         assert response.status_code == 401
+
+    def test_import_batch_rejects_invalid_domain(self, client, coordinator_headers):
+        """Batch import rejects URLs from unsupported domains."""
+        response = client.post(
+            "/scraper/import-batch",
+            json={"urls": [
+                "https://www.hellofresh.com/recipes/1",
+                "https://evil.com/recipes/2"
+            ]},
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 400
+        assert "supported domain" in response.json()["detail"].lower()
+
+    def test_import_batch_rejects_ssrf_bypass_attempts(self, client, coordinator_headers):
+        """Batch import rejects SSRF attempts."""
+        response = client.post(
+            "/scraper/import-batch",
+            json={"urls": [
+                "https://evil.com/hellofresh.com/recipe",
+                "https://hellofresh.com.evil.com/recipe"
+            ]},
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 400
+        assert "supported domain" in response.json()["detail"].lower()
+
+    @patch("src.routers.scraper.import_batch")
+    def test_import_batch_accepts_valid_domains(self, mock_batch, client, coordinator_headers):
+        """Batch import accepts all valid domains."""
+        mock_batch.return_value = BatchImportResult(
+            total=2,
+            imported=2,
+            duplicates=0,
+            errors=0,
+            results=[]
+        )
+
+        response = client.post(
+            "/scraper/import-batch",
+            json={"urls": [
+                "https://www.hellofresh.com/recipes/1",
+                "https://www.kitchensanctuary.com/recipe/2"
+            ]},
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 200
 
 
 class TestDiscover:

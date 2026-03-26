@@ -13,6 +13,7 @@ Authorization:
 
 import logging
 from typing import Literal
+from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -37,6 +38,37 @@ from src.schemas.import_service import ImportResult, BatchImportResult
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
+
+
+def validate_domain(url: str, allowed_domains: list[str]) -> bool:
+    """
+    Validate that a URL's hostname is from an allowed domain.
+
+    Uses proper domain suffix matching to prevent SSRF attacks via
+    subdomain tricks like "evil.com/hellofresh.com" or "hellofresh.com.evil.com".
+
+    Args:
+        url: URL to validate
+        allowed_domains: List of allowed domain suffixes (e.g., ["hellofresh.com"])
+
+    Returns:
+        True if the URL's hostname matches an allowed domain, False otherwise
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        hostname_lower = hostname.lower()
+
+        # Check if hostname exactly matches or is a subdomain of an allowed domain
+        for domain in allowed_domains:
+            domain_lower = domain.lower()
+            if hostname_lower == domain_lower or hostname_lower.endswith(f".{domain_lower}"):
+                return True
+        return False
+    except Exception:
+        return False
 
 
 def require_coordinator(user: User) -> None:
@@ -85,8 +117,7 @@ def import_single_url(
 
     # Validate URL is from a supported domain
     allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
-    url_lower = request.url.lower()
-    if not any(domain in url_lower for domain in allowed_domains):
+    if not validate_domain(request.url, allowed_domains):
         logger.warning(f"User {current_user.id} attempted to import from unsupported domain: {request.url}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -131,6 +162,16 @@ def import_batch_urls(
     require_coordinator(current_user)
 
     logger.info(f"Coordinator {current_user.id} importing batch of {len(request.urls)} URLs")
+
+    # Validate all URLs are from supported domains
+    allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
+    invalid_urls = [url for url in request.urls if not validate_domain(url, allowed_domains)]
+    if invalid_urls:
+        logger.warning(f"Coordinator {current_user.id} attempted batch import with {len(invalid_urls)} invalid URLs")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"All URLs must be from supported domains: {', '.join(allowed_domains)}. Found {len(invalid_urls)} invalid URL(s)."
+        )
 
     try:
         result = import_batch(request.urls, db, delay_seconds=1.0)
