@@ -121,12 +121,27 @@ describe('App', () => {
 
     // Suppress console.error in error boundary tests to avoid cluttering test output
     const originalError = console.error
+    let originalLocation: Location
+
     beforeAll(() => {
       console.error = vi.fn()
     })
 
     afterAll(() => {
       console.error = originalError
+    })
+
+    beforeEach(() => {
+      vi.resetModules()
+      vi.clearAllMocks()
+      originalLocation = window.location
+    })
+
+    afterEach(() => {
+      // Restore window.location if it was mocked
+      if (window.location !== originalLocation) {
+        window.location = originalLocation
+      }
     })
 
     it('catches errors from AuthProvider and renders AuthErrorFallback', async () => {
@@ -205,7 +220,6 @@ describe('App', () => {
       })
 
       // Mock window.location.href
-      const originalLocation = window.location
       delete (window as any).location
       window.location = { href: '' } as Location
 
@@ -224,8 +238,7 @@ describe('App', () => {
       // Should redirect to login
       expect(window.location.href).toBe('/login')
 
-      // Restore window.location
-      window.location = originalLocation
+      // window.location will be restored by afterEach hook
     })
 
     it('supports error recovery via Try Again button', async () => {
