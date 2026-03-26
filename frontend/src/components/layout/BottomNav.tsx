@@ -61,13 +61,13 @@ export default function BottomNav() {
                   }
                 />
                 {item.badge !== undefined && item.badge > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-mocha text-cream text-[10px] font-medium rounded-full w-4 h-4 flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 bg-mocha text-cream text-tiny font-medium rounded-full w-4 h-4 flex items-center justify-center">
                     {item.badge}
                   </span>
                 )}
               </div>
               <span
-                className={`text-[10px] mt-1 ${
+                className={`text-tiny mt-1 ${
                   active
                     ? 'text-olive font-medium'
                     : 'text-text-secondary font-normal'

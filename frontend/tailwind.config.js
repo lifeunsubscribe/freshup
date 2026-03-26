@@ -83,6 +83,11 @@ export default {
         'normal': '1.5',
         'relaxed': '1.75',
       },
+
+      // Font Sizes - Custom tokens for consistent typography
+      fontSize: {
+        'tiny': '10px',  // Bottom nav labels, badge text
+      },
     },
   },
   plugins: [],
