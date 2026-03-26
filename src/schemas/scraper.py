@@ -72,3 +72,36 @@ class ScrapedRecipeData(BaseModel):
             v = v.strip()
             return v if v else None
         return None
+
+
+class ImportUrlRequest(BaseModel):
+    """Request schema for single URL import."""
+    url: str = Field(..., description="Recipe URL to import", min_length=1)
+
+
+class ImportBatchRequest(BaseModel):
+    """Request schema for batch URL import."""
+    urls: list[str] = Field(..., description="List of recipe URLs to import", min_length=1)
+
+
+class DiscoverAndImportRequest(BaseModel):
+    """Request schema for discover-and-import operation."""
+    max_recipes: Optional[int] = Field(default=50, description="Maximum number of recipes to import", ge=1)
+
+
+class DiscoveryResponse(BaseModel):
+    """Response schema for URL discovery."""
+    source: str = Field(..., description="Source name (hellofresh or kitchen_sanctuary)")
+    urls: list[str] = Field(..., description="Discovered recipe URLs")
+    count: int = Field(..., description="Number of URLs discovered")
+
+
+class SourceStats(BaseModel):
+    """Statistics for a single source type."""
+    source_type: str = Field(..., description="Source type identifier")
+    count: int = Field(..., description="Number of recipes from this source")
+
+
+class StatusResponse(BaseModel):
+    """Response schema for scraper status endpoint."""
+    stats: list[SourceStats] = Field(..., description="Recipe counts by source type")
