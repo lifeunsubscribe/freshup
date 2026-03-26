@@ -19,6 +19,7 @@ check_freshup() {
     git pull origin main >> "$LOGFILE" 2>&1
     if [ $? -ne 0 ]; then
         alert "Git pull failed — check $LOGFILE"
+        return 1
     fi
 
     local CHANGED
