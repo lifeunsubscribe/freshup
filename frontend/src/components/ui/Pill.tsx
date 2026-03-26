@@ -29,7 +29,7 @@ export default function Pill({ children, variant = 'default' }: PillProps) {
 
   return (
     <span
-      className={`inline-block px-2.5 py-1 text-[10px] font-medium rounded-[6px] ${variantStyles[variant]}`}
+      className={`inline-block px-2.5 py-1 text-tiny font-medium rounded-pill ${variantStyles[variant]}`}
     >
       {children}
     </span>
