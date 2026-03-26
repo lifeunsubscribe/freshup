@@ -290,4 +290,118 @@ describe('IngredientsTab', () => {
       expect(screen.getByText(/3 cup/)).toBeInTheDocument() // 1 * 3 = 3
     })
   })
+
+  describe('formatQuantity - sentinel value for unparseable ingredients', () => {
+    it('displays unparseable ingredient without quantity (sentinel value 0.001)', () => {
+      const ingredients = [
+        createIngredient({
+          id: 'ing-1',
+          ingredient_name: 'Salt to taste',
+          quantity: 0.001,
+          unit: '',
+        }),
+      ]
+
+      render(<IngredientsTab ingredients={ingredients} servingsMultiplier={1} />)
+
+      // Quantity should be empty, ingredient name should still be visible
+      expect(screen.getByText('Salt to taste')).toBeInTheDocument()
+      // Should NOT display "0.001" or "0.00"
+      expect(screen.queryByText(/0\.001/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/0\.00/)).not.toBeInTheDocument()
+    })
+
+    it('handles multiplier = 0 edge case without division by zero', () => {
+      const ingredients = [
+        createIngredient({
+          id: 'ing-1',
+          ingredient_name: 'flour',
+          quantity: 0.001,
+          unit: 'cup',
+        }),
+      ]
+
+      // With multiplier = 0, the defensive guard should prevent division by zero
+      // and treat the quantity as a regular number (not unparseable)
+      render(<IngredientsTab ingredients={ingredients} servingsMultiplier={0} />)
+
+      // Should display the ingredient name
+      expect(screen.getByText('flour')).toBeInTheDocument()
+      // With quantity 0.001 * 0 = 0, should display as "0"
+      expect(screen.getByText(/0/)).toBeInTheDocument()
+    })
+
+    it('displays multiple unparseable ingredients correctly', () => {
+      const ingredients = [
+        createIngredient({
+          id: 'ing-1',
+          ingredient_name: 'Salt to taste',
+          quantity: 0.001,
+          unit: '',
+        }),
+        createIngredient({
+          id: 'ing-2',
+          ingredient_name: 'Pepper as needed',
+          quantity: 0.001,
+          unit: '',
+        }),
+        createIngredient({
+          id: 'ing-3',
+          ingredient_name: 'flour',
+          quantity: 1,
+          unit: 'cup',
+        }),
+      ]
+
+      render(<IngredientsTab ingredients={ingredients} servingsMultiplier={1} />)
+
+      expect(screen.getByText('Salt to taste')).toBeInTheDocument()
+      expect(screen.getByText('Pepper as needed')).toBeInTheDocument()
+      expect(screen.getByText('flour')).toBeInTheDocument()
+      expect(screen.getByText(/1 cup/)).toBeInTheDocument()
+    })
+
+    it('handles sentinel value with servings scaling (sentinel stays sentinel)', () => {
+      const ingredients = [
+        createIngredient({
+          id: 'ing-1',
+          ingredient_name: 'Salt to taste',
+          quantity: 0.001,
+          unit: '',
+        }),
+      ]
+
+      // Even with scaling, 0.001 * 2 = 0.002 which should still be recognized
+      // as unparseable (within tolerance)
+      render(<IngredientsTab ingredients={ingredients} servingsMultiplier={2} />)
+
+      expect(screen.getByText('Salt to taste')).toBeInTheDocument()
+      // Should NOT display any quantity
+      expect(screen.queryByText(/0\.00/)).not.toBeInTheDocument()
+    })
+
+    it('distinguishes sentinel value from actual small quantities', () => {
+      const ingredients = [
+        createIngredient({
+          id: 'ing-1',
+          ingredient_name: 'Salt to taste',
+          quantity: 0.001,
+          unit: '',
+        }),
+        createIngredient({
+          id: 'ing-2',
+          ingredient_name: 'Vanilla extract',
+          quantity: 0.125,
+          unit: 'tsp',
+        }),
+      ]
+
+      render(<IngredientsTab ingredients={ingredients} servingsMultiplier={1} />)
+
+      // Sentinel value should show no quantity
+      expect(screen.getByText('Salt to taste')).toBeInTheDocument()
+      // Actual small quantity should show formatted value
+      expect(screen.getByText(/1\/8 tsp/)).toBeInTheDocument()
+    })
+  })
 })
