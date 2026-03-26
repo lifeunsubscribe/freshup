@@ -528,3 +528,133 @@ class TestGracefulFallback:
         assert result['ingredient_name'] == "???"
         assert result['quantity'] == 0.0
         assert result['unit'] == ""
+
+
+class TestReDoSProtection:
+    """Tests for ReDoS (Regular Expression Denial of Service) protection.
+
+    This test suite verifies security measures against catastrophic backtracking
+    vulnerabilities in the quantity pattern regex.
+    """
+
+    def test_input_length_validation_accepts_normal_ingredients(self):
+        """Test that normal-length ingredient strings are accepted."""
+        # Typical ingredient string (< 100 chars)
+        result = parse_ingredient("4 oz Heirloom Grape Tomatoes, diced")
+        assert result['quantity'] == 4.0
+        assert result['unit'].lower() == 'oz'
+
+        # Long but reasonable ingredient (< 200 chars)
+        long_ingredient = "2 cups organic free-range chicken breast, skinless and boneless, cut into 1-inch cubes, marinated in olive oil and herbs"
+        result = parse_ingredient(long_ingredient)
+        assert result['quantity'] == 2.0
+        assert result['unit'].lower() == 'cups'
+
+    def test_input_length_validation_accepts_near_limit(self):
+        """Test that ingredients near the 500 char limit are accepted."""
+        # 450 characters (should be accepted)
+        ingredient_450 = "1 cup " + ("very " * 88) + "long ingredient name"
+        assert len(ingredient_450) < 500
+        result = parse_ingredient(ingredient_450)
+        assert result['quantity'] == 1.0
+        assert result['unit'].lower() == 'cup'
+        assert 'long ingredient name' in result['ingredient_name']
+
+    def test_input_length_validation_rejects_excessive_length(self):
+        """Test that ingredient strings exceeding 500 chars are rejected."""
+        # 501 characters (should be rejected)
+        ingredient_501 = "1 cup " + ("x" * 495)
+        assert len(ingredient_501) > 500
+
+        with pytest.raises(ValueError) as exc_info:
+            parse_ingredient(ingredient_501)
+
+        assert "exceeds maximum length" in str(exc_info.value)
+        assert "500 characters" in str(exc_info.value)
+        assert "ReDoS" in str(exc_info.value)
+
+    def test_input_length_validation_rejects_very_long_input(self):
+        """Test that extremely long inputs are rejected."""
+        # 10000 characters (potential ReDoS payload)
+        malicious_input = "1" + ("." * 9999)
+        assert len(malicious_input) == 10000
+
+        with pytest.raises(ValueError) as exc_info:
+            parse_ingredient(malicious_input)
+
+        assert "exceeds maximum length" in str(exc_info.value)
+
+    def test_regex_pattern_handles_many_digits_efficiently(self):
+        r"""Test that the quantity pattern handles many digits without catastrophic backtracking.
+
+        The old pattern (\d+(?:\.\d+)?) could backtrack exponentially.
+        The new pattern (\d+\.\d+|\d+) uses explicit alternation to prevent this.
+        """
+        import time
+
+        # Pattern that could cause catastrophic backtracking in vulnerable regex
+        # Many digits followed by many dots (but no valid decimal)
+        # Old pattern would try: \d+ matches "111...", then (?:\.\d+)? fails, backtrack...
+        # New pattern: \d+\.\d+ fails fast (no digit after dot), try \d+, matches, done
+        edge_case_input = "1111111111111111111111111111111111....................... cups flour"
+
+        start_time = time.time()
+        qty, remaining = _extract_quantity(edge_case_input)
+        elapsed_time = time.time() - start_time
+
+        # Should complete in milliseconds (< 0.1 seconds), not hang
+        assert elapsed_time < 0.1, f"Pattern took too long: {elapsed_time}s (possible ReDoS)"
+
+        # Should extract the integer quantity correctly
+        assert qty == 1111111111111111111111111111111111.0
+        assert "cups flour" in remaining
+
+    def test_regex_pattern_handles_malicious_patterns_quickly(self):
+        """Test additional edge cases that could trigger backtracking."""
+        import time
+
+        test_cases = [
+            # Many digits with single dot at end (no digits after)
+            "99999999999999999999999999999999. oz",
+            # Many digits with dots scattered (invalid decimals)
+            "123.456.789 tbsp",
+            # Decimal with many fractional digits
+            "1.123456789012345678901234567890 cup",
+        ]
+
+        for test_input in test_cases:
+            start_time = time.time()
+            qty, remaining = _extract_quantity(test_input)
+            elapsed_time = time.time() - start_time
+
+            # Should complete quickly (< 0.1 seconds)
+            assert elapsed_time < 0.1, f"Pattern took {elapsed_time}s for input: {test_input}"
+
+            # Should still extract a valid quantity (or 0.0 if no match)
+            assert isinstance(qty, float)
+
+    def test_valid_decimals_still_work(self):
+        """Ensure the new pattern still correctly parses valid decimal quantities."""
+        test_cases = [
+            ("1.5 cups flour", 1.5),
+            ("2.25 oz sugar", 2.25),
+            ("0.5 tsp salt", 0.5),
+            ("10.75 lb beef", 10.75),
+            ("3.141592 cups pi", 3.141592),
+        ]
+
+        for input_str, expected_qty in test_cases:
+            qty, remaining = _extract_quantity(input_str)
+            assert qty == pytest.approx(expected_qty), f"Failed for: {input_str}"
+
+    def test_range_pattern_with_decimals(self):
+        """Ensure range patterns with decimals work correctly."""
+        test_cases = [
+            ("1.5-2.5 cups milk", 2.0),  # Midpoint of 1.5 and 2.5
+            ("0.25-0.75 tsp salt", 0.5),  # Midpoint
+            ("10-20.5 oz meat", 15.25),   # Mixed integer-decimal range
+        ]
+
+        for input_str, expected_qty in test_cases:
+            qty, remaining = _extract_quantity(input_str)
+            assert qty == pytest.approx(expected_qty), f"Failed for: {input_str}"
