@@ -18,6 +18,7 @@ from recipe_scrapers._exceptions import WebsiteNotImplementedError
 from src.schemas.scraper import ScrapedRecipeData
 from src.db.models.recipe import SourceType
 from src.config import get_settings
+from src.services.crawlers.base_crawler import USER_AGENT
 
 
 # Custom exceptions for scraping errors
@@ -228,12 +229,12 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
                 if parsed.query:
                     request_url += f"?{parsed.query}"
 
-            # Set Host header to preserve virtual hosting
-            headers = {'Host': original_hostname}
+            # Set Host header to preserve virtual hosting and User-Agent for reliability
+            headers = {'Host': original_hostname, 'User-Agent': USER_AGENT}
         else:
             # Fallback to original URL if no validated IP
             request_url = url
-            headers = {}
+            headers = {'User-Agent': USER_AGENT}
 
         # Fetch the HTML content with timeout and disabled redirects
         # Redirects are disabled to prevent redirect-based SSRF bypasses
