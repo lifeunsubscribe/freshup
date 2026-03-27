@@ -9,6 +9,9 @@ Tests cover:
 - GET /scraper/status: import statistics (any authenticated user)
 - Authorization checks (coordinator vs member)
 - Error handling and validation
+- Rate limiting (API layer abuse prevention)
+
+Note: Rate limiter is reset before each test to prevent cross-test interference.
 """
 
 import pytest
@@ -35,6 +38,14 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# Register rate limiting for the test app
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from src.middleware.rate_limit import limiter
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Register the scraper router
 app.include_router(scraper_router.router)
 
@@ -44,7 +55,7 @@ TEST_DATABASE_URL = "sqlite:///:memory:"
 
 @pytest.fixture(autouse=True)
 def setup_test_env(monkeypatch):
-    """Set up test environment variables."""
+    """Set up test environment variables and reset rate limiter."""
     from src.config import get_settings
     get_settings.cache_clear()
 
@@ -55,6 +66,9 @@ def setup_test_env(monkeypatch):
     monkeypatch.setenv("ACCESS_TOKEN_EXPIRE_MINUTES", "43200")
 
     get_settings.cache_clear()
+
+    # Reset rate limiter state before each test to prevent cross-test interference
+    limiter.reset()
 
 
 @pytest.fixture
