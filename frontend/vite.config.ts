@@ -51,6 +51,7 @@ export default defineConfig({
   server: {
     host: devServerHost,
     port: 5173,
+    allowedHosts: ['homelab.local'],
     // Fail if port is already in use (prevents silent port changes)
     strictPort: true,
     watch: {
