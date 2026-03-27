@@ -118,11 +118,14 @@ class TestScrapeRecipe:
         assert len(result.instructions) == 3  # Split by newline
 
         # Verify requests.get was called with timeout, headers, and allow_redirects=False
-        # The URL will be an IP address due to SSRF protection, with Host header set
+        # The URL will be an IP address due to SSRF protection, with Host and User-Agent headers set
         mock_requests_get.assert_called_once()
         call_args = mock_requests_get.call_args
         assert call_args[1]['timeout'] == 30.0
-        assert call_args[1]['headers'] == {'Host': 'www.hellofresh.com'}
+        assert 'Host' in call_args[1]['headers']
+        assert call_args[1]['headers']['Host'] == 'www.hellofresh.com'
+        assert 'User-Agent' in call_args[1]['headers']
+        assert 'FreshUp-Crawler' in call_args[1]['headers']['User-Agent']
         assert call_args[1]['allow_redirects'] is False
 
         # Verify scrape_html was called with the fetched HTML
@@ -256,12 +259,47 @@ class TestScrapeRecipe:
             scrape_recipe(url)
 
         # Verify requests.get was called with the configured timeout, headers, and allow_redirects=False
-        # The URL will be an IP address due to SSRF protection, with Host header set
+        # The URL will be an IP address due to SSRF protection, with Host and User-Agent headers set
         mock_requests_get.assert_called_once()
         call_args = mock_requests_get.call_args
         assert call_args[1]['timeout'] == 45.0
-        assert call_args[1]['headers'] == {'Host': 'www.example.com'}
+        assert 'Host' in call_args[1]['headers']
+        assert call_args[1]['headers']['Host'] == 'www.example.com'
+        assert 'User-Agent' in call_args[1]['headers']
+        assert 'FreshUp-Crawler' in call_args[1]['headers']['User-Agent']
         assert call_args[1]['allow_redirects'] is False
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    @patch('src.services.scraper_service.requests.get')
+    def test_sets_user_agent_header(self, mock_requests_get, mock_scrape_html):
+        """Test that User-Agent header is set for all HTTP requests."""
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
+        mock_scraper = Mock()
+        mock_scraper.title.return_value = "Test Recipe"
+        mock_scraper.ingredients.return_value = ["ingredient 1"]
+        mock_scraper.instructions.return_value = "Step 1"
+        mock_scraper.prep_time.side_effect = Exception("Not available")
+        mock_scraper.cook_time.side_effect = Exception("Not available")
+        mock_scraper.total_time.side_effect = Exception("Not available")
+        mock_scraper.yields.side_effect = Exception("Not available")
+        mock_scraper.image.side_effect = Exception("Not available")
+        mock_scraper.nutrients.side_effect = Exception("Not available")
+        mock_scraper.author.side_effect = Exception("Not available")
+        mock_scraper.site_name.side_effect = Exception("Not available")
+
+        mock_scrape_html.return_value = mock_scraper
+
+        url = "https://www.hellofresh.com/recipes/test"
+        result = scrape_recipe(url)
+
+        # Verify User-Agent header is present
+        mock_requests_get.assert_called_once()
+        call_args = mock_requests_get.call_args
+        assert 'User-Agent' in call_args[1]['headers']
+        assert 'FreshUp-Crawler/1.0' in call_args[1]['headers']['User-Agent']
+        assert 'github.com/freshup/freshup' in call_args[1]['headers']['User-Agent']
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
     @patch('src.services.scraper_service.requests.get')
@@ -430,7 +468,10 @@ class TestScrapeRecipe:
         mock_requests_get.assert_called_once()
         call_args = mock_requests_get.call_args
         assert call_args[1]['timeout'] == 30.0
-        assert call_args[1]['headers'] == {'Host': 'www.hellofresh.com'}
+        assert 'Host' in call_args[1]['headers']
+        assert call_args[1]['headers']['Host'] == 'www.hellofresh.com'
+        assert 'User-Agent' in call_args[1]['headers']
+        assert 'FreshUp-Crawler' in call_args[1]['headers']['User-Agent']
         assert call_args[1]['allow_redirects'] is False
 
         # Verify scrape_html was called with the fetched HTML
