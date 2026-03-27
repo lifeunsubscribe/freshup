@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Disaster recovery: back up SQLite database daily
 
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/freshup}"
 BACKUP_KEEP_DAYS=14
 
