@@ -108,8 +108,8 @@ def require_coordinator(user: User) -> None:
 @router.post("/import-url", response_model=ImportResult, status_code=status.HTTP_200_OK)
 @limiter.limit("20/minute")
 def import_single_url(
-    request: ImportUrlRequest,
-    fastapi_request: Request,
+    payload: ImportUrlRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -122,8 +122,8 @@ def import_single_url(
     Rate limited to 20 requests per minute per IP address to prevent abuse.
 
     Args:
-        request: Request containing the URL to import
-        fastapi_request: FastAPI request object (for rate limiting)
+        payload: Request body containing the URL to import
+        request: FastAPI request object (required by slowapi for rate limiting)
         current_user: Authenticated user (injected by get_current_user)
         db: Database session
 
@@ -139,15 +139,15 @@ def import_single_url(
 
     # Validate URL is from a supported domain
     allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
-    if not validate_domain(request.url, allowed_domains):
-        logger.warning(f"User {current_user.id} attempted to import from unsupported domain: {request.url}")
+    if not validate_domain(payload.url, allowed_domains):
+        logger.warning(f"User {current_user.id} attempted to import from unsupported domain: {payload.url}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"URL must be from a supported domain: {', '.join(allowed_domains)}"
         )
 
     try:
-        result = import_recipe_from_url(request.url, db)
+        result = import_recipe_from_url(payload.url, db)
         return result
     except Exception as e:
         logger.error(f"Unexpected error during import for user {current_user.id}: {e}")
@@ -160,8 +160,8 @@ def import_single_url(
 @router.post("/import-batch", response_model=BatchImportResult, status_code=status.HTTP_200_OK)
 @limiter.limit("5/minute")
 def import_batch_urls(
-    request: ImportBatchRequest,
-    fastapi_request: Request,
+    payload: ImportBatchRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -174,8 +174,8 @@ def import_batch_urls(
     Rate limited to 5 requests per minute per IP address to prevent abuse.
 
     Args:
-        request: Request containing list of URLs to import
-        fastapi_request: FastAPI request object (for rate limiting)
+        payload: Request body containing list of URLs to import
+        request: FastAPI request object (required by slowapi for rate limiting)
         current_user: Authenticated user (must be coordinator)
         db: Database session
 
@@ -189,11 +189,11 @@ def import_batch_urls(
     """
     require_coordinator(current_user)
 
-    logger.info(f"Coordinator {current_user.id} importing batch of {len(request.urls)} URLs")
+    logger.info(f"Coordinator {current_user.id} importing batch of {len(payload.urls)} URLs")
 
     # Validate all URLs are from supported domains
     allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
-    invalid_urls = [url for url in request.urls if not validate_domain(url, allowed_domains)]
+    invalid_urls = [url for url in payload.urls if not validate_domain(url, allowed_domains)]
     if invalid_urls:
         logger.warning(f"Coordinator {current_user.id} attempted batch import with {len(invalid_urls)} invalid URLs")
         raise HTTPException(
@@ -202,7 +202,7 @@ def import_batch_urls(
         )
 
     try:
-        result = import_batch(request.urls, db, delay_seconds=1.0)
+        result = import_batch(payload.urls, db, delay_seconds=1.0)
         logger.info(
             f"Batch import complete: {result.imported} imported, "
             f"{result.duplicates} duplicates, {result.errors} errors"
@@ -220,7 +220,7 @@ def import_batch_urls(
 @limiter.limit("5/minute")
 def discover_urls(
     source: Literal["hellofresh", "kitchen_sanctuary"],
-    fastapi_request: Request,
+    request: Request,
     max_pages: int | None = Query(default=None, description="Maximum number of pages to crawl (for testing)", ge=1),
     current_user: User = Depends(get_current_user),
 ):
@@ -234,7 +234,7 @@ def discover_urls(
 
     Args:
         source: Source to discover from (hellofresh or kitchen_sanctuary)
-        fastapi_request: FastAPI request object (for rate limiting)
+        request: FastAPI request object (required by slowapi for rate limiting)
         max_pages: Optional maximum number of pages to crawl (for testing/limiting scope)
         current_user: Authenticated user (must be coordinator)
 
@@ -274,8 +274,8 @@ def discover_urls(
 @limiter.limit("3/minute")
 def discover_and_import(
     source: Literal["hellofresh", "kitchen_sanctuary"],
-    fastapi_request: Request,
-    request: DiscoverAndImportRequest = DiscoverAndImportRequest(),
+    request: Request,
+    payload: DiscoverAndImportRequest = DiscoverAndImportRequest(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -291,8 +291,8 @@ def discover_and_import(
 
     Args:
         source: Source to discover from (hellofresh or kitchen_sanctuary)
-        fastapi_request: FastAPI request object (for rate limiting)
-        request: Request with max_recipes parameter (default: 50)
+        request: FastAPI request object (required by slowapi for rate limiting)
+        payload: Request body with max_recipes parameter (default: 50)
         current_user: Authenticated user (must be coordinator)
         db: Database session
 
@@ -307,7 +307,7 @@ def discover_and_import(
     """
     require_coordinator(current_user)
 
-    max_recipes = request.max_recipes or 50
+    max_recipes = payload.max_recipes or 50
     logger.info(f"Coordinator {current_user.id} discovering and importing from {source} (max: {max_recipes})")
 
     try:
