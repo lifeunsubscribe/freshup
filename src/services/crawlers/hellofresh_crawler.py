@@ -8,6 +8,7 @@ category crawl fallback. Includes rate limiting and robots.txt compliance.
 import logging
 import defusedxml.ElementTree as ET  # Use defusedxml for defense-in-depth XXE protection
 from typing import Optional
+from xml.etree.ElementTree import Element
 from urllib.parse import urljoin, urlparse
 
 from src.services.crawlers.base_crawler import (
@@ -208,7 +209,7 @@ class HelloFreshCrawler:
         recipe_urls = list(set(recipe_urls))
         return recipe_urls
 
-    def _extract_urls_from_sitemap(self, root: ET.Element, namespace: dict) -> list[str]:
+    def _extract_urls_from_sitemap(self, root: Element, namespace: dict) -> list[str]:
         """
         Extract recipe URLs from a sitemap XML element.
 
