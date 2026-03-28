@@ -30,7 +30,7 @@ export default function RecipeDetail() {
     retry: false,
   })
 
-  const { data: inventoryItems = [] } = useInventoryList({})
+  const { data: inventoryItems = [], isLoading: isLoadingInventory, isError: isInventoryError } = useInventoryList({})
 
   const rateRecipeMutation = useRateRecipe()
 
@@ -181,11 +181,16 @@ export default function RecipeDetail() {
             <p className="text-sm text-red-800">{favoriteError}</p>
           </div>
         )}
+        {isInventoryError && (
+          <div className="fixed bottom-20 left-4 right-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 shadow-lg z-40">
+            <p className="text-sm text-yellow-800">Unable to load pantry inventory. The "Add missing to list" button is temporarily unavailable.</p>
+          </div>
+        )}
         <ActionBar
           isFavorited={isFavorited}
           onFavoriteToggle={handleFavoriteToggle}
           onAddToMealPlan={handleAddToMealPlan}
-          isLoading={rateRecipeMutation.isPending || isLoadingRating}
+          isLoading={rateRecipeMutation.isPending || isLoadingRating || isLoadingInventory || isInventoryError}
           missingIngredients={stockStatus.outOfStock}
         />
       </>
