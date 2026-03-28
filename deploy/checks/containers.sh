@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Container health: verify expected containers are running, restart if crashed
 
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Add container names here as you add services
 EXPECTED_CONTAINERS=(

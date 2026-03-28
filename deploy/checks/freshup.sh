@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # FreshUp: poll GitHub and deploy on changes
 
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 check_freshup() {
     cd "$REPO_DIR"

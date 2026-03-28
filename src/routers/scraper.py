@@ -9,12 +9,22 @@ Authorization:
 - Batch operations: Coordinator only
 - Discovery operations: Coordinator only
 - Status: Any authenticated user
+
+Rate Limiting (API layer - abuse prevention):
+- /import-url: 20 requests/minute per IP
+- /import-batch: 5 requests/minute per IP
+- /discover/{source}: 5 requests/minute per IP
+- /discover-and-import/{source}: 3 requests/minute per IP
+- /status: No rate limiting (read-only, cheap query)
+
+Note: Service layer has separate polite delays (1 second between external requests)
+for crawler etiquette, not abuse prevention.
 """
 
 import logging
 from typing import Literal
 from urllib.parse import urlparse
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -22,6 +32,7 @@ from src.db.database import get_db
 from src.db.models.user import User, UserRole
 from src.db.models.recipe import Recipe
 from src.middleware.auth import get_current_user
+from src.middleware.rate_limit import limiter
 from src.services.import_service import import_recipe_from_url, import_batch
 from src.services.crawlers.hellofresh_crawler import HelloFreshCrawler
 from src.services.crawlers.kitchen_sanctuary_crawler import KitchenSanctuaryCrawler
@@ -95,8 +106,10 @@ def require_coordinator(user: User) -> None:
 
 
 @router.post("/import-url", response_model=ImportResult, status_code=status.HTTP_200_OK)
+@limiter.limit("20/minute")
 def import_single_url(
-    request: ImportUrlRequest,
+    payload: ImportUrlRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -106,8 +119,11 @@ def import_single_url(
     Any authenticated user can import recipes. The recipe becomes globally
     readable (system-imported, created_by=None).
 
+    Rate limited to 20 requests per minute per IP address to prevent abuse.
+
     Args:
-        request: Request containing the URL to import
+        payload: Request body containing the URL to import
+        request: FastAPI request object (required by slowapi for rate limiting)
         current_user: Authenticated user (injected by get_current_user)
         db: Database session
 
@@ -117,20 +133,21 @@ def import_single_url(
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(400): If URL is invalid or import fails
+        HTTPException(429): If rate limit is exceeded
     """
     logger.info(f"User {current_user.id} importing recipe from URL")
 
     # Validate URL is from a supported domain
     allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
-    if not validate_domain(request.url, allowed_domains):
-        logger.warning(f"User {current_user.id} attempted to import from unsupported domain: {request.url}")
+    if not validate_domain(payload.url, allowed_domains):
+        logger.warning(f"User {current_user.id} attempted to import from unsupported domain: {payload.url}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"URL must be from a supported domain: {', '.join(allowed_domains)}"
         )
 
     try:
-        result = import_recipe_from_url(request.url, db)
+        result = import_recipe_from_url(payload.url, db)
         return result
     except Exception as e:
         logger.error(f"Unexpected error during import for user {current_user.id}: {e}")
@@ -141,8 +158,10 @@ def import_single_url(
 
 
 @router.post("/import-batch", response_model=BatchImportResult, status_code=status.HTTP_200_OK)
+@limiter.limit("5/minute")
 def import_batch_urls(
-    request: ImportBatchRequest,
+    payload: ImportBatchRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -152,8 +171,11 @@ def import_batch_urls(
     Coordinator-only endpoint. Processes URLs sequentially with rate limiting
     (1 second delay between requests by default).
 
+    Rate limited to 5 requests per minute per IP address to prevent abuse.
+
     Args:
-        request: Request containing list of URLs to import
+        payload: Request body containing list of URLs to import
+        request: FastAPI request object (required by slowapi for rate limiting)
         current_user: Authenticated user (must be coordinator)
         db: Database session
 
@@ -163,14 +185,15 @@ def import_batch_urls(
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(403): If user is not a coordinator
+        HTTPException(429): If rate limit is exceeded
     """
     require_coordinator(current_user)
 
-    logger.info(f"Coordinator {current_user.id} importing batch of {len(request.urls)} URLs")
+    logger.info(f"Coordinator {current_user.id} importing batch of {len(payload.urls)} URLs")
 
     # Validate all URLs are from supported domains
     allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
-    invalid_urls = [url for url in request.urls if not validate_domain(url, allowed_domains)]
+    invalid_urls = [url for url in payload.urls if not validate_domain(url, allowed_domains)]
     if invalid_urls:
         logger.warning(f"Coordinator {current_user.id} attempted batch import with {len(invalid_urls)} invalid URLs")
         raise HTTPException(
@@ -179,7 +202,7 @@ def import_batch_urls(
         )
 
     try:
-        result = import_batch(request.urls, db, delay_seconds=1.0)
+        result = import_batch(payload.urls, db, delay_seconds=1.0)
         logger.info(
             f"Batch import complete: {result.imported} imported, "
             f"{result.duplicates} duplicates, {result.errors} errors"
@@ -194,8 +217,10 @@ def import_batch_urls(
 
 
 @router.post("/discover/{source}", response_model=DiscoveryResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("5/minute")
 def discover_urls(
     source: Literal["hellofresh", "kitchen_sanctuary"],
+    request: Request,
     max_pages: int | None = Query(default=None, description="Maximum number of pages to crawl (for testing)", ge=1),
     current_user: User = Depends(get_current_user),
 ):
@@ -205,8 +230,11 @@ def discover_urls(
     Coordinator-only endpoint. Uses crawlers to discover URLs from sitemap.xml
     or paginated category pages. URLs are returned but NOT imported.
 
+    Rate limited to 5 requests per minute per IP address to prevent abuse.
+
     Args:
         source: Source to discover from (hellofresh or kitchen_sanctuary)
+        request: FastAPI request object (required by slowapi for rate limiting)
         max_pages: Optional maximum number of pages to crawl (for testing/limiting scope)
         current_user: Authenticated user (must be coordinator)
 
@@ -217,6 +245,7 @@ def discover_urls(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(403): If user is not a coordinator
         HTTPException(400): If discovery fails
+        HTTPException(429): If rate limit is exceeded
     """
     require_coordinator(current_user)
 
@@ -242,9 +271,11 @@ def discover_urls(
 
 
 @router.post("/discover-and-import/{source}", response_model=BatchImportResult, status_code=status.HTTP_200_OK)
+@limiter.limit("3/minute")
 def discover_and_import(
     source: Literal["hellofresh", "kitchen_sanctuary"],
-    request: DiscoverAndImportRequest = DiscoverAndImportRequest(),
+    request: Request,
+    payload: DiscoverAndImportRequest = DiscoverAndImportRequest(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -254,11 +285,14 @@ def discover_and_import(
     Combines URL discovery with batch import. Limits the number of imported
     recipes using the max_recipes parameter (default: 50).
 
-    Rate limiting: 1 second delay between imports.
+    Rate limiting:
+    - API layer: 3 requests per minute per IP address to prevent abuse
+    - Service layer: 1 second delay between imports (polite crawling)
 
     Args:
         source: Source to discover from (hellofresh or kitchen_sanctuary)
-        request: Request with max_recipes parameter (default: 50)
+        request: FastAPI request object (required by slowapi for rate limiting)
+        payload: Request body with max_recipes parameter (default: 50)
         current_user: Authenticated user (must be coordinator)
         db: Database session
 
@@ -269,10 +303,11 @@ def discover_and_import(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(403): If user is not a coordinator
         HTTPException(400): If discovery or import fails
+        HTTPException(429): If rate limit is exceeded
     """
     require_coordinator(current_user)
 
-    max_recipes = request.max_recipes or 50
+    max_recipes = payload.max_recipes or 50
     logger.info(f"Coordinator {current_user.id} discovering and importing from {source} (max: {max_recipes})")
 
     try:
