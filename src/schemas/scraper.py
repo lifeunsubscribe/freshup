@@ -96,6 +96,7 @@ class ImportBatchRequest(BaseModel):
 class DiscoverAndImportRequest(BaseModel):
     """Request schema for discover-and-import operation."""
     max_recipes: Optional[int] = Field(default=50, description="Maximum number of recipes to import", ge=1, le=1000)
+    max_pages: Optional[int] = Field(default=None, description="Maximum sitemap pages to crawl (auto-calculated from max_recipes if not specified)", ge=1)
 
 
 class DiscoveryResponse(BaseModel):
