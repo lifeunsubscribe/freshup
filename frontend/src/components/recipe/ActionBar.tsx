@@ -51,6 +51,22 @@ export default function ActionBar({
     }
   }, [])
 
+  // Sync addedItemsRef with the current grocery list
+  // Remove items from the ref that are no longer in the grocery list
+  // This prevents the race condition where removed items cannot be re-added
+  useEffect(() => {
+    const currentItemNames = new Set(
+      existingGroceryItems.map(item => item.item_name.toLowerCase())
+    )
+
+    // Remove items from addedItemsRef that are no longer in the grocery list
+    addedItemsRef.current.forEach(itemName => {
+      if (!currentItemNames.has(itemName)) {
+        addedItemsRef.current.delete(itemName)
+      }
+    })
+  }, [existingGroceryItems])
+
   const missingCount = missingIngredients.length
   const allInStock = missingCount === 0
 
