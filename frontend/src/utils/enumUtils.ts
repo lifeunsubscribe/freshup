@@ -48,8 +48,12 @@ export function formatEnumLabel(enumKey: string): string {
 /**
  * Gets all enum values with their formatted labels
  *
+ * **Important:** The order of returned options depends on the definition order of enum members.
+ * If you need a specific display order (e.g., alphabetical), the enum members must be defined
+ * in that order, or the result should be sorted after calling this function.
+ *
  * @param enumObject - The enum to process
- * @returns Array of objects with value and label properties
+ * @returns Array of objects with value and label properties, in enum definition order
  *
  * @example
  * enum Status { ACTIVE = 'active', PENDING = 'pending' }
