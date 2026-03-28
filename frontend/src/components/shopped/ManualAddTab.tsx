@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCreateInventoryItem } from '../../api'
 import { Category, StorageLocation } from '../../api/types'
+import { getEnumOptions } from '../../utils/enumUtils'
 
 /**
  * ManualAddTab component - Manual inventory item entry form
@@ -261,18 +262,11 @@ export default function ManualAddTab() {
               className="w-full px-3 py-2 border border-warm-border rounded-md focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
               required
             >
-              <option value={Category.PRODUCE}>Produce</option>
-              <option value={Category.DAIRY}>Dairy</option>
-              <option value={Category.PROTEIN}>Protein</option>
-              <option value={Category.GRAINS}>Grains</option>
-              <option value={Category.CONDIMENTS}>Condiments</option>
-              <option value={Category.SNACKS}>Snacks</option>
-              <option value={Category.BEVERAGES}>Beverages</option>
-              <option value={Category.FROZEN}>Frozen</option>
-              <option value={Category.CANNED}>Canned</option>
-              <option value={Category.BAKING}>Baking</option>
-              <option value={Category.SPICES}>Spices</option>
-              <option value={Category.OTHER}>Other</option>
+              {getEnumOptions(Category).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -291,10 +285,11 @@ export default function ManualAddTab() {
               className="w-full px-3 py-2 border border-warm-border rounded-md focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
               required
             >
-              <option value={StorageLocation.PANTRY}>Pantry</option>
-              <option value={StorageLocation.FRIDGE}>Fridge</option>
-              <option value={StorageLocation.FREEZER}>Freezer</option>
-              <option value={StorageLocation.COUNTER}>Counter</option>
+              {getEnumOptions(StorageLocation).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
 
