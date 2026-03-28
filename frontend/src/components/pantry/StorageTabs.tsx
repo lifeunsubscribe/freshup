@@ -1,4 +1,5 @@
 import { StorageLocation } from '../../api/types'
+import { getEnumOptions } from '../../utils/enumUtils'
 
 type StorageTab = 'all' | StorageLocation
 
@@ -11,17 +12,19 @@ interface StorageTabsProps {
  * StorageTabs component for filtering pantry inventory by storage location
  *
  * Features:
- * - Four tabs: All | Fridge | Freezer | Pantry
+ * - Dynamically generated tabs from StorageLocation enum (All + all enum values)
  * - Active tab: olive background with cream text
  * - Inactive tabs: cream background with primary text
  * - Applies storage location filter to inventory list
  */
 export default function StorageTabs({ activeTab, onTabChange }: StorageTabsProps) {
+  // Generate tabs dynamically from enum
   const tabs: { value: StorageTab; label: string }[] = [
     { value: 'all', label: 'All' },
-    { value: StorageLocation.FRIDGE, label: 'Fridge' },
-    { value: StorageLocation.FREEZER, label: 'Freezer' },
-    { value: StorageLocation.PANTRY, label: 'Pantry' },
+    ...getEnumOptions(StorageLocation).map((option) => ({
+      value: option.value as StorageLocation,
+      label: option.label,
+    })),
   ]
 
   return (
