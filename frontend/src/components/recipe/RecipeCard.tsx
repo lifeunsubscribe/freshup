@@ -21,7 +21,7 @@ export interface RecipeCardProps {
   }
   imageUrl?: string
   servings?: number
-  allIngredientsInStock?: boolean
+  showAllInStockBadge?: boolean
 }
 
 /**
@@ -49,7 +49,7 @@ export default function RecipeCard({
   householdContext,
   imageUrl,
   servings,
-  allIngredientsInStock = false,
+  showAllInStockBadge,
 }: RecipeCardProps) {
   const { id, name, source_type, cook_time_minutes, tags } = recipe
 
@@ -119,7 +119,7 @@ export default function RecipeCard({
         )}
 
         {/* "All in stock" badge (bottom-left) */}
-        {allIngredientsInStock && (
+        {showAllInStockBadge && (
           <div className="absolute bottom-2 left-2">
             <Pill variant="success">All in stock</Pill>
           </div>

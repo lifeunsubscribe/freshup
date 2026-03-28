@@ -1,6 +1,6 @@
 import { Heart, ShoppingCart } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
-import { useCreateGroceryItem } from '../../api/hooks/useGrocery'
+import { useCreateGroceryItem, useGroceryList } from '../../api/hooks/useGrocery'
 import type { IngredientStockStatus } from '../../utils/pantryMatcher'
 
 interface ActionBarProps {
@@ -31,11 +31,13 @@ export default function ActionBar({
   missingIngredients = [],
 }: ActionBarProps) {
   const createGroceryItem = useCreateGroceryItem()
+  const { data: existingGroceryItems = [], refetch: refetchGroceryList } = useGroceryList({ purchased: false })
   const [isAddingToList, setIsAddingToList] = useState(false)
   const [addToListError, setAddToListError] = useState<string | null>(null)
   const [addToListSuccess, setAddToListSuccess] = useState(false)
   const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const addedItemsRef = useRef<Set<string>>(new Set())
 
   // Cleanup timeouts on component unmount
   useEffect(() => {
@@ -65,9 +67,37 @@ export default function ActionBar({
     }
 
     try {
-      // Add all missing ingredients to grocery list in parallel
+      // Refetch grocery list to ensure we have the latest data before checking for duplicates
+      const { data: latestGroceryItems } = await refetchGroceryList()
+      const currentGroceryItems = latestGroceryItems || existingGroceryItems
+
+      // Filter out ingredients already in the grocery list (case-insensitive match by name)
+      // Also filter out items that were added in this session (to prevent duplicates from rapid clicks)
+      const existingItemNames = new Set(
+        currentGroceryItems.map(item => item.item_name.toLowerCase())
+      )
+
+      const ingredientsToAdd = missingIngredients.filter(
+        ({ ingredient }) => {
+          const itemNameLower = ingredient.ingredient_name.toLowerCase()
+          return !existingItemNames.has(itemNameLower) && !addedItemsRef.current.has(itemNameLower)
+        }
+      )
+
+      // If all ingredients are already in the list, show success message
+      if (ingredientsToAdd.length === 0) {
+        setAddToListSuccess(true)
+        successTimeoutRef.current = setTimeout(() => {
+          setAddToListSuccess(false)
+          successTimeoutRef.current = null
+        }, 3000)
+        setIsAddingToList(false)
+        return
+      }
+
+      // Add only new ingredients to grocery list in parallel
       const results = await Promise.allSettled(
-        missingIngredients.map(({ ingredient }) =>
+        ingredientsToAdd.map(({ ingredient }) =>
           createGroceryItem.mutateAsync({
             item_name: ingredient.ingredient_name,
             quantity: ingredient.quantity,
@@ -80,9 +110,20 @@ export default function ActionBar({
       // Count successes and failures
       const successCount = results.filter(r => r.status === 'fulfilled').length
       const failureCount = results.filter(r => r.status === 'rejected').length
+      const skippedCount = missingIngredients.length - ingredientsToAdd.length
+
+      // Track successfully added items to prevent duplicates from rapid clicks
+      if (successCount > 0) {
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            const itemNameLower = ingredientsToAdd[index].ingredient.ingredient_name.toLowerCase()
+            addedItemsRef.current.add(itemNameLower)
+          }
+        })
+      }
 
       if (failureCount === 0) {
-        // All ingredients added successfully
+        // All new ingredients added successfully
         setAddToListSuccess(true)
         successTimeoutRef.current = setTimeout(() => {
           setAddToListSuccess(false)
@@ -91,7 +132,8 @@ export default function ActionBar({
       } else if (successCount > 0) {
         // Partial success
         console.error('Some ingredients failed to add:', results.filter(r => r.status === 'rejected'))
-        setAddToListError(`Added ${successCount} of ${missingCount} ingredients. Some failed to add.`)
+        const totalToAdd = ingredientsToAdd.length
+        setAddToListError(`Added ${successCount} of ${totalToAdd} new ingredients. Some failed to add.${skippedCount > 0 ? ` ${skippedCount} already in list.` : ''}`)
         errorTimeoutRef.current = setTimeout(() => {
           setAddToListError(null)
           errorTimeoutRef.current = null
