@@ -44,6 +44,8 @@ export default {
           'btn-border': '#d4d0c0', // Secondary/outline button borders
           gray: '#8b8b7e',
         },
+        // Ingredient pill background (per design system Section 2)
+        'ingredient-pill-bg': '#f7f5ee',
         // Text colors (no pure black/white - following design system philosophy)
         text: {
           primary: '#2c2c2a',    // Headings, item names, primary content

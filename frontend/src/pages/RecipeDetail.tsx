@@ -10,6 +10,8 @@ import NutritionTab from '../components/recipe/NutritionTab'
 import ActionBar from '../components/recipe/ActionBar'
 import Pill from '../components/ui/Pill'
 import { useRecipe, useMyRecipeRating, useRateRecipe } from '../api/hooks/useRecipes'
+import { useInventoryList } from '../api/hooks/useInventory'
+import { checkIngredientAvailability } from '../utils/pantryMatcher'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function RecipeDetail() {
@@ -27,6 +29,8 @@ export default function RecipeDetail() {
     enabled: !!id,
     retry: false,
   })
+
+  const { data: inventoryItems = [], isLoading: isLoadingInventory, isError: isInventoryError } = useInventoryList({})
 
   const rateRecipeMutation = useRateRecipe()
 
@@ -115,6 +119,11 @@ export default function RecipeDetail() {
 
   const isFavorited = myRating?.is_favorite || false
 
+  // Calculate missing ingredients for "Add missing to list" button
+  const stockStatus = recipe
+    ? checkIngredientAvailability(recipe.ingredients, inventoryItems)
+    : { inStock: [], outOfStock: [], totalCount: 0, inStockCount: 0 }
+
   return (
     <>
       <PageContainer>
@@ -172,11 +181,17 @@ export default function RecipeDetail() {
             <p className="text-sm text-red-800">{favoriteError}</p>
           </div>
         )}
+        {isInventoryError && (
+          <div className="fixed bottom-20 left-4 right-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 shadow-lg z-40">
+            <p className="text-sm text-yellow-800">Unable to load pantry inventory. The "Add missing to list" button is temporarily unavailable.</p>
+          </div>
+        )}
         <ActionBar
           isFavorited={isFavorited}
           onFavoriteToggle={handleFavoriteToggle}
           onAddToMealPlan={handleAddToMealPlan}
-          isLoading={rateRecipeMutation.isPending || isLoadingRating}
+          isLoading={rateRecipeMutation.isPending || isLoadingRating || isLoadingInventory || isInventoryError}
+          missingIngredients={stockStatus.outOfStock}
         />
       </>
     </>

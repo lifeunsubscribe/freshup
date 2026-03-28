@@ -5,6 +5,7 @@ import SearchBar from '../components/recipe/SearchBar'
 import SectionNav from '../components/recipe/SectionNav'
 import RecipeCarousel from '../components/recipe/RecipeCarousel'
 import RecipeGrid from '../components/recipe/RecipeGrid'
+import Pill from '../components/ui/Pill'
 import type { RecipeFilters } from '../components/recipe/FilterChips'
 
 /**
@@ -25,6 +26,7 @@ export default function Recipes() {
   const [viewMode, setViewMode] = useState<'carousel' | 'grid'>('carousel')
   const [searchQuery, setSearchQuery] = useState('')
   const [filters, setFilters] = useState<RecipeFilters>({})
+  const [showOnlyInStock, setShowOnlyInStock] = useState(false)
 
   // Define carousel sections
   const sections = [
@@ -74,6 +76,23 @@ export default function Recipes() {
 
         {/* Search bar */}
         <SearchBar value={searchQuery} onChange={handleSearchChange} />
+
+        {/* "Show what I can make now" toggle (Phase 1: Display only, non-functional) */}
+        <div className="flex items-center gap-3 mb-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showOnlyInStock}
+              onChange={(e) => setShowOnlyInStock(e.target.checked)}
+              disabled
+              className="w-5 h-5 rounded border-warm-border text-olive focus:ring-olive focus:ring-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <span className="text-sm text-text-primary">Show what I can make now</span>
+          </label>
+          <Pill variant="default">
+            <span className="text-xs">Phase 3</span>
+          </Pill>
+        </div>
 
         {/* Carousel view */}
         {viewMode === 'carousel' && (
