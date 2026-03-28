@@ -319,7 +319,8 @@ def discover_and_import(
     # Heuristic: ~25 recipes per sitemap page (conservative estimate to allow buffer for duplicates)
     # This significantly reduces crawling overhead by discovering only what we need
     if payload.max_pages is None:
-        max_pages = (max_recipes // 25) + 1
+        calculated_pages = (max_recipes // 25) + 1
+        max_pages = min(calculated_pages, 50)  # Respect schema's max_pages upper bound
         logger.info(f"Auto-calculated max_pages={max_pages} from max_recipes={max_recipes}")
     else:
         max_pages = payload.max_pages
