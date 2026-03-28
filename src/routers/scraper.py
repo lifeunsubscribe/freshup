@@ -282,8 +282,14 @@ def discover_and_import(
     """
     Discover recipe URLs from a source and import them (coordinator-only).
 
-    Combines URL discovery with batch import. Limits the number of imported
-    recipes using the max_recipes parameter (default: 50).
+    Combines URL discovery with batch import. Limits both the discovery crawling
+    (max_pages) and the number of imported recipes (max_recipes) to optimize
+    performance and reduce load on target servers.
+
+    Performance optimization:
+    - Automatically limits sitemap crawling to only the pages needed
+    - Heuristic: ~25 recipes per sitemap page (auto-calculated if max_pages not provided)
+    - Significantly reduces unnecessary crawling (e.g., 500 URLs → 75 URLs for max_recipes=50)
 
     Rate limiting:
     - API layer: 3 requests per minute per IP address to prevent abuse
@@ -292,7 +298,7 @@ def discover_and_import(
     Args:
         source: Source to discover from (hellofresh or kitchen_sanctuary)
         request: FastAPI request object (required by slowapi for rate limiting)
-        payload: Request body with max_recipes parameter (default: 50)
+        payload: Request body with max_recipes (default: 50) and optional max_pages
         current_user: Authenticated user (must be coordinator)
         db: Database session
 
@@ -308,22 +314,34 @@ def discover_and_import(
     require_coordinator(current_user)
 
     max_recipes = payload.max_recipes or 50
-    logger.info(f"Coordinator {current_user.id} discovering and importing from {source} (max: {max_recipes})")
+
+    # Calculate max_pages to limit discovery crawling (optimization)
+    # Heuristic: ~25 recipes per sitemap page (conservative estimate to allow buffer for duplicates)
+    # This significantly reduces crawling overhead by discovering only what we need
+    if payload.max_pages is None:
+        calculated_pages = (max_recipes // 25) + 1
+        max_pages = min(calculated_pages, 50)  # Respect schema's max_pages upper bound
+        logger.info(f"Auto-calculated max_pages={max_pages} from max_recipes={max_recipes}")
+    else:
+        max_pages = payload.max_pages
+        logger.info(f"Using explicit max_pages={max_pages}")
+
+    logger.info(f"Coordinator {current_user.id} discovering and importing from {source} (max_recipes: {max_recipes}, max_pages: {max_pages})")
 
     try:
-        # Discover URLs
+        # Discover URLs with page limit to reduce unnecessary crawling
         if source == "hellofresh":
             crawler = HelloFreshCrawler()
-            urls = crawler.discover_recipe_urls()
+            urls = crawler.discover_recipe_urls(max_pages=max_pages)
         else:  # kitchen_sanctuary
             crawler = KitchenSanctuaryCrawler()
-            urls = crawler.discover_recipe_urls()
+            urls = crawler.discover_recipe_urls(max_pages=max_pages)
 
-        logger.info(f"Discovered {len(urls)} URLs from {source}")
+        logger.info(f"Discovered {len(urls)} URLs from {source} (limited to {max_pages} pages)")
 
-        # Limit to max_recipes
+        # Limit to max_recipes (may be fewer URLs than max_recipes if discovery was limited)
         urls_to_import = urls[:max_recipes]
-        logger.info(f"Importing {len(urls_to_import)} recipes (limited by max_recipes={max_recipes})")
+        logger.info(f"Importing {len(urls_to_import)} recipes")
 
         # Import batch
         result = import_batch(urls_to_import, db, delay_seconds=1.0)

@@ -544,6 +544,125 @@ class TestDiscoverAndImport:
         response = client.post("/scraper/discover-and-import/hellofresh")
         assert response.status_code == 401
 
+    @patch("src.routers.scraper.import_batch")
+    @patch("src.routers.scraper.HelloFreshCrawler")
+    def test_discover_and_import_auto_calculates_max_pages(self, mock_crawler_class, mock_batch, client, coordinator_headers, db_session):
+        """max_pages is auto-calculated from max_recipes when not provided."""
+        mock_crawler = MagicMock()
+        mock_crawler.discover_recipe_urls.return_value = [
+            f"https://www.hellofresh.com/recipes/recipe-{i}" for i in range(75)
+        ]
+        mock_crawler_class.return_value = mock_crawler
+
+        mock_batch.return_value = BatchImportResult(
+            total=50,
+            imported=50,
+            duplicates=0,
+            errors=0,
+            results=[]
+        )
+
+        response = client.post(
+            "/scraper/discover-and-import/hellofresh",
+            json={"max_recipes": 50},
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify that max_pages was auto-calculated and passed to crawler
+        # max_recipes=50 → max_pages = (50 // 25) + 1 = 3
+        mock_crawler.discover_recipe_urls.assert_called_once_with(max_pages=3)
+
+    @patch("src.routers.scraper.import_batch")
+    @patch("src.routers.scraper.KitchenSanctuaryCrawler")
+    def test_discover_and_import_respects_explicit_max_pages(self, mock_crawler_class, mock_batch, client, coordinator_headers, db_session):
+        """Explicit max_pages parameter is respected when provided."""
+        mock_crawler = MagicMock()
+        mock_crawler.discover_recipe_urls.return_value = [
+            f"https://www.kitchensanctuary.com/recipe-{i}" for i in range(50)
+        ]
+        mock_crawler_class.return_value = mock_crawler
+
+        mock_batch.return_value = BatchImportResult(
+            total=25,
+            imported=25,
+            duplicates=0,
+            errors=0,
+            results=[]
+        )
+
+        response = client.post(
+            "/scraper/discover-and-import/kitchen_sanctuary",
+            json={"max_recipes": 25, "max_pages": 5},
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify that explicit max_pages=5 was passed to crawler (not auto-calculated)
+        mock_crawler.discover_recipe_urls.assert_called_once_with(max_pages=5)
+
+    @patch("src.routers.scraper.import_batch")
+    @patch("src.routers.scraper.HelloFreshCrawler")
+    def test_discover_and_import_limits_crawling_for_large_max_recipes(self, mock_crawler_class, mock_batch, client, coordinator_headers, db_session):
+        """max_pages calculation works correctly for large max_recipes values."""
+        mock_crawler = MagicMock()
+        mock_crawler.discover_recipe_urls.return_value = [
+            f"https://www.hellofresh.com/recipes/recipe-{i}" for i in range(200)
+        ]
+        mock_crawler_class.return_value = mock_crawler
+
+        mock_batch.return_value = BatchImportResult(
+            total=200,
+            imported=200,
+            duplicates=0,
+            errors=0,
+            results=[]
+        )
+
+        response = client.post(
+            "/scraper/discover-and-import/hellofresh",
+            json={"max_recipes": 200},
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify that max_pages was calculated correctly
+        # max_recipes=200 → max_pages = (200 // 25) + 1 = 9
+        mock_crawler.discover_recipe_urls.assert_called_once_with(max_pages=9)
+
+    @patch("src.routers.scraper.import_batch")
+    @patch("src.routers.scraper.HelloFreshCrawler")
+    def test_discover_and_import_auto_calculates_one_page_for_small_max_recipes(self, mock_crawler_class, mock_batch, client, coordinator_headers, db_session):
+        """max_pages calculation returns 1 when max_recipes < 25 (edge case)."""
+        mock_crawler = MagicMock()
+        mock_crawler.discover_recipe_urls.return_value = [
+            f"https://www.hellofresh.com/recipes/recipe-{i}" for i in range(20)
+        ]
+        mock_crawler_class.return_value = mock_crawler
+
+        mock_batch.return_value = BatchImportResult(
+            total=20,
+            imported=20,
+            duplicates=0,
+            errors=0,
+            results=[]
+        )
+
+        response = client.post(
+            "/scraper/discover-and-import/hellofresh",
+            json={"max_recipes": 20},
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify that max_pages was calculated correctly for edge case
+        # max_recipes=20 → max_pages = (20 // 25) + 1 = 0 + 1 = 1
+        mock_crawler.discover_recipe_urls.assert_called_once_with(max_pages=1)
+
 
 class TestStatus:
     """Test GET /scraper/status endpoint."""
