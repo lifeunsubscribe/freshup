@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 from typing import AsyncGenerator
 
@@ -13,6 +14,7 @@ from src.config import get_settings
 from src.db.database import Base, init_engine, get_engine, get_session_factory
 from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router
 from src.middleware.rate_limit import limiter
+from src.services.task_worker import background_task_worker
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     init_engine(settings.database_url)
     _ensure_schema()
     _ensure_seed_data()
+
+    # Start background task worker for processing async LLM tasks (Phase 2A)
+    # Worker polls for pending tasks and processes them using OllamaClient
+    worker_task = asyncio.create_task(background_task_worker())
+
     yield
+
+    # Gracefully shut down background worker on application shutdown
+    # Cancel the task and wait for it to complete cleanup
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass  # Expected on clean shutdown
 
 
 app = FastAPI(
