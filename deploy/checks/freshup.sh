@@ -38,6 +38,7 @@ check_freshup() {
         docker compose -f "$REPO_DIR/docker-compose.yml" up -d --build >> "$LOGFILE" 2>&1
         if [ $? -ne 0 ]; then
             alert "Docker rebuild failed — check $LOGFILE"
+            return 1
         fi
     else
         if [ "$NEEDS_RESTART" = true ]; then
@@ -45,6 +46,7 @@ check_freshup() {
             docker compose -f "$REPO_DIR/docker-compose.yml" restart api >> "$LOGFILE" 2>&1
             if [ $? -ne 0 ]; then
                 alert "API restart failed — check $LOGFILE"
+                return 1
             fi
         fi
         if [ "$NEEDS_FRONTEND_RESTART" = true ]; then
@@ -52,6 +54,7 @@ check_freshup() {
             docker compose -f "$REPO_DIR/docker-compose.yml" restart frontend >> "$LOGFILE" 2>&1
             if [ $? -ne 0 ]; then
                 alert "Frontend restart failed — check $LOGFILE"
+                return 1
             fi
         fi
         if [ "$NEEDS_RESTART" = false ] && [ "$NEEDS_FRONTEND_RESTART" = false ]; then
@@ -60,4 +63,5 @@ check_freshup() {
     fi
 
     log "FRESHUP DONE: now at $(git rev-parse --short HEAD)"
+    return 0
 }
