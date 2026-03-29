@@ -63,4 +63,5 @@ check_freshup() {
     fi
 
     log "FRESHUP DONE: now at $(git rev-parse --short HEAD)"
+    return 0
 }
