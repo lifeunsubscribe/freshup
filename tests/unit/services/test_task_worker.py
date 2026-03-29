@@ -15,7 +15,7 @@ All tests mock OllamaClient and database operations.
 
 import asyncio
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -53,7 +53,7 @@ def mock_task():
     task.input_reference = "Costco\n2024-03-29\nBananas $3.99\nMilk $4.49"
     task.result_reference = None
     task.error_message = None
-    task.created_at = datetime.utcnow()
+    task.created_at = datetime.now(timezone.utc)
     task.completed_at = None
     return task
 
