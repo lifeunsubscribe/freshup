@@ -17,7 +17,7 @@ from src.services.crawlers.base_crawler import (
     RobotsTxtParser,
     create_http_session,
 )
-from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
+from src.services.crawlers.exceptions import CrawlerError, CrawlerNetworkError, CrawlerParseError
 
 
 # Configure logging
@@ -105,6 +105,7 @@ class HelloFreshCrawler:
         Raises:
             CrawlerNetworkError: If network requests fail (connection, timeout, HTTP errors)
             CrawlerParseError: If parsing fails (malformed XML, invalid structure)
+            CrawlerError: If unexpected errors occur
 
         Example:
             >>> crawler = HelloFreshCrawler()
@@ -125,7 +126,8 @@ class HelloFreshCrawler:
             # Re-raise crawler exceptions as-is (already wrapped)
             raise
         except requests.exceptions.RequestException as e:
-            # Wrap requests library exceptions at the public API boundary
+            # Actual network errors - log and try fallback
+            # This catches all requests exceptions: ConnectionError, Timeout, HTTPError, etc.
             logger.warning(f"Sitemap strategy failed with network error: {e}, trying fallback strategy")
             # Don't raise yet - try fallback first
         except ValueError as e:
@@ -144,17 +146,20 @@ class HelloFreshCrawler:
             # Re-raise crawler exceptions as-is (already wrapped)
             raise
         except requests.exceptions.RequestException as e:
-            # Wrap requests library exceptions at the public API boundary
-            logger.error(f"Paginated category strategy failed with network error: {e}")
+            # Wrap actual network errors at the public API boundary
+            # This catches all requests exceptions: ConnectionError, Timeout, HTTPError, etc.
+            # These are genuine network/transport issues, not programming bugs
+            logger.exception(f"Paginated category strategy failed with network error: {e}")
             raise CrawlerNetworkError(f"Network error during URL discovery: {e}") from e
         except ValueError as e:
             # Wrap parsing errors at the public API boundary
-            logger.error(f"Paginated category strategy failed with parse error: {e}")
+            logger.exception(f"Paginated category strategy failed with parse error: {e}")
             raise CrawlerParseError(f"Parse error during URL discovery: {e}") from e
         except Exception as e:
-            # Unexpected errors - wrap as CrawlerError's base exception would be caught
-            logger.error(f"Paginated category strategy failed: {e}")
-            raise CrawlerNetworkError(f"Unexpected error during URL discovery: {e}") from e
+            # Unexpected errors (including requests.InvalidURL, etc.) - wrap as base CrawlerError
+            # to avoid misrepresenting error type
+            logger.exception(f"Paginated category strategy failed: {e}")
+            raise CrawlerError(f"Unexpected error during URL discovery: {e}") from e
 
     def _discover_from_sitemap(self) -> list[str]:
         """

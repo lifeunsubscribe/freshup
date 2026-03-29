@@ -17,7 +17,7 @@ from src.services.crawlers.base_crawler import (
     RobotsTxtParser,
     create_http_session,
 )
-from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
+from src.services.crawlers.exceptions import CrawlerError, CrawlerNetworkError, CrawlerParseError
 
 
 # Configure logging
@@ -106,6 +106,7 @@ class KitchenSanctuaryCrawler:
         Raises:
             CrawlerNetworkError: If network requests fail (connection, timeout, HTTP errors)
             CrawlerParseError: If parsing fails (malformed XML, invalid structure)
+            CrawlerError: If unexpected errors occur
 
         Example:
             >>> crawler = KitchenSanctuaryCrawler()
@@ -122,7 +123,9 @@ class KitchenSanctuaryCrawler:
             # Re-raise crawler exceptions as-is (already wrapped)
             raise
         except requests.exceptions.RequestException as e:
-            # Wrap requests library exceptions at the public API boundary
+            # Wrap actual network errors at the public API boundary
+            # This catches all requests exceptions: ConnectionError, Timeout, HTTPError, etc.
+            # These are genuine network/transport issues, not programming bugs
             logger.exception(f"Sitemap strategy failed with network error: {e}")
             raise CrawlerNetworkError(f"Network error during URL discovery: {e}") from e
         except ValueError as e:
@@ -130,9 +133,10 @@ class KitchenSanctuaryCrawler:
             logger.exception(f"Sitemap strategy failed with parse error: {e}")
             raise CrawlerParseError(f"Parse error during URL discovery: {e}") from e
         except Exception as e:
-            # Unexpected errors - wrap as network error to maintain abstraction
+            # Unexpected errors (including requests.InvalidURL, etc.) - wrap as base CrawlerError
+            # to avoid misrepresenting error type
             logger.exception(f"Sitemap strategy failed: {e}")
-            raise CrawlerNetworkError(f"Unexpected error during URL discovery: {e}") from e
+            raise CrawlerError(f"Unexpected error during URL discovery: {e}") from e
 
     def _discover_from_sitemap(self, max_pages: Optional[int] = None) -> list[str]:
         """
