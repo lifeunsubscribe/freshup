@@ -191,12 +191,13 @@ def import_batch_urls(
     Import recipes from multiple URLs (batch operation).
 
     Coordinator-only endpoint. Processes URLs sequentially with rate limiting
-    (1 second delay between requests by default).
+    (1 second delay between requests by default). Limited to 100 URLs per batch
+    to prevent HTTP timeout issues (~100 seconds total processing time).
 
     Rate limited to 5 requests per minute per IP address to prevent abuse.
 
     Args:
-        payload: Request body containing list of URLs to import
+        payload: Request body containing list of URLs to import (max 100)
         request: FastAPI request object (required by slowapi for rate limiting)
         current_user: Authenticated user (must be coordinator)
         db: Database session
@@ -207,6 +208,7 @@ def import_batch_urls(
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(403): If user is not a coordinator
+        HTTPException(422): If URL count exceeds 100
         HTTPException(429): If rate limit is exceeded
     """
     require_coordinator(current_user)
