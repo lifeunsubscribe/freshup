@@ -27,6 +27,8 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
+import requests.exceptions
 
 from src.db.database import get_db
 from src.db.models.user import User, UserRole
@@ -34,6 +36,7 @@ from src.db.models.recipe import Recipe
 from src.middleware.auth import get_current_user
 from src.middleware.rate_limit import limiter
 from src.services.import_service import import_recipe_from_url, import_batch
+from src.services.scraper_service import ScraperError
 from src.services.crawlers.hellofresh_crawler import HelloFreshCrawler
 from src.services.crawlers.kitchen_sanctuary_crawler import KitchenSanctuaryCrawler
 from src.schemas.scraper import (
@@ -83,7 +86,11 @@ def validate_domain(url: str, allowed_domains: list[str]) -> bool:
             if hostname_lower == domain_lower or hostname_lower.endswith(f".{domain_lower}"):
                 return True
         return False
-    except Exception:
+    except (ValueError, AttributeError, TypeError):
+        # ValueError: Malformed URL that urlparse can't handle
+        # AttributeError: Missing expected attributes on parsed result
+        # TypeError: Invalid input types (e.g., url is None)
+        # For security (SSRF prevention), fail-closed: reject invalid URLs
         return False
 
 
@@ -149,11 +156,26 @@ def import_single_url(
     try:
         result = import_recipe_from_url(payload.url, db)
         return result
-    except Exception as e:
-        logger.error(f"Unexpected error during import for user {current_user.id}: {e}")
+    except ScraperError as e:
+        # Catch specific scraping errors (NetworkError, UnsupportedSiteError, ParseError)
+        logger.warning(f"Scraping error during import for user {current_user.id}: {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Import failed: {str(e)}"
+        )
+    except SQLAlchemyError as e:
+        # Database errors during import (should be rare - import_recipe_from_url handles most DB errors)
+        logger.error(f"Database error during import for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error during import"
+        )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error during import for user {current_user.id}: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during import"
         )
 
 
@@ -208,11 +230,26 @@ def import_batch_urls(
             f"{result.duplicates} duplicates, {result.errors} errors"
         )
         return result
-    except Exception as e:
-        logger.error(f"Unexpected error during batch import: {e}")
+    except ScraperError as e:
+        # Catch specific scraping errors during batch import
+        logger.warning(f"Scraping error during batch import: {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Batch import failed: {str(e)}"
+        )
+    except SQLAlchemyError as e:
+        # Database errors during batch import
+        logger.error(f"Database error during batch import: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error during batch import"
+        )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error during batch import: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during batch import"
         )
 
 
@@ -262,11 +299,26 @@ def discover_urls(
         logger.info(f"Discovered {len(urls)} URLs from {source}")
         return DiscoveryResponse(source=source, urls=urls, count=len(urls))
 
-    except Exception as e:
-        logger.error(f"Discovery failed for {source}: {e}")
+    except requests.exceptions.RequestException as e:
+        # Network errors during URL discovery (connection failures, timeouts, HTTP errors)
+        logger.warning(f"Network error during discovery for {source}: {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"URL discovery failed: {str(e)}"
+            detail=f"URL discovery failed due to network error: {str(e)}"
+        )
+    except ValueError as e:
+        # Parsing errors during URL discovery (malformed sitemaps, invalid URLs)
+        logger.warning(f"Parsing error during discovery for {source}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"URL discovery failed due to parsing error: {str(e)}"
+        )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error during discovery for {source}: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during URL discovery"
         )
 
 
@@ -352,11 +404,40 @@ def discover_and_import(
         )
         return result
 
-    except Exception as e:
-        logger.error(f"Discover-and-import failed for {source}: {e}")
+    except requests.exceptions.RequestException as e:
+        # Network errors during URL discovery phase
+        logger.warning(f"Network error during discover-and-import for {source}: {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Discover-and-import failed: {str(e)}"
+            detail=f"Discover-and-import failed due to network error during discovery: {str(e)}"
+        )
+    except ValueError as e:
+        # Parsing errors during URL discovery phase
+        logger.warning(f"Parsing error during discover-and-import for {source}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Discover-and-import failed due to parsing error during discovery: {str(e)}"
+        )
+    except ScraperError as e:
+        # Scraping errors during import phase
+        logger.warning(f"Scraping error during discover-and-import for {source}: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Discover-and-import failed during import: {str(e)}"
+        )
+    except SQLAlchemyError as e:
+        # Database errors during import phase
+        logger.error(f"Database error during discover-and-import for {source}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error during discover-and-import"
+        )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error during discover-and-import for {source}: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during discover-and-import"
         )
 
 
@@ -403,9 +484,17 @@ def get_import_status(
 
         return StatusResponse(stats=stats)
 
-    except Exception as e:
-        logger.error(f"Error retrieving import status: {e}")
+    except SQLAlchemyError as e:
+        # Database errors during status query
+        logger.error(f"Database error retrieving import status: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve import status"
+        )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error retrieving import status: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while retrieving import status"
         )
