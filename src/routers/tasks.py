@@ -54,4 +54,11 @@ def get_task_status(
             detail=f"Task with id {task_id} not found"
         )
 
+    # Verify ownership - users can only access their own tasks
+    if task.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task with id {task_id} not found"
+        )
+
     return ProcessingTaskResponse.model_validate(task)

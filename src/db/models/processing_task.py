@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, func, Index
+from sqlalchemy import String, Text, DateTime, func, Index, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.database import Base
@@ -55,6 +55,9 @@ class ProcessingTask(Base):
 
     # Primary key
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+
+    # User ownership
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
 
     # Task classification
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)

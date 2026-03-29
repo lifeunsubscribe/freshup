@@ -111,10 +111,11 @@ def auth_headers(test_user):
 
 
 @pytest.fixture
-def pending_task(db_session):
+def pending_task(db_session, test_user):
     """Create a pending processing task."""
     task = ProcessingTask(
         id=uuid4(),
+        user_id=test_user.id,
         task_type=TaskType.receipt_parse.value,
         status=TaskStatus.pending.value,
         input_reference="s3://bucket/receipts/test-receipt.jpg",
@@ -126,10 +127,11 @@ def pending_task(db_session):
 
 
 @pytest.fixture
-def completed_task(db_session):
+def completed_task(db_session, test_user):
     """Create a completed processing task with result."""
     task = ProcessingTask(
         id=uuid4(),
+        user_id=test_user.id,
         task_type=TaskType.receipt_parse.value,
         status=TaskStatus.completed.value,
         input_reference="s3://bucket/receipts/completed-receipt.jpg",
@@ -143,10 +145,11 @@ def completed_task(db_session):
 
 
 @pytest.fixture
-def failed_task(db_session):
+def failed_task(db_session, test_user):
     """Create a failed processing task with error."""
     task = ProcessingTask(
         id=uuid4(),
+        user_id=test_user.id,
         task_type=TaskType.receipt_parse.value,
         status=TaskStatus.failed.value,
         input_reference="s3://bucket/receipts/bad-receipt.jpg",
@@ -229,10 +232,11 @@ class TestGetTaskStatus:
 
         assert response.status_code == 401
 
-    def test_get_task_with_processing_status(self, client, auth_headers, db_session):
+    def test_get_task_with_processing_status(self, client, auth_headers, db_session, test_user):
         """Test retrieving a task that is currently processing."""
         task = ProcessingTask(
             id=uuid4(),
+            user_id=test_user.id,
             task_type=TaskType.receipt_parse.value,
             status=TaskStatus.processing.value,
             input_reference="s3://bucket/receipts/processing-receipt.jpg",
@@ -249,3 +253,54 @@ class TestGetTaskStatus:
         assert data["result_reference"] is None
         assert data["error_message"] is None
         assert data["completed_at"] is None
+
+    def test_get_task_owned_by_another_user(self, client, db_session):
+        """Test that users cannot access tasks owned by other users."""
+        # Create another user
+        other_user = User(
+            id=uuid4(),
+            name="otheruser",
+            email="other@example.com",
+            hashed_password=hash_password("otherpassword123"),
+            role=UserRole.member.value,
+        )
+        db_session.add(other_user)
+        db_session.commit()
+        db_session.refresh(other_user)
+
+        # Create a task owned by the other user
+        other_task = ProcessingTask(
+            id=uuid4(),
+            user_id=other_user.id,
+            task_type=TaskType.receipt_parse.value,
+            status=TaskStatus.completed.value,
+            input_reference="s3://bucket/receipts/other-user-receipt.jpg",
+            result_reference='{"store_name": "Target", "total": 100.00, "items": []}',
+        )
+        db_session.add(other_task)
+        db_session.commit()
+        db_session.refresh(other_task)
+
+        # Create a test user with their own auth token
+        test_user = User(
+            id=uuid4(),
+            name="testuser",
+            email="test@example.com",
+            hashed_password=hash_password("testpassword123"),
+            role=UserRole.member.value,
+        )
+        db_session.add(test_user)
+        db_session.commit()
+        db_session.refresh(test_user)
+
+        # Create auth headers for test user
+        token = create_access_token(data={"sub": str(test_user.id)})
+        auth_headers = {"Authorization": f"Bearer {token}"}
+
+        # Try to access the other user's task
+        response = client.get(f"/tasks/{other_task.id}", headers=auth_headers)
+
+        # Should return 404 to prevent information disclosure
+        assert response.status_code == 404
+        data = response.json()
+        assert "not found" in data["detail"].lower()
