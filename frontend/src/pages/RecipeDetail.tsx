@@ -159,6 +159,9 @@ export default function RecipeDetail() {
               <IngredientsTab
                 ingredients={recipe.ingredients}
                 servingsMultiplier={servingsMultiplier}
+                inventoryItems={inventoryItems}
+                stockStatus={stockStatus}
+                inventoryError={isInventoryError}
               />
             )}
             {activeTab === 'cook' && (
