@@ -15,6 +15,7 @@ from src.db.database import Base, init_engine, get_engine, get_session_factory
 from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router
 from src.middleware.rate_limit import limiter
 from src.services.task_worker import background_task_worker
+from src.services.llm.client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,28 @@ async def health_check():
         checks["issues"] = issues
 
     return checks
+
+
+@app.get("/health/ollama")
+async def ollama_health_check():
+    """
+    Check Ollama LLM service availability.
+
+    Returns availability status and configured model name for debugging.
+    Always returns 200 OK, even when Ollama is unreachable (not a server error).
+    Allows frontend to show "LLM offline" indicator or disable LLM features.
+
+    Returns:
+        dict: {"available": bool, "model": str}
+    """
+    client = OllamaClient()
+    available = await client.is_available()
+    await client.close()
+
+    return {
+        "available": available,
+        "model": settings.ollama_model,
+    }
 
 
 if settings.environment == "local":
