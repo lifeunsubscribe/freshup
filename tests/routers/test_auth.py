@@ -2232,8 +2232,10 @@ class TestChangePasswordRateLimiting:
 
     def test_change_password_exceeds_rate_limit(self, client, test_user, auth_headers):
         """POST /auth/change-password returns 429 when rate limit exceeded (>10/minute)."""
+        # Use incorrect old password so all requests fail at auth validation
+        # but still count toward rate limit
         password_data = {
-            "old_password": "testpassword123",
+            "old_password": "wrongpassword",
             "new_password": "NewSecurePass123!",
         }
 
@@ -2249,8 +2251,10 @@ class TestChangePasswordRateLimiting:
 
     def test_change_password_rate_limit_response_format(self, client, test_user, auth_headers):
         """POST /auth/change-password rate limit response includes error detail."""
+        # Use incorrect old password so all requests fail at auth validation
+        # but still count toward rate limit
         password_data = {
-            "old_password": "testpassword123",
+            "old_password": "wrongpassword",
             "new_password": "NewSecurePass123!",
         }
 
@@ -2293,12 +2297,14 @@ class TestChangePasswordRateLimiting:
         headers1 = {"Authorization": f"Bearer {token1}"}
         headers2 = {"Authorization": f"Bearer {token2}"}
 
+        # Use incorrect old passwords so all requests fail at auth validation
+        # but still count toward rate limit
         password_data1 = {
-            "old_password": "password123",
+            "old_password": "wrongpassword1",
             "new_password": "NewPass123!",
         }
         password_data2 = {
-            "old_password": "password456",
+            "old_password": "wrongpassword2",
             "new_password": "NewPass456!",
         }
 

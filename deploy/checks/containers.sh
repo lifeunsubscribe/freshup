@@ -38,4 +38,5 @@ check_containers() {
             return 0  # up -d handles all containers, no need to continue the loop
         fi
     done
+    return 0
 }
