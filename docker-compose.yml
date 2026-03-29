@@ -13,6 +13,8 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - freshup_db:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - minio
     restart: unless-stopped
