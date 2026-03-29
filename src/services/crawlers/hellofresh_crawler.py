@@ -6,6 +6,7 @@ category crawl fallback. Includes rate limiting and robots.txt compliance.
 """
 
 import logging
+import requests.exceptions
 import defusedxml.ElementTree as ET  # Use defusedxml for defense-in-depth XXE protection
 from typing import Optional
 from xml.etree.ElementTree import Element
@@ -16,6 +17,7 @@ from src.services.crawlers.base_crawler import (
     RobotsTxtParser,
     create_http_session,
 )
+from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
 
 
 # Configure logging
@@ -101,7 +103,8 @@ class HelloFreshCrawler:
             List of discovered recipe URLs
 
         Raises:
-            Exception: If both strategies fail or network errors occur
+            CrawlerNetworkError: If network requests fail (connection, timeout, HTTP errors)
+            CrawlerParseError: If parsing fails (malformed XML, invalid structure)
 
         Example:
             >>> crawler = HelloFreshCrawler()
@@ -118,6 +121,17 @@ class HelloFreshCrawler:
                 return urls
             else:
                 logger.warning("Sitemap.xml returned no URLs, trying fallback strategy")
+        except (CrawlerNetworkError, CrawlerParseError):
+            # Re-raise crawler exceptions as-is (already wrapped)
+            raise
+        except requests.exceptions.RequestException as e:
+            # Wrap requests library exceptions at the public API boundary
+            logger.warning(f"Sitemap strategy failed with network error: {e}, trying fallback strategy")
+            # Don't raise yet - try fallback first
+        except ValueError as e:
+            # Wrap parsing errors at the public API boundary
+            logger.warning(f"Sitemap strategy failed with parse error: {e}, trying fallback strategy")
+            # Don't raise yet - try fallback first
         except Exception as e:
             logger.warning(f"Sitemap strategy failed: {e}, trying fallback strategy")
 
@@ -126,9 +140,21 @@ class HelloFreshCrawler:
             urls = self._discover_from_paginated_categories(max_pages=max_pages)
             logger.info(f"Discovered {len(urls)} URLs from paginated categories")
             return urls
-        except Exception as e:
-            logger.error(f"Paginated category strategy failed: {e}")
+        except (CrawlerNetworkError, CrawlerParseError):
+            # Re-raise crawler exceptions as-is (already wrapped)
             raise
+        except requests.exceptions.RequestException as e:
+            # Wrap requests library exceptions at the public API boundary
+            logger.error(f"Paginated category strategy failed with network error: {e}")
+            raise CrawlerNetworkError(f"Network error during URL discovery: {e}") from e
+        except ValueError as e:
+            # Wrap parsing errors at the public API boundary
+            logger.error(f"Paginated category strategy failed with parse error: {e}")
+            raise CrawlerParseError(f"Parse error during URL discovery: {e}") from e
+        except Exception as e:
+            # Unexpected errors - wrap as CrawlerError's base exception would be caught
+            logger.error(f"Paginated category strategy failed: {e}")
+            raise CrawlerNetworkError(f"Unexpected error during URL discovery: {e}") from e
 
     def _discover_from_sitemap(self) -> list[str]:
         """
