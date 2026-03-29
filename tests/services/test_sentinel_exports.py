@@ -6,8 +6,6 @@ external code can import the sentinel constant and helper function without
 accessing internal implementation details.
 """
 
-import pytest
-
 
 def test_sentinel_constant_exported_from_services():
     """Test that UNPARSEABLE_QUANTITY_SENTINEL is exported from src.services."""
