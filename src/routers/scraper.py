@@ -170,6 +170,13 @@ def import_single_url(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error during import"
         )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error during import for user {current_user.id}: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during import"
+        )
 
 
 @router.post("/import-batch", response_model=BatchImportResult, status_code=status.HTTP_200_OK)
@@ -237,6 +244,13 @@ def import_batch_urls(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error during batch import"
         )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error during batch import: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during batch import"
+        )
 
 
 @router.post("/discover/{source}", response_model=DiscoveryResponse, status_code=status.HTTP_200_OK)
@@ -298,6 +312,13 @@ def discover_urls(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"URL discovery failed due to parsing error: {str(e)}"
+        )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error during discovery for {source}: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during URL discovery"
         )
 
 
@@ -411,6 +432,13 @@ def discover_and_import(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error during discover-and-import"
         )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error during discover-and-import for {source}: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during discover-and-import"
+        )
 
 
 @router.get("/status", response_model=StatusResponse, status_code=status.HTTP_200_OK)
@@ -462,4 +490,11 @@ def get_import_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve import status"
+        )
+    except Exception as e:
+        # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
+        logger.error(f"Unexpected error retrieving import status: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while retrieving import status"
         )
