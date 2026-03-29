@@ -303,17 +303,21 @@ def discover_urls(
 
     except requests.exceptions.RequestException as e:
         # Network errors during URL discovery (connection failures, timeouts, HTTP errors)
+        # Log full technical details for debugging (may include network topology)
         logger.warning(f"Network error during discovery for {source}: {type(e).__name__}: {e}")
+        # Return sanitized user-facing message (no network details)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"URL discovery failed due to network error: {str(e)}"
+            detail="Unable to discover recipes from the source. Please try again later."
         )
     except ValueError as e:
         # Parsing errors during URL discovery (malformed sitemaps, invalid URLs)
+        # Log full technical details for debugging (may include parsing internals)
         logger.warning(f"Parsing error during discovery for {source}: {e}")
+        # Return sanitized user-facing message (no parsing details)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"URL discovery failed due to parsing error: {str(e)}"
+            detail="Unable to process recipe data from the source. The source format may have changed."
         )
     except Exception as e:
         # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
@@ -408,17 +412,21 @@ def discover_and_import(
 
     except requests.exceptions.RequestException as e:
         # Network errors during URL discovery phase
+        # Log full technical details for debugging (may include network topology)
         logger.warning(f"Network error during discover-and-import for {source}: {type(e).__name__}: {e}")
+        # Return sanitized user-facing message (no network details)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Discover-and-import failed due to network error during discovery: {str(e)}"
+            detail="Unable to discover recipes from the source. Please try again later."
         )
     except ValueError as e:
         # Parsing errors during URL discovery phase
+        # Log full technical details for debugging (may include parsing internals)
         logger.warning(f"Parsing error during discover-and-import for {source}: {e}")
+        # Return sanitized user-facing message (no parsing details)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Discover-and-import failed due to parsing error during discovery: {str(e)}"
+            detail="Unable to process recipe data from the source. The source format may have changed."
         )
     except ScraperError as e:
         # Scraping errors during import phase
