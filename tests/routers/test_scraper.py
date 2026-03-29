@@ -407,6 +407,47 @@ class TestImportBatch:
 
         assert response.status_code == 200
 
+    def test_import_batch_rejects_too_many_urls(self, client, coordinator_headers):
+        """Batch import rejects more than 100 URLs."""
+        # Generate 101 valid URLs to exceed the limit
+        urls = [f"https://www.hellofresh.com/recipes/recipe-{i}" for i in range(101)]
+
+        response = client.post(
+            "/scraper/import-batch",
+            json={"urls": urls},
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+        # Pydantic validation error for list max_length constraint
+        assert any("100" in str(err) for err in data["detail"])
+
+    @patch("src.routers.scraper.import_batch")
+    def test_import_batch_accepts_max_url_count(self, mock_batch, client, coordinator_headers):
+        """Batch import accepts exactly 100 URLs (boundary test)."""
+        mock_batch.return_value = BatchImportResult(
+            total=100,
+            imported=100,
+            duplicates=0,
+            errors=0,
+            results=[]
+        )
+
+        # Generate exactly 100 valid URLs (boundary case)
+        urls = [f"https://www.hellofresh.com/recipes/recipe-{i}" for i in range(100)]
+
+        response = client.post(
+            "/scraper/import-batch",
+            json={"urls": urls},
+            headers=coordinator_headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 100
+
 
 class TestDiscover:
     """Test POST /scraper/discover/{source} endpoint."""

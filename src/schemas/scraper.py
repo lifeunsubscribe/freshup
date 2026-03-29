@@ -81,7 +81,7 @@ class ImportUrlRequest(BaseModel):
 
 class ImportBatchRequest(BaseModel):
     """Request schema for batch URL import."""
-    urls: list[str] = Field(..., description="List of recipe URLs to import (each URL max 2048 chars)", min_length=1, max_length=500)
+    urls: list[str] = Field(..., description="List of recipe URLs to import (each URL max 2048 chars)", min_length=1, max_length=100)
 
     @field_validator('urls')
     @classmethod
