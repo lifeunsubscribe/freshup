@@ -150,6 +150,112 @@ describe('pantryMatcher', () => {
 
       expect(result.inStockCount).toBe(1)
     })
+
+    // False positive prevention tests
+    it('does NOT match "rice" with "licorice" (prevents false positive)', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'rice' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'licorice' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(0)
+      expect(result.outOfStock).toHaveLength(1)
+      expect(result.outOfStock[0].ingredient.ingredient_name).toBe('rice')
+    })
+
+    it('does NOT match "egg" with "eggplant" (prevents false positive)', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'egg' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'eggplant' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(0)
+      expect(result.outOfStock).toHaveLength(1)
+    })
+
+    it('does NOT match "oil" with "foil" (prevents false positive)', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'oil' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'foil' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(0)
+      expect(result.outOfStock).toHaveLength(1)
+    })
+
+    it('does NOT match "mint" with "peppermint" (prevents false positive)', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'mint' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'peppermint' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(0)
+      expect(result.outOfStock).toHaveLength(1)
+    })
+
+    // Valid multi-word matching (should still work)
+    it('matches "olive oil" with "extra virgin olive oil"', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'olive oil' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'extra virgin olive oil' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(1)
+      expect(result.inStock[0].matchedInventoryItem?.name).toBe('extra virgin olive oil')
+    })
+
+    it('matches "soy sauce" with "low-sodium soy sauce"', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'soy sauce' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'low-sodium soy sauce' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(1)
+    })
+
+    it('handles hyphenated ingredients correctly', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'all-purpose flour' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'all purpose flour' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(1)
+    })
   })
 
   describe('areAllIngredientsInStock', () => {
@@ -225,6 +331,49 @@ describe('pantryMatcher', () => {
 
       const inventoryItems = [
         createInventoryItem({ name: 'all-purpose flour' }),
+      ]
+
+      const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+      expect(result).toBe(true)
+    })
+
+    // False positive prevention tests
+    it('returns false when "rice" inventory does not match "licorice" requirement', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'rice' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'licorice' }),
+      ]
+
+      const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+      expect(result).toBe(false)
+    })
+
+    it('returns false when "egg" inventory does not match "eggplant" requirement', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'egg' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'eggplant' }),
+      ]
+
+      const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+      expect(result).toBe(false)
+    })
+
+    it('correctly matches multi-word ingredients with word-boundary logic', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'olive oil' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'extra virgin olive oil' }),
       ]
 
       const result = areAllIngredientsInStock(ingredients, inventoryItems)
