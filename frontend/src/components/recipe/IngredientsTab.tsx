@@ -2,6 +2,11 @@ import type { RecipeIngredientResponse, InventoryItemListResponse } from '../../
 import type { PantryCheckResult } from '../../utils/pantryMatcher'
 import PantryCheck from './PantryCheck'
 import Pill from '../ui/Pill'
+import {
+  UNPARSEABLE_QUANTITY_SENTINEL,
+  SENTINEL_TOLERANCE,
+  isUnparseableQuantity,
+} from '../../constants/recipe'
 
 /**
  * Props for IngredientsTab component
@@ -22,39 +27,9 @@ interface IngredientsTabProps {
 }
 
 /**
- * Sentinel value for unparseable ingredient quantities.
- * This matches the backend constant UNPARSEABLE_QUANTITY_SENTINEL in import_service.py.
- *
- * This is a WORKAROUND for validation requiring quantity > 0 in RecipeIngredientCreate.
- * Unparseable ingredients (e.g., "salt to taste") have no meaningful numeric quantity.
- *
- * Related: Issue #335 - Sentinel Value 0.001 Workaround
+ * Note: UNPARSEABLE_QUANTITY_SENTINEL, SENTINEL_TOLERANCE, and isUnparseableQuantity
+ * are now imported from ../../constants/recipe.ts to maintain a single source of truth.
  */
-const UNPARSEABLE_QUANTITY_SENTINEL = 0.001
-
-/**
- * Tolerance for detecting sentinel values after scaling.
- * Used to handle floating-point arithmetic imprecision when comparing scaled quantities.
- */
-const SENTINEL_TOLERANCE = 0.0001
-
-/**
- * Check if a quantity represents an unparseable ingredient.
- * Handles scaled quantities by checking if they originated from the sentinel value.
- *
- * @param quantity - The quantity to check (may be scaled)
- * @param multiplier - The scaling multiplier applied to the original quantity
- * @returns true if the original (unscaled) quantity was the sentinel value
- */
-function isUnparseableQuantity(quantity: number, multiplier: number = 1): boolean {
-  // Guard against division by zero
-  if (multiplier === 0) {
-    return false
-  }
-  // Divide by multiplier to get the original quantity before scaling
-  const originalQuantity = quantity / multiplier
-  return Math.abs(originalQuantity - UNPARSEABLE_QUANTITY_SENTINEL) < SENTINEL_TOLERANCE
-}
 
 /**
  * Formats a quantity for display, handling fractions and decimals appropriately
