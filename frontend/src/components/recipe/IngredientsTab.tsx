@@ -1,12 +1,24 @@
-import type { RecipeIngredientResponse } from '../../api/types'
-import { useInventoryList } from '../../api/hooks/useInventory'
-import { checkIngredientAvailability } from '../../utils/pantryMatcher'
+import type { RecipeIngredientResponse, InventoryItemListResponse } from '../../api/types'
+import type { PantryCheckResult } from '../../utils/pantryMatcher'
 import PantryCheck from './PantryCheck'
 import Pill from '../ui/Pill'
 
+/**
+ * Props for IngredientsTab component
+ *
+ * Performance optimization: Inventory data and stock status are passed from parent
+ * component to avoid duplicate hook calls and calculations. Previously, both
+ * RecipeDetail and IngredientsTab called useInventoryList() independently.
+ */
 interface IngredientsTabProps {
   ingredients: RecipeIngredientResponse[]
   servingsMultiplier: number
+  /** Inventory items fetched by parent component */
+  inventoryItems: InventoryItemListResponse[]
+  /** Pre-calculated stock status from parent component */
+  stockStatus: PantryCheckResult
+  /** Error state from inventory API call */
+  inventoryError: boolean
 }
 
 /**
@@ -107,13 +119,17 @@ function formatQuantity(quantity: number, multiplier: number = 1): string {
  * - Pantry cross-reference: "In stock" badges for available ingredients
  * - PantryCheck summary card at bottom
  * - Quantities scaled by servingsMultiplier
+ *
+ * Performance: Receives inventory data and stock status as props from parent
+ * to avoid duplicate API calls and calculations.
  */
-export default function IngredientsTab({ ingredients, servingsMultiplier }: IngredientsTabProps) {
-  // Fetch pantry inventory for cross-reference
-  const { data: inventoryItems = [], isError: inventoryError } = useInventoryList({})
-
-  // Check ingredient availability against pantry
-  const stockStatus = checkIngredientAvailability(ingredients, inventoryItems)
+export default function IngredientsTab({
+  ingredients,
+  servingsMultiplier,
+  inventoryItems,
+  stockStatus,
+  inventoryError,
+}: IngredientsTabProps) {
 
   if (ingredients.length === 0) {
     return (
