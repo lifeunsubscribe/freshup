@@ -1,0 +1,43 @@
+name: Integration Tests
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"  # Every Monday at 8am UTC
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  integration:
+    name: Run integration tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run integration tests
+        run: pytest tests/ -m integration -v --tb=short --timeout=60
+
+      - name: Notify Slack on failure
+        if: ${{ failure() }}
+        run: |
+          curl -X POST "${{ secrets.SLACK_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "text": "Integration tests failed — external API may have changed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Integration Tests Failed*\n\nOne or more crawler tests against live APIs (HelloFresh, Kitchen Sanctuary) failed.\n\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run details>"
+                  }
+                }
+              ]
+            }'

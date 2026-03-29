@@ -18,3 +18,4 @@ httpx==0.28.1
 recipe-scrapers==15.4.0
 requests==2.32.3
 defusedxml==0.7.1
+pytest-timeout==2.3.1
