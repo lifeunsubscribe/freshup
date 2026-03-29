@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     # Timeout for HTTP requests when scraping recipe URLs
     scraper_request_timeout: float = Field(default=30.0, gt=0)  # Timeout in seconds (default: 30s)
 
+    # Ollama LLM Configuration
+    # URL for connecting to Ollama service (default: host.docker.internal for container-to-host)
+    ollama_base_url: str = "http://host.docker.internal:11434"
+    # Default model to use for LLM operations (format: model:version)
+    ollama_model: str = "llama3.1:8b"
+    # Polling interval for checking task status updates (seconds)
+    task_poll_interval_seconds: int = Field(default=10, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:
