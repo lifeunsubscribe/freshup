@@ -27,11 +27,6 @@ interface IngredientsTabProps {
 }
 
 /**
- * Note: UNPARSEABLE_QUANTITY_SENTINEL, SENTINEL_TOLERANCE, and isUnparseableQuantity
- * are now imported from ../../constants/recipe.ts to maintain a single source of truth.
- */
-
-/**
  * Formats a quantity for display, handling fractions and decimals appropriately
  * Uses tolerance-based matching to handle floating-point arithmetic edge cases
  * - Returns empty string for unparseable quantities (sentinel value)
