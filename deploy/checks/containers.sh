@@ -25,6 +25,7 @@ check_containers() {
             docker start "$container" >> "$LOGFILE" 2>&1
             if [ $? -ne 0 ]; then
                 alert "Failed to start $container — check $LOGFILE"
+                return 1
             fi
         else
             # Container doesn't exist at all — bring up the whole stack
@@ -32,8 +33,10 @@ check_containers() {
             docker compose -f "$REPO_DIR/docker-compose.yml" up -d >> "$LOGFILE" 2>&1
             if [ $? -ne 0 ]; then
                 alert "Failed to bring up stack — check $LOGFILE"
+                return 1
             fi
-            return  # up -d handles all containers, no need to continue the loop
+            return 0  # up -d handles all containers, no need to continue the loop
         fi
     done
+    return 0
 }
