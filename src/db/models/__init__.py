@@ -26,6 +26,7 @@ from src.db.models.grocery_list import GroceryListItem, GrocerySource
 from src.db.models.substitution import SubstitutionPreference, SubstitutionContext
 from src.db.models.consumption_pattern import ConsumptionPattern
 from src.db.models.user_recipe import UserRecipeRating
+from src.db.models.processing_task import ProcessingTask, TaskType, TaskStatus
 
 __all__ = [
     "User",
@@ -57,4 +58,7 @@ __all__ = [
     "SubstitutionContext",
     "ConsumptionPattern",
     "UserRecipeRating",
+    "ProcessingTask",
+    "TaskType",
+    "TaskStatus",
 ]
