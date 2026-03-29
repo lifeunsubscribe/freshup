@@ -189,8 +189,13 @@ class OllamaClient(LLMClient):
                             "model": self.model,
                             "attempt": attempt + 1,
                             "error": error_msg,
-                            "response_preview": response_text[:200],
                         },
+                    )
+
+                    # Log response preview at DEBUG level to avoid exposing sensitive data
+                    logger.debug(
+                        "Response preview for debugging",
+                        extra={"response_preview": response_text[:200]},
                     )
 
                     # If we have retries left, append correction context and retry

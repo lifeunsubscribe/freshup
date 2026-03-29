@@ -15,7 +15,6 @@ All tests mock httpx.AsyncClient entirely - no real HTTP calls are made.
 
 import json
 import pytest
-from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
