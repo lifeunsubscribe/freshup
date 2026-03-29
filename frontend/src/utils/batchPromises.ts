@@ -48,6 +48,10 @@ export async function batchPromises<T>(
   let currentIndex = 0
 
   // Execute batch of promises
+  // Note: Multiple workers share currentIndex and results, but this is safe because:
+  // - JavaScript is single-threaded with an event loop, so currentIndex++ is atomic
+  // - Each worker gets a unique index value before awaiting the promise
+  // - results[index] writes to different array positions (no race condition)
   const executeBatch = async (): Promise<void> => {
     while (currentIndex < promiseFns.length) {
       // Capture the current index for this iteration
