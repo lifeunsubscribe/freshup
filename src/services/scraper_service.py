@@ -145,12 +145,12 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
         # Block localhost variants by name
         if hostname in ('localhost', 'localhost.localdomain'):
             logger.warning(f"SSRF protection: Blocked localhost hostname: {hostname}")
-            raise ScraperError("The provided URL is not accessible for recipe import")
+            raise ScraperError("The provided URL is not accessible for recipe import.")
 
         # Block common cloud metadata endpoints
         if hostname in ('169.254.169.254', 'metadata.google.internal', 'metadata.azure.com', 'metadata.aws.amazon.com'):
             logger.warning(f"SSRF protection: Blocked cloud metadata endpoint: {hostname}")
-            raise ScraperError("The provided URL is not accessible for recipe import")
+            raise ScraperError("The provided URL is not accessible for recipe import.")
 
         # Function to check if an IP address is safe
         def _is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -164,7 +164,7 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
             # Block private, loopback, link-local, multicast, and reserved IP addresses
             if not _is_safe_ip(ip):
                 logger.warning(f"SSRF protection: Blocked unsafe IP address: {ip}")
-                raise ScraperError("The provided URL is not accessible for recipe import")
+                raise ScraperError("The provided URL is not accessible for recipe import.")
             # Store the validated IP for use in the request
             validated_ip = hostname
         except ValueError:
