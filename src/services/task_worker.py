@@ -13,8 +13,7 @@ Per ADR Section 2A: Background Task Processing
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -73,7 +72,7 @@ async def process_receipt_task(
     # Update task status
     task.status = TaskStatus.completed.value
     task.result_reference = result_json
-    task.completed_at = datetime.utcnow()
+    task.completed_at = datetime.now(timezone.utc)
 
     session.commit()
 
@@ -170,7 +169,7 @@ async def process_pending_tasks() -> None:
                     )
                     task.status = TaskStatus.failed.value
                     task.error_message = f"Validation failed after retries: {str(e)}"
-                    task.completed_at = datetime.utcnow()
+                    task.completed_at = datetime.now(timezone.utc)
                     session.commit()
                     # Continue to next task
 
@@ -183,7 +182,7 @@ async def process_pending_tasks() -> None:
                     )
                     task.status = TaskStatus.failed.value
                     task.error_message = f"Unexpected error: {str(e)}"
-                    task.completed_at = datetime.utcnow()
+                    task.completed_at = datetime.now(timezone.utc)
                     session.commit()
                     # Continue to next task
 
