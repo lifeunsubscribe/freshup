@@ -2,6 +2,7 @@ import { Heart, ShoppingCart } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useCreateGroceryItem, useGroceryList } from '../../api/hooks/useGrocery'
 import type { IngredientStockStatus } from '../../utils/pantryMatcher'
+import { batchPromises } from '../../utils/batchPromises'
 
 interface ActionBarProps {
   isFavorited: boolean
@@ -111,17 +112,17 @@ export default function ActionBar({
         return
       }
 
-      // Add only new ingredients to grocery list in parallel
-      const results = await Promise.allSettled(
-        ingredientsToAdd.map(({ ingredient }) =>
-          createGroceryItem.mutateAsync({
-            item_name: ingredient.ingredient_name,
-            quantity: ingredient.quantity,
-            unit: ingredient.unit,
-            source: 'recipe',
-          })
-        )
+      // Add only new ingredients to grocery list with controlled concurrency (max 5 at a time)
+      // This prevents overwhelming the backend with unbounded parallel API calls
+      const promiseFns = ingredientsToAdd.map(({ ingredient }) => () =>
+        createGroceryItem.mutateAsync({
+          item_name: ingredient.ingredient_name,
+          quantity: ingredient.quantity,
+          unit: ingredient.unit,
+          source: 'recipe',
+        })
       )
+      const results = await batchPromises(promiseFns, 5)
 
       // Count successes and failures
       const successCount = results.filter(r => r.status === 'fulfilled').length
