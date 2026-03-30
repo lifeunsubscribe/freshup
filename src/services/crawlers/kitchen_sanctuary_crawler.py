@@ -6,6 +6,7 @@ Includes rate limiting and robots.txt compliance.
 """
 
 import logging
+import requests.exceptions
 import defusedxml.ElementTree as ET  # Use defusedxml for defense-in-depth XXE protection
 from typing import Optional
 from xml.etree.ElementTree import Element
@@ -16,6 +17,7 @@ from src.services.crawlers.base_crawler import (
     RobotsTxtParser,
     create_http_session,
 )
+from src.services.crawlers.exceptions import CrawlerError, CrawlerNetworkError, CrawlerParseError
 
 
 # Configure logging
@@ -102,7 +104,9 @@ class KitchenSanctuaryCrawler:
             List of discovered recipe URLs
 
         Raises:
-            Exception: If sitemap fetch or parsing fails
+            CrawlerNetworkError: If network requests fail (connection, timeout, HTTP errors)
+            CrawlerParseError: If parsing fails (malformed XML, invalid structure)
+            CrawlerError: If unexpected errors occur
 
         Example:
             >>> crawler = KitchenSanctuaryCrawler()
@@ -115,9 +119,24 @@ class KitchenSanctuaryCrawler:
             urls = self._discover_from_sitemap(max_pages=max_pages)
             logger.info(f"Discovered {len(urls)} URLs from sitemap.xml")
             return urls
-        except Exception as e:
-            logger.exception(f"Sitemap strategy failed: {e}")
+        except (CrawlerNetworkError, CrawlerParseError):
+            # Re-raise crawler exceptions as-is (already wrapped)
             raise
+        except requests.exceptions.RequestException as e:
+            # Wrap actual network errors at the public API boundary
+            # This catches all requests exceptions: ConnectionError, Timeout, HTTPError, etc.
+            # These are genuine network/transport issues, not programming bugs
+            logger.exception(f"Sitemap strategy failed with network error: {e}")
+            raise CrawlerNetworkError(f"Network error during URL discovery: {e}") from e
+        except ValueError as e:
+            # Wrap parsing errors at the public API boundary
+            logger.exception(f"Sitemap strategy failed with parse error: {e}")
+            raise CrawlerParseError(f"Parse error during URL discovery: {e}") from e
+        except Exception as e:
+            # Unexpected errors (including requests.InvalidURL, etc.) - wrap as base CrawlerError
+            # to avoid misrepresenting error type
+            logger.exception(f"Sitemap strategy failed: {e}")
+            raise CrawlerError(f"Unexpected error during URL discovery: {e}") from e
 
     def _discover_from_sitemap(self, max_pages: Optional[int] = None) -> list[str]:
         """
