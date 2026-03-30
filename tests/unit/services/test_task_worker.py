@@ -389,12 +389,15 @@ async def test_background_task_worker_handles_errors():
             raise RuntimeError("Simulated error")
         # Succeed on subsequent calls
 
-    with patch("src.services.task_worker.process_pending_tasks", side_effect=mock_process_pending_tasks):
+    with patch("src.services.task_worker.process_pending_tasks", side_effect=mock_process_pending_tasks), \
+         patch("src.services.task_worker.settings") as mock_settings:
+        mock_settings.task_poll_interval_seconds = 0.1
+
         # Start worker
         worker_task = asyncio.create_task(background_task_worker())
 
         # Let it run through error and recover
-        await asyncio.sleep(2.5)
+        await asyncio.sleep(0.5)
 
         # Cancel the worker
         worker_task.cancel()
