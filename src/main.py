@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 from typing import AsyncGenerator
 
@@ -11,8 +12,10 @@ from slowapi.errors import RateLimitExceeded
 
 from src.config import get_settings
 from src.db.database import Base, init_engine, get_engine, get_session_factory
-from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router, tasks_router
+from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router, tasks_router, receipts_router
 from src.middleware.rate_limit import limiter
+from src.services.task_worker import background_task_worker
+from src.services.llm.client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     init_engine(settings.database_url)
     _ensure_schema()
     _ensure_seed_data()
+
+    # Start background task worker for processing async LLM tasks (Phase 2A)
+    # Worker polls for pending tasks and processes them using OllamaClient
+    worker_task = asyncio.create_task(background_task_worker())
+
     yield
+
+    # Gracefully shut down background worker on application shutdown
+    # Cancel the task and wait for it to complete cleanup
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass  # Expected on clean shutdown
 
 
 app = FastAPI(
@@ -105,6 +121,7 @@ app.include_router(grocery_router)
 app.include_router(prepared_foods_router)
 app.include_router(scraper_router)
 app.include_router(tasks_router)
+app.include_router(receipts_router)
 
 
 @app.get("/health")
@@ -183,6 +200,28 @@ async def health_check():
         checks["issues"] = issues
 
     return checks
+
+
+@app.get("/health/ollama")
+async def ollama_health_check():
+    """
+    Check Ollama LLM service availability.
+
+    Returns availability status and configured model name for debugging.
+    Always returns 200 OK, even when Ollama is unreachable (not a server error).
+    Allows frontend to show "LLM offline" indicator or disable LLM features.
+
+    Returns:
+        dict: {"available": bool, "model": str}
+    """
+    client = OllamaClient()
+    available = await client.is_available()
+    await client.close()
+
+    return {
+        "available": available,
+        "model": settings.ollama_model,
+    }
 
 
 if settings.environment == "local":

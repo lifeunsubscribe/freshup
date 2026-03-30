@@ -4,7 +4,6 @@ import type { RecipeIngredientResponse, InventoryItemListResponse } from '../api
  * Normalizes ingredient names for matching
  * - Converts to lowercase
  * - Trims whitespace
- * - Removes common variations (e.g., "all-purpose flour" -> "flour")
  *
  * Phase 1: Simple name-based presence check (not quantity-based)
  */
@@ -13,9 +12,34 @@ function normalizeIngredientName(name: string): string {
 }
 
 /**
+ * Tokenizes an ingredient name into individual words
+ * Splits on spaces, hyphens, and other delimiters
+ * Filters out empty strings
+ *
+ * Examples:
+ * - "all-purpose flour" -> ["all", "purpose", "flour"]
+ * - "olive oil" -> ["olive", "oil"]
+ * - "rice" -> ["rice"]
+ */
+function tokenizeIngredientName(name: string): string[] {
+  return name
+    .split(/[\s\-_/]+/) // Split on space, hyphen, underscore, slash
+    .filter((word) => word.length > 0)
+}
+
+/**
  * Checks if an ingredient name matches an inventory item name
- * Phase 1: Simple case-insensitive match
- * Future: Could enhance with fuzzy matching, synonyms, etc.
+ * Uses word-boundary matching to prevent false positives
+ * (e.g., "rice" should NOT match "licorice")
+ *
+ * Matching strategy:
+ * 1. Exact match after normalization
+ * 2. Word-boundary match: all words from shorter name must appear in longer name
+ *
+ * Examples:
+ * - "flour" matches "all-purpose flour" ✓ (flour is a word in the longer name)
+ * - "rice" does NOT match "licorice" ✗ (rice is not a separate word)
+ * - "olive oil" matches "extra virgin olive oil" ✓ (both words present)
  */
 function ingredientMatchesInventoryItem(
   ingredientName: string,
@@ -29,16 +53,18 @@ function ingredientMatchesInventoryItem(
     return true
   }
 
-  // Check if one contains the other (e.g., "flour" matches "all-purpose flour")
-  // This handles common variations where inventory items are more specific
-  if (
-    normalizedInventory.includes(normalizedIngredient) ||
-    normalizedIngredient.includes(normalizedInventory)
-  ) {
-    return true
-  }
+  // Word-boundary matching: tokenize both names and check if all words
+  // from the shorter name appear as complete words in the longer name
+  const ingredientTokens = tokenizeIngredientName(normalizedIngredient)
+  const inventoryTokens = tokenizeIngredientName(normalizedInventory)
 
-  return false
+  // Check if all tokens from the shorter name are present in the longer name
+  // This handles cases like "flour" matching "all-purpose flour"
+  const shorterTokens = ingredientTokens.length <= inventoryTokens.length ? ingredientTokens : inventoryTokens
+  const longerTokens = ingredientTokens.length <= inventoryTokens.length ? inventoryTokens : ingredientTokens
+
+  // All words from shorter name must be present in longer name
+  return shorterTokens.every((token) => longerTokens.includes(token))
 }
 
 export interface IngredientStockStatus {

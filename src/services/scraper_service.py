@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import re
 import ipaddress
 import socket
+import logging
 import requests
 import recipe_scrapers
 from recipe_scrapers._exceptions import WebsiteNotImplementedError
@@ -19,6 +20,8 @@ from src.schemas.scraper import ScrapedRecipeData
 from src.db.models.recipe import SourceType
 from src.config import get_settings
 from src.services.crawlers.base_crawler import USER_AGENT
+
+logger = logging.getLogger(__name__)
 
 
 # Custom exceptions for scraping errors
@@ -116,7 +119,8 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
 
         # Ensure scheme is http or https
         if parsed.scheme not in ('http', 'https'):
-            raise ScraperError(f"Invalid URL scheme: {parsed.scheme}. Only http and https are allowed")
+            logger.warning(f"Invalid URL scheme rejected: {parsed.scheme}")
+            raise ScraperError("The provided URL is not accessible for recipe import. Only HTTP and HTTPS URLs are supported.")
 
         # Ensure hostname is present
         if not parsed.netloc:
@@ -140,11 +144,13 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
 
         # Block localhost variants by name
         if hostname in ('localhost', 'localhost.localdomain'):
-            raise ScraperError("Access to localhost is not allowed")
+            logger.warning(f"SSRF protection: Blocked localhost hostname: {hostname}")
+            raise ScraperError("The provided URL is not accessible for recipe import.")
 
         # Block common cloud metadata endpoints
         if hostname in ('169.254.169.254', 'metadata.google.internal', 'metadata.azure.com', 'metadata.aws.amazon.com'):
-            raise ScraperError("Access to cloud metadata endpoints is not allowed")
+            logger.warning(f"SSRF protection: Blocked cloud metadata endpoint: {hostname}")
+            raise ScraperError("The provided URL is not accessible for recipe import.")
 
         # Function to check if an IP address is safe
         def _is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -157,7 +163,8 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
             ip = ipaddress.ip_address(hostname)
             # Block private, loopback, link-local, multicast, and reserved IP addresses
             if not _is_safe_ip(ip):
-                raise ScraperError("Access to private, loopback, link-local, or reserved IP addresses is not allowed")
+                logger.warning(f"SSRF protection: Blocked unsafe IP address: {ip}")
+                raise ScraperError("The provided URL is not accessible for recipe import.")
             # Store the validated IP for use in the request
             validated_ip = hostname
         except ValueError:
@@ -177,15 +184,19 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
                     try:
                         resolved_ip = ipaddress.ip_address(resolved_ip_str)
                         if not _is_safe_ip(resolved_ip):
-                            raise ScraperError(
-                                f"Domain resolves to a private, loopback, link-local, or reserved IP address: {resolved_ip_str}"
-                            )
+                            # Log full technical details for debugging (includes IP address)
+                            logger.warning(f"SSRF protection: Domain {hostname} resolves to blocked IP: {resolved_ip_str}")
+                            # Raise sanitized user-facing message (no IP disclosure)
+                            raise ScraperError("The provided URL is not accessible for recipe import.")
                         # Store the first validated IP for use in the request
                         if validated_ip is None:
                             validated_ip = resolved_ip_str
                     except ValueError:
                         # Should not happen with valid getaddrinfo results, but be defensive
-                        raise ScraperError(f"Invalid IP address returned from DNS: {resolved_ip_str}")
+                        # Log full technical details for debugging (includes IP address)
+                        logger.error(f"Invalid IP address from DNS for {hostname}: {resolved_ip_str}")
+                        # Raise sanitized user-facing message (no DNS internals)
+                        raise ScraperError("The provided URL could not be resolved. Please verify the URL and try again.")
 
             except socket.gaierror as e:
                 # DNS resolution failed - this is acceptable for valid public domains that don't exist
@@ -197,9 +208,12 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
                 pass
 
     except ScraperError:
-        raise  # Re-raise our validation errors
+        raise  # Re-raise our validation errors (already sanitized above)
     except Exception as e:
-        raise ScraperError(f"Invalid URL: {str(e)}")
+        # Log full technical details for debugging
+        logger.error(f"Unexpected error during URL validation: {type(e).__name__}: {str(e)}")
+        # Raise sanitized user-facing message (no exception details)
+        raise ScraperError("The provided URL is invalid. Please verify the URL format and try again.")
 
     # Fetch HTML with timeout configuration to prevent indefinite hangs
     # The recipe_scrapers library doesn't handle HTTP timeouts directly, so we
@@ -252,12 +266,21 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
         response.raise_for_status()  # Raise exception for 4xx/5xx status codes
         html_content = response.content
     except requests.exceptions.Timeout as e:
-        raise NetworkError(f"Request timed out after {timeout} seconds: {str(e)}")
+        # Log full technical details for debugging
+        logger.warning(f"Request timeout for URL (timeout={timeout}s): {str(e)}")
+        # Raise sanitized user-facing message (no timeout value, no internal details)
+        raise NetworkError("Unable to connect to the recipe source. The request timed out. Please try again later.")
     except requests.exceptions.ConnectionError as e:
-        raise NetworkError(f"Network request failed: {str(e)}")
+        # Log full technical details for debugging (may include IP, port, DNS info)
+        logger.warning(f"Connection error for URL: {str(e)}")
+        # Raise sanitized user-facing message (no network topology info)
+        raise NetworkError("Unable to connect to the recipe source. Please verify the URL and try again.")
     except requests.exceptions.RequestException as e:
         # Catch other requests-related errors (like HTTPError from raise_for_status)
-        raise NetworkError(f"HTTP request failed: {str(e)}")
+        # Log full technical details for debugging (may include server versions, status codes)
+        logger.warning(f"HTTP request error for URL: {str(e)}")
+        # Raise sanitized user-facing message (no HTTP details, no server info)
+        raise NetworkError("Unable to retrieve the recipe page. Please verify the URL is accessible and try again.")
 
     try:
         # Attempt to scrape the recipe
@@ -279,10 +302,16 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
                 f"Site not supported by recipe-scrapers and wild_mode failed: {url}"
             )
         except Exception as e:
-            raise ParseError(f"Failed to parse recipe in wild_mode: {str(e)}")
+            # Log full technical details for debugging (may include parser internals)
+            logger.warning(f"Failed to parse recipe in wild_mode: {type(e).__name__}: {str(e)}")
+            # Raise sanitized user-facing message (no parser internals)
+            raise ParseError("Unable to extract recipe information from this page. The page format may not be supported.")
     except Exception as e:
         # Catch other exceptions from recipe-scrapers
-        raise ScraperError(f"Failed to scrape recipe: {str(e)}")
+        # Log full technical details for debugging (may include library internals)
+        logger.error(f"Unexpected scraper error: {type(e).__name__}: {str(e)}")
+        # Raise sanitized user-facing message (no library internals)
+        raise ScraperError("Unable to process the recipe page. Please try a different URL.")
 
     # Extract data from scraper with safe fallbacks
     try:
@@ -399,4 +428,7 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
 
     except Exception as e:
         # If data extraction fails, raise ParseError
-        raise ParseError(f"Failed to extract recipe data: {str(e)}")
+        # Log full technical details for debugging (may include extraction logic)
+        logger.error(f"Failed to extract recipe data: {type(e).__name__}: {str(e)}")
+        # Raise sanitized user-facing message (no extraction details)
+        raise ParseError("Unable to extract complete recipe information from this page. Some data may be missing or in an unexpected format.")

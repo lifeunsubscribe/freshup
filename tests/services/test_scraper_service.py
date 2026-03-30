@@ -223,26 +223,26 @@ class TestScrapeRecipe:
 
     @patch('src.services.scraper_service.requests.get')
     def test_network_error_on_connection_failure(self, mock_requests_get):
-        """Test that NetworkError is raised on connection failures."""
+        """Test that NetworkError is raised on connection failures with sanitized message."""
         mock_requests_get.side_effect = requests.exceptions.ConnectionError("Failed to connect")
 
         url = "https://www.hellofresh.com/recipes/test"
-        with pytest.raises(NetworkError, match="Network request failed"):
+        with pytest.raises(NetworkError, match="Unable to connect to the recipe source"):
             scrape_recipe(url)
 
     @patch('src.services.scraper_service.requests.get')
     def test_network_error_on_timeout(self, mock_requests_get):
-        """Test that NetworkError is raised on timeout."""
+        """Test that NetworkError is raised on timeout with sanitized message."""
         mock_requests_get.side_effect = requests.exceptions.Timeout("Request timed out")
 
         url = "https://www.hellofresh.com/recipes/test"
-        with pytest.raises(NetworkError, match="Request timed out after 30.0 seconds"):
+        with pytest.raises(NetworkError, match="Unable to connect to the recipe source.*timed out"):
             scrape_recipe(url)
 
     @patch('src.services.scraper_service.requests.get')
     @patch('src.services.scraper_service.get_settings')
     def test_uses_configured_timeout(self, mock_get_settings, mock_requests_get):
-        """Test that the configured timeout value is used for HTTP requests."""
+        """Test that the configured timeout value is used for HTTP requests (sanitized message)."""
         # Mock settings with custom timeout
         mock_settings = Mock()
         mock_settings.scraper_request_timeout = 45.0
@@ -251,11 +251,11 @@ class TestScrapeRecipe:
         # Mock HTTP response
         mock_requests_get.return_value = _mock_successful_http_response()
 
-        # Trigger a timeout to verify the timeout value is included in error message
+        # Trigger a timeout to verify sanitized error message (timeout value not exposed)
         mock_requests_get.side_effect = requests.exceptions.Timeout("Connection timeout")
 
         url = "https://www.example.com/recipe"
-        with pytest.raises(NetworkError, match="Request timed out after 45.0 seconds"):
+        with pytest.raises(NetworkError, match="Unable to connect to the recipe source.*timed out"):
             scrape_recipe(url)
 
         # Verify requests.get was called with the configured timeout, headers, and allow_redirects=False
@@ -335,14 +335,14 @@ class TestScrapeRecipe:
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
     @patch('src.services.scraper_service.requests.get')
     def test_scraper_error_on_generic_failure(self, mock_requests_get, mock_scrape_html):
-        """Test that ScraperError is raised on generic exceptions."""
+        """Test that ScraperError is raised on generic exceptions with sanitized message."""
         # Mock HTTP response
         mock_requests_get.return_value = _mock_successful_http_response()
 
         mock_scrape_html.side_effect = Exception("Generic error")
 
         url = "https://www.hellofresh.com/recipes/test"
-        with pytest.raises(ScraperError, match="Failed to scrape recipe"):
+        with pytest.raises(ScraperError, match="Unable to process the recipe page"):
             scrape_recipe(url)
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
@@ -483,135 +483,135 @@ class TestScrapeRecipe:
 
 
 class TestSsrfProtection:
-    """Tests for SSRF (Server-Side Request Forgery) protection."""
+    """Tests for SSRF (Server-Side Request Forgery) protection with sanitized error messages."""
 
     def test_blocks_localhost_by_name(self):
-        """Test that localhost is blocked by hostname."""
-        with pytest.raises(ScraperError, match="Access to localhost is not allowed"):
+        """Test that localhost is blocked by hostname (sanitized message)."""
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://localhost/recipe")
 
-        with pytest.raises(ScraperError, match="Access to localhost is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://localhost.localdomain/recipe")
 
     def test_blocks_localhost_ipv4(self):
-        """Test that localhost IPv4 addresses are blocked."""
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        """Test that localhost IPv4 addresses are blocked (sanitized message)."""
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://127.0.0.1/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://127.0.0.2/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://127.255.255.255/recipe")
 
     def test_blocks_localhost_ipv6(self):
         """Test that localhost IPv6 addresses are blocked."""
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://[::1]/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://[0000:0000:0000:0000:0000:0000:0000:0001]/recipe")
 
     def test_blocks_private_ipv4_addresses(self):
         """Test that private IPv4 address ranges are blocked."""
         # 10.0.0.0/8
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://10.0.0.1/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://10.255.255.255/recipe")
 
         # 172.16.0.0/12
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://172.16.0.1/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://172.31.255.255/recipe")
 
         # 192.168.0.0/16
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://192.168.0.1/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://192.168.255.255/recipe")
 
     def test_blocks_private_ipv6_addresses(self):
         """Test that private IPv6 address ranges are blocked."""
         # Unique local addresses (fc00::/7)
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://[fc00::1]/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://[fd00::1]/recipe")
 
     def test_blocks_link_local_addresses(self):
         """Test that link-local addresses are blocked."""
         # IPv4 link-local (169.254.0.0/16)
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://169.254.1.1/recipe")
 
         # 169.254.169.254 is caught by cloud metadata check (which is fine - still blocked)
-        with pytest.raises(ScraperError, match="Access to cloud metadata endpoints is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://169.254.169.254/recipe")
 
         # IPv6 link-local (fe80::/10)
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://[fe80::1]/recipe")
 
     def test_blocks_unspecified_addresses(self):
         """Test that unspecified addresses (0.0.0.0 and ::) are blocked."""
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://0.0.0.0/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://[::]/recipe")
 
     def test_blocks_multicast_addresses(self):
         """Test that multicast addresses are blocked."""
         # IPv4 multicast (224.0.0.0/4)
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://224.0.0.1/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://239.255.255.255/recipe")
 
         # IPv6 multicast (ff00::/8)
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://[ff00::1]/recipe")
 
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://[ff02::1]/recipe")
 
     def test_blocks_cloud_metadata_endpoints(self):
         """Test that cloud metadata endpoints are blocked."""
         # AWS/Azure metadata endpoint
-        with pytest.raises(ScraperError, match="Access to cloud metadata endpoints is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://169.254.169.254/latest/meta-data/")
 
         # Google Cloud metadata endpoint
-        with pytest.raises(ScraperError, match="Access to cloud metadata endpoints is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://metadata.google.internal/computeMetadata/v1/")
 
         # Azure metadata endpoint
-        with pytest.raises(ScraperError, match="Access to cloud metadata endpoints is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://metadata.azure.com/metadata/instance")
 
         # AWS metadata endpoint (alternative)
-        with pytest.raises(ScraperError, match="Access to cloud metadata endpoints is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://metadata.aws.amazon.com/latest/meta-data/")
 
     def test_blocks_invalid_url_schemes(self):
         """Test that non-http(s) schemes are blocked."""
-        with pytest.raises(ScraperError, match="Invalid URL scheme"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("file:///etc/passwd")
 
-        with pytest.raises(ScraperError, match="Invalid URL scheme"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("ftp://example.com/recipe")
 
-        with pytest.raises(ScraperError, match="Invalid URL scheme"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("gopher://example.com/recipe")
 
-        with pytest.raises(ScraperError, match="Invalid URL scheme"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("data:text/html,<html>test</html>")
 
     def test_blocks_missing_hostname(self):
@@ -659,24 +659,24 @@ class TestSsrfProtection:
     def test_handles_urls_with_ports(self):
         """Test that SSRF protection works correctly with URLs containing ports."""
         # Should block localhost with port
-        with pytest.raises(ScraperError, match="Access to localhost is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://localhost:8080/recipe")
 
         # Should block private IP with port
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://192.168.1.1:8080/recipe")
 
         # Should block loopback with port
-        with pytest.raises(ScraperError, match="Access to private, loopback, link-local, or reserved IP addresses is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://127.0.0.1:8080/recipe")
 
     def test_case_insensitive_hostname_blocking(self):
         """Test that hostname blocking is case-insensitive."""
-        with pytest.raises(ScraperError, match="Access to localhost is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://LOCALHOST/recipe")
 
-        with pytest.raises(ScraperError, match="Access to localhost is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://LocalHost/recipe")
 
-        with pytest.raises(ScraperError, match="Access to cloud metadata endpoints is not allowed"):
+        with pytest.raises(ScraperError, match="The provided URL is not accessible for recipe import"):
             scrape_recipe("http://METADATA.GOOGLE.INTERNAL/recipe")

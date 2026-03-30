@@ -104,6 +104,8 @@ class OllamaClient(LLMClient):
             timeout=httpx.Timeout(
                 connect=5.0,  # Connect timeout: 5 seconds
                 read=120.0,   # Read timeout: 120 seconds
+                write=30.0,   # Write timeout: 30 seconds
+                pool=5.0,     # Pool timeout: 5 seconds
             ),
         )
 
