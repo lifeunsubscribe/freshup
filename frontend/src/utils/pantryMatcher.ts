@@ -29,17 +29,19 @@ function tokenizeIngredientName(name: string): string[] {
 
 /**
  * Checks if an ingredient name matches an inventory item name
- * Uses word-boundary matching to prevent false positives
+ * Uses asymmetric word-boundary matching to prevent false positives
  * (e.g., "rice" should NOT match "licorice")
  *
  * Matching strategy:
  * 1. Exact match after normalization
- * 2. Word-boundary match: all words from shorter name must appear in longer name
+ * 2. Asymmetric word-boundary match: all recipe tokens must appear in inventory tokens
+ *    (but NOT vice versa - this prevents "flour" in inventory matching "almond flour" in recipe)
  *
  * Examples:
- * - "flour" matches "all-purpose flour" ✓ (flour is a word in the longer name)
- * - "rice" does NOT match "licorice" ✗ (rice is not a separate word)
- * - "olive oil" matches "extra virgin olive oil" ✓ (both words present)
+ * - Recipe "flour" matches inventory "all-purpose flour" ✓ (inventory has the required ingredient)
+ * - Recipe "almond flour" does NOT match inventory "flour" ✗ (inventory lacks "almond")
+ * - Recipe "rice" does NOT match inventory "licorice" ✗ (rice is not a separate word)
+ * - Recipe "olive oil" matches inventory "extra virgin olive oil" ✓ (both words present)
  */
 function ingredientMatchesInventoryItem(
   ingredientName: string,
@@ -53,18 +55,14 @@ function ingredientMatchesInventoryItem(
     return true
   }
 
-  // Word-boundary matching: tokenize both names and check if all words
-  // from the shorter name appear as complete words in the longer name
+  // Asymmetric word-boundary matching: all recipe tokens must be present in inventory
+  // This ensures recipe requirements are a subset of what's available in inventory
   const ingredientTokens = tokenizeIngredientName(normalizedIngredient)
   const inventoryTokens = tokenizeIngredientName(normalizedInventory)
 
-  // Check if all tokens from the shorter name are present in the longer name
-  // This handles cases like "flour" matching "all-purpose flour"
-  const shorterTokens = ingredientTokens.length <= inventoryTokens.length ? ingredientTokens : inventoryTokens
-  const longerTokens = ingredientTokens.length <= inventoryTokens.length ? inventoryTokens : ingredientTokens
-
-  // All words from shorter name must be present in longer name
-  return shorterTokens.every((token) => longerTokens.includes(token))
+  // All words from recipe ingredient must be present in inventory item
+  // (one-directional check prevents false positives)
+  return ingredientTokens.every((token) => inventoryTokens.includes(token))
 }
 
 export interface IngredientStockStatus {

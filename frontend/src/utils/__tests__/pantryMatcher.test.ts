@@ -79,7 +79,9 @@ describe('pantryMatcher', () => {
       expect(result.inStock[0].matchedInventoryItem?.name).toBe('all-purpose flour')
     })
 
-    it('matches inventory items with more generic names', () => {
+    it('does NOT match specific recipe ingredient with generic inventory (asymmetric)', () => {
+      // Recipe needs "all-purpose flour" but inventory only has "flour"
+      // This should NOT match to prevent false positives
       const ingredients = [
         createIngredient({ ingredient_name: 'all-purpose flour' }),
       ]
@@ -90,8 +92,26 @@ describe('pantryMatcher', () => {
 
       const result = checkIngredientAvailability(ingredients, inventoryItems)
 
-      expect(result.inStockCount).toBe(1)
-      expect(result.inStock[0].inStock).toBe(true)
+      expect(result.inStockCount).toBe(0)
+      expect(result.outOfStock).toHaveLength(1)
+      expect(result.outOfStock[0].ingredient.ingredient_name).toBe('all-purpose flour')
+    })
+
+    it('does NOT match "almond flour" recipe with "flour" inventory', () => {
+      // This is the specific example from the issue
+      const ingredients = [
+        createIngredient({ ingredient_name: 'almond flour' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'flour' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(0)
+      expect(result.outOfStock).toHaveLength(1)
+      expect(result.outOfStock[0].ingredient.ingredient_name).toBe('almond flour')
     })
 
     it('returns all out of stock when inventory is empty', () => {
@@ -324,7 +344,7 @@ describe('pantryMatcher', () => {
       expect(result).toBe(true)
     })
 
-    it('handles partial name matching', () => {
+    it('handles partial name matching (generic recipe with specific inventory)', () => {
       const ingredients = [
         createIngredient({ ingredient_name: 'flour' }),
       ]
@@ -336,6 +356,20 @@ describe('pantryMatcher', () => {
       const result = areAllIngredientsInStock(ingredients, inventoryItems)
 
       expect(result).toBe(true)
+    })
+
+    it('returns false when specific recipe ingredient does not match generic inventory (asymmetric)', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'almond flour' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'flour' }),
+      ]
+
+      const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+      expect(result).toBe(false)
     })
 
     // False positive prevention tests
