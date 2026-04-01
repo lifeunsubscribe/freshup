@@ -73,7 +73,7 @@ def create_prepared_food(
         logger.debug(f"Database error occurred during prepared food creation: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the prepared food item"
+            detail="Failed to create prepared food item due to a database error"
         )
 
     logger.info(
@@ -159,7 +159,7 @@ def consume_prepared_food(
             logger.debug(f"Database error occurred during prepared food consumption deletion: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while deleting the consumed item"
+                detail="Failed to delete consumed prepared food item due to a database error"
             )
 
         logger.info(
@@ -185,7 +185,7 @@ def consume_prepared_food(
             logger.debug(f"Database error occurred during prepared food consumption: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while consuming the item"
+                detail="Failed to consume prepared food servings due to a database error"
             )
 
         logger.info(
@@ -238,7 +238,7 @@ def transfer_prepared_food(
         logger.debug(f"Database error occurred during prepared food transfer: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while transferring the prepared food item"
+            detail="Failed to transfer prepared food item due to a database error"
         )
 
     logger.info(
@@ -284,7 +284,7 @@ def freeze_prepared_food(
         logger.debug(f"Database error occurred during prepared food freeze: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while freezing the prepared food item"
+            detail="Failed to freeze prepared food item due to a database error"
         )
 
     logger.info(
@@ -330,7 +330,7 @@ def thaw_prepared_food(
         logger.debug(f"Database error occurred during prepared food thaw: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while thawing the prepared food item"
+            detail="Failed to thaw prepared food item due to a database error"
         )
 
     logger.info(

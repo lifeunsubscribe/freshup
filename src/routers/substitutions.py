@@ -90,7 +90,7 @@ def create_substitution_preference(
         logger.debug(f"Database error details: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the substitution preference"
+            detail="Failed to create substitution preference due to a database error"
         )
 
     logger.info(
@@ -226,7 +226,7 @@ def update_substitution_preference(
         logger.debug(f"Database error details: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while updating the substitution preference"
+            detail="Failed to update substitution preference due to a database error"
         )
 
     logger.info(

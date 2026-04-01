@@ -105,7 +105,7 @@ def create_item(
         logger.debug(f"Database error occurred during grocery item creation: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the grocery item"
+            detail="Failed to create grocery item due to a database error"
         )
 
     logger.info(
@@ -268,7 +268,7 @@ def update_item(
         logger.debug(f"Database error occurred during grocery item update: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while updating the grocery item"
+            detail="Failed to update grocery item due to a database error"
         )
 
     logger.info(
@@ -317,7 +317,7 @@ def delete_item(
         logger.debug(f"Database error occurred during grocery item deletion: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while deleting the grocery item"
+            detail="Failed to delete grocery item due to a database error"
         )
 
     logger.info(
@@ -371,7 +371,7 @@ def mark_purchased(
         logger.debug(f"Database error occurred during grocery item purchase: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while marking the item as purchased"
+            detail="Failed to mark grocery item as purchased due to a database error"
         )
 
     logger.info(
@@ -427,7 +427,7 @@ def mark_unpurchased(
         logger.debug(f"Database error occurred during grocery item unpurchase: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while marking the item as unpurchased"
+            detail="Failed to mark grocery item as unpurchased due to a database error"
         )
 
     logger.info(
@@ -536,7 +536,7 @@ def bulk_purchase(
         logger.debug(f"Database error occurred during bulk grocery purchase: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while processing the bulk purchase"
+            detail="Failed to process bulk purchase due to a database error"
         )
 
     logger.info(

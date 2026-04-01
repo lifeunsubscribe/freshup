@@ -102,7 +102,7 @@ def create_recipe(
         logger.debug(f"Database error occurred during recipe creation: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the recipe"
+            detail="Failed to create recipe due to a database error"
         )
 
     logger.info(
@@ -259,7 +259,7 @@ def create_ad_hoc_recipe(
         logger.debug(f"Database error occurred during ad-hoc recipe creation: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the ad-hoc recipe"
+            detail="Failed to create ad-hoc recipe due to a database error"
         )
 
     logger.info(
@@ -491,7 +491,7 @@ def update_recipe(
         logger.debug(f"Database error occurred during recipe update: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while updating the recipe"
+            detail="Failed to update recipe due to a database error"
         )
 
     logger.info(
@@ -538,7 +538,7 @@ def delete_recipe(
         logger.debug(f"Database error occurred during recipe deletion: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while deleting the recipe"
+            detail="Failed to delete recipe due to a database error"
         )
 
     logger.info(
@@ -610,7 +610,7 @@ def add_recipe_ingredient(
         logger.debug(f"Database error occurred during ingredient creation: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the ingredient"
+            detail="Failed to create recipe ingredient due to a database error"
         )
 
     logger.info(
@@ -698,7 +698,7 @@ def update_recipe_ingredient(
         logger.debug(f"Database error occurred during ingredient update: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while updating the ingredient"
+            detail="Failed to update recipe ingredient due to a database error"
         )
 
     logger.info(
@@ -765,7 +765,7 @@ def delete_recipe_ingredient(
         logger.debug(f"Database error occurred during ingredient deletion: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while deleting the ingredient"
+            detail="Failed to delete recipe ingredient due to a database error"
         )
 
     logger.info(
@@ -836,7 +836,7 @@ def rate_recipe(
             logger.debug(f"Database error occurred during rating update: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while updating the rating"
+                detail="Failed to update recipe rating due to a database error"
             )
 
         logger.info(
@@ -870,7 +870,7 @@ def rate_recipe(
             logger.debug(f"Database error occurred during rating creation: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while creating the rating"
+                detail="Failed to create recipe rating due to a database error"
             )
 
         logger.info(
@@ -983,7 +983,7 @@ def delete_my_rating(
             logger.debug(f"Database error occurred during rating deletion: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while deleting the rating"
+                detail="Failed to delete recipe rating due to a database error"
             )
 
         logger.info(

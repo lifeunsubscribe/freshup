@@ -101,7 +101,7 @@ def create_inventory_item(
         logger.debug(f"Database error occurred during inventory item creation: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the inventory item"
+            detail="Failed to create inventory item due to a database error"
         )
 
     logger.info(
@@ -178,7 +178,7 @@ def create_inventory_items_bulk(
         logger.debug(f"Database error occurred during bulk inventory creation: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating inventory items"
+            detail="Failed to create inventory items due to a database error"
         )
 
     logger.info(
@@ -393,7 +393,7 @@ def update_inventory_item(
         logger.debug(f"Database error occurred during inventory item update: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while updating the inventory item"
+            detail="Failed to update inventory item due to a database error"
         )
 
     logger.info(
@@ -440,7 +440,7 @@ def delete_inventory_item(
         logger.debug(f"Database error occurred during inventory item deletion: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while deleting the inventory item"
+            detail="Failed to delete inventory item due to a database error"
         )
 
     logger.info(
@@ -509,7 +509,7 @@ def set_preferred_store(
         logger.debug(f"Database error occurred during preferred store update: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while updating the preferred store"
+            detail="Failed to update preferred store for inventory item due to a database error"
         )
 
     logger.info(
@@ -567,7 +567,7 @@ def clear_preferred_store(
         logger.debug(f"Database error occurred during preferred store clear: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while clearing the preferred store"
+            detail="Failed to clear preferred store for inventory item due to a database error"
         )
 
     logger.info(
@@ -637,7 +637,7 @@ def add_available_store(
             logger.debug(f"Database error occurred during available store addition: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while adding the available store"
+                detail="Failed to add available store to inventory item due to a database error"
             )
 
         logger.info(
@@ -712,7 +712,7 @@ def remove_available_store(
             logger.debug(f"Database error occurred during available store removal: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while removing the available store"
+                detail="Failed to remove available store from inventory item due to a database error"
             )
 
         logger.info(
@@ -841,7 +841,7 @@ def update_shareability(
         logger.debug(f"Database error occurred during shareability update: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while updating shareability"
+            detail="Failed to update inventory item shareability due to a database error"
         )
 
     logger.info(
@@ -893,7 +893,7 @@ def freeze_inventory_item(
         logger.debug(f"Database error occurred during freeze action: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while freezing the inventory item"
+            detail="Failed to freeze inventory item due to a database error"
         )
 
     logger.info(
@@ -951,7 +951,7 @@ def thaw_inventory_item(
         logger.debug(f"Database error occurred during thaw action: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while thawing the inventory item"
+            detail="Failed to thaw inventory item due to a database error"
         )
 
     logger.info(
@@ -1017,7 +1017,7 @@ def consume_inventory_item(
             logger.debug(f"Database error occurred during item consumption deletion: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while deleting the consumed item"
+                detail="Failed to delete consumed inventory item due to a database error"
             )
 
         logger.info(
@@ -1043,7 +1043,7 @@ def consume_inventory_item(
             logger.debug(f"Database error occurred during item consumption: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while consuming the item"
+                detail="Failed to consume inventory item due to a database error"
             )
 
         logger.info(

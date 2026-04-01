@@ -355,7 +355,7 @@ def update_prepared_food(
         logger.debug(f"Database error occurred during prepared food update: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while updating the prepared food item"
+            detail="Failed to update prepared food item due to a database error"
         )
 
     logger.info(
@@ -404,7 +404,7 @@ def delete_prepared_food(
         logger.debug(f"Database error occurred during prepared food deletion: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while deleting the prepared food item"
+            detail="Failed to delete prepared food item due to a database error"
         )
 
     logger.info(
