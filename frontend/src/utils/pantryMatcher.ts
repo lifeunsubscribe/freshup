@@ -50,8 +50,12 @@ function normalizeWordForPlurals(word: string): string {
     return word.slice(0, -3) + 'f'
   }
 
-  // Handle -ses -> -s (glasses -> glass - but keep for word boundaries)
+  // Handle -ses -> -s (glasses -> glass, but not -ases like bases -> base)
   if (word.endsWith('ses') && word.length > 4) {
+    // Check if it's -ases pattern (bases -> base, not bas)
+    if (word.endsWith('ases')) {
+      return word.slice(0, -1) // Remove just 's' to get 'base'
+    }
     return word.slice(0, -2)
   }
 
@@ -68,10 +72,10 @@ function normalizeWordForPlurals(word: string): string {
 
   // Handle regular -s plural (eggs -> egg, carrots -> carrot)
   if (word.endsWith('s') && word.length > 3) {
-    // Don't strip 's' from words that naturally end in 's' (e.g., "grass", "lentils")
+    // Don't strip 's' from words that naturally end in 's' (e.g., "grass")
     // This is a simple heuristic: if removing 's' creates a very short word, keep it
     const base = word.slice(0, -1)
-    // Keep words ending in 'ss' (grass, lentils would be caught earlier)
+    // Keep words ending in 'ss' (e.g., grass, bass)
     if (word.endsWith('ss')) {
       return word
     }
