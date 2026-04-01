@@ -50,6 +50,10 @@ class ProcessingTask(Base):
     Processing tasks queue requests for LLM operations and track their
     status through the processing lifecycle. Results are stored as text
     references that can be resolved by the consuming service.
+
+    The processing_started_at timestamp enables automatic recovery of tasks
+    stuck in "processing" status due to worker crashes, preventing the race
+    condition window between status change and task completion.
     """
     __tablename__ = "processing_tasks"
 
@@ -68,9 +72,11 @@ class ProcessingTask(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    # Compound index for efficient pending task queries
+    # Compound indexes for efficient task queries
     __table_args__ = (
         Index('ix_processing_tasks_status_created_at', 'status', 'created_at'),
+        Index('ix_processing_tasks_status_processing_started_at', 'status', 'processing_started_at'),
     )

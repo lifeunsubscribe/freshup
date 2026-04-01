@@ -8,12 +8,13 @@ Per ADR Section 2A: Background Task Processing
 - Sequential processing (no parallelism at household scale)
 - Graceful handling of Ollama unavailability (task stays pending)
 - Graceful handling of validation failures (task marked failed)
+- Automatic recovery of stale tasks (timeout-based, prevents race condition)
 - Clean shutdown on cancellation
 """
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -86,6 +87,67 @@ async def process_receipt_task(
     )
 
 
+def recover_stale_tasks(session: Session) -> int:
+    """
+    Recover tasks stuck in "processing" status beyond the timeout window.
+
+    Detects tasks that have been in "processing" status longer than
+    task_processing_timeout_seconds and resets them to "pending" for retry.
+
+    This prevents tasks from being stuck forever if the worker crashes
+    between marking a task as "processing" and completing it.
+
+    Args:
+        session: Database session for queries and updates
+
+    Returns:
+        Number of tasks recovered
+    """
+    # Calculate timeout threshold
+    timeout_threshold = datetime.now(timezone.utc) - timedelta(
+        seconds=settings.task_processing_timeout_seconds
+    )
+
+    # Query for stale processing tasks
+    stmt = (
+        select(ProcessingTask)
+        .where(
+            ProcessingTask.status == TaskStatus.processing.value,
+            ProcessingTask.processing_started_at.isnot(None),
+            ProcessingTask.processing_started_at < timeout_threshold
+        )
+    )
+    result = session.execute(stmt)
+    stale_tasks = result.scalars().all()
+
+    if not stale_tasks:
+        return 0
+
+    # Reset stale tasks to pending
+    recovered_count = 0
+    for task in stale_tasks:
+        logger.warning(
+            "Recovering stale task stuck in processing",
+            extra={
+                "task_id": str(task.id),
+                "processing_started_at": task.processing_started_at.isoformat() if task.processing_started_at else None,
+                "timeout_seconds": settings.task_processing_timeout_seconds
+            }
+        )
+        task.status = TaskStatus.pending.value
+        task.processing_started_at = None
+        recovered_count += 1
+
+    session.commit()
+
+    logger.info(
+        f"Recovered {recovered_count} stale task(s)",
+        extra={"recovered_count": recovered_count}
+    )
+
+    return recovered_count
+
+
 async def process_pending_tasks() -> None:
     """
     Process all pending receipt_parse tasks sequentially.
@@ -101,6 +163,9 @@ async def process_pending_tasks() -> None:
     session = SessionFactory()
 
     try:
+        # Recover stale tasks before processing new ones
+        recover_stale_tasks(session)
+
         # Create Ollama client
         async with OllamaClient() as ollama_client:
             # Check if Ollama is available before processing
@@ -134,8 +199,9 @@ async def process_pending_tasks() -> None:
             # Process each task sequentially
             for task in pending_tasks:
                 try:
-                    # Mark task as processing
+                    # Mark task as processing and record start time
                     task.status = TaskStatus.processing.value
+                    task.processing_started_at = datetime.now(timezone.utc)
                     session.commit()
 
                     logger.info(
@@ -154,6 +220,7 @@ async def process_pending_tasks() -> None:
                         extra={"task_id": str(task.id)}
                     )
                     task.status = TaskStatus.pending.value
+                    task.processing_started_at = None
                     session.commit()
                     break  # Stop processing, retry next interval
 
