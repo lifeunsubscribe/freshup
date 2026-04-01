@@ -4,7 +4,7 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     environment: str = "local"
     database_url: str = "sqlite:///./data/freshup.db"
