@@ -364,6 +364,34 @@ describe('pantryMatcher', () => {
       expect(result.inStockCount).toBe(1)
     })
 
+    it('matches "loaf" with "loaves" (-ves plural)', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'loaf' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'loaves' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(1)
+    })
+
+    it('matches "half" with "halves" (-ves plural)', () => {
+      const ingredients = [
+        createIngredient({ ingredient_name: 'half' }),
+      ]
+
+      const inventoryItems = [
+        createInventoryItem({ name: 'halves' }),
+      ]
+
+      const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+      expect(result.inStockCount).toBe(1)
+    })
+
     it('matches "cherry tomato" with "cherry tomatoes" (multi-word plural)', () => {
       const ingredients = [
         createIngredient({ ingredient_name: 'cherry tomato' }),

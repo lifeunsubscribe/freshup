@@ -44,14 +44,10 @@ function normalizeWordForPlurals(word: string): string {
     return word.slice(0, -2)
   }
 
-  // Handle -ves -> -f or -fe (knives -> knife, shelves -> shelf)
+  // Handle -ves -> -f (loaves -> loaf, shelves -> shelf, halves -> half)
   if (word.endsWith('ves') && word.length > 3) {
-    // Try -fe first (knife, life, wife)
-    const baseFe = word.slice(0, -3) + 'fe'
-    // For most cases, -f is more common (shelf, half, loaf)
-    const baseF = word.slice(0, -3) + 'f'
-    // Use -f as default (covers more food items like "loaf")
-    return baseF
+    // Use -f as default (covers food items like "loaf", "half", "shelf")
+    return word.slice(0, -3) + 'f'
   }
 
   // Handle -ses -> -s (glasses -> glass - but keep for word boundaries)
