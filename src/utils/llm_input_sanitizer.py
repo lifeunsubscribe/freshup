@@ -19,9 +19,16 @@ import re
 import unicodedata
 from typing import Optional
 
-from src.schemas.validators import BLOCKED_UNICODE_CATEGORIES
-
 logger = logging.getLogger(__name__)
+
+# Unicode categories to block for LLM input (security)
+# Excludes normal whitespace chars (space, tab, newline) from blocking
+# Cc=Control chars (but we'll manually allow \t, \n, \r)
+# Cf=Format chars, Co=Private Use, Cn=Unassigned, Cs=Surrogate
+BLOCKED_UNICODE_CATEGORIES = {'Cf', 'Co', 'Cn', 'Cs'}
+
+# Control characters to explicitly allow (normal whitespace)
+ALLOWED_CONTROL_CHARS = {'\t', '\n', '\r'}
 
 # Maximum input length for LLM prompts (in characters)
 # Conservative limit to fit within typical 8K token context windows
@@ -89,14 +96,28 @@ def sanitize_llm_input(
 
     # Step 2: Remove blocked Unicode characters (control chars, format chars, etc.)
     # These can be used for prompt injection via invisible instructions
+    # Allow normal whitespace (space, tab, newline, carriage return)
     cleaned_chars = []
     removed_count = 0
 
     for char in normalized:
         category = unicodedata.category(char)
+
+        # Always allow normal whitespace control chars
+        if char in ALLOWED_CONTROL_CHARS:
+            cleaned_chars.append(char)
+            continue
+
+        # Block dangerous Unicode categories
         if category in BLOCKED_UNICODE_CATEGORIES:
             removed_count += 1
             continue
+
+        # Block other control chars (Cc category except whitelisted)
+        if category == 'Cc':
+            removed_count += 1
+            continue
+
         cleaned_chars.append(char)
 
     cleaned = ''.join(cleaned_chars)
@@ -113,7 +134,10 @@ def sanitize_llm_input(
 
     # Step 3: Check for common prompt injection patterns
     # Don't remove them (could break legitimate content), but log for monitoring
-    if INJECTION_REGEX.search(cleaned):
+    # SECURITY: Limit text length before regex to prevent ReDoS attacks
+    # Only check first max_length chars to avoid catastrophic backtracking
+    text_to_check = cleaned[:max_length] if len(cleaned) > max_length else cleaned
+    if INJECTION_REGEX.search(text_to_check):
         logger.warning(
             f"Potential prompt injection detected in {field_name}",
             extra={
@@ -137,7 +161,7 @@ def sanitize_llm_input(
 
     # Final validation: ensure we still have content
     if not cleaned.strip():
-        raise ValueError(f"{field_name} is empty after sanitization")
+        raise ValueError(f"{field_name} cannot be empty (empty after sanitization)")
 
     # Log info if significant changes were made
     if len(cleaned) < original_length * 0.95:  # More than 5% reduction
