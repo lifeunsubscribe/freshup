@@ -115,6 +115,8 @@ class HelloFreshCrawler:
         logger.info("Starting HelloFresh recipe URL discovery")
 
         # Strategy 1: Try sitemap.xml first
+        # Capture any exception from sitemap strategy to preserve debugging context
+        sitemap_exception = None
         try:
             urls = self._discover_from_sitemap()
             if urls:
@@ -129,13 +131,17 @@ class HelloFreshCrawler:
             # Actual network errors - log and try fallback
             # This catches all requests exceptions: ConnectionError, Timeout, HTTPError, etc.
             logger.warning(f"Sitemap strategy failed with network error: {e}, trying fallback strategy")
-            # Don't raise yet - try fallback first
+            # Don't raise yet - try fallback first, but preserve exception for chaining
+            sitemap_exception = e
         except ValueError as e:
             # Wrap parsing errors at the public API boundary
             logger.warning(f"Sitemap strategy failed with parse error: {e}, trying fallback strategy")
-            # Don't raise yet - try fallback first
+            # Don't raise yet - try fallback first, but preserve exception for chaining
+            sitemap_exception = e
         except Exception as e:
             logger.warning(f"Sitemap strategy failed: {e}, trying fallback strategy")
+            # Preserve exception for chaining
+            sitemap_exception = e
 
         # Strategy 2: Fallback to paginated category crawl
         try:
@@ -150,16 +156,34 @@ class HelloFreshCrawler:
             # This catches all requests exceptions: ConnectionError, Timeout, HTTPError, etc.
             # These are genuine network/transport issues, not programming bugs
             logger.exception(f"Paginated category strategy failed with network error: {e}")
-            raise CrawlerNetworkError(f"Network error during URL discovery: {e}") from e
+
+            # Include context from sitemap failure if both strategies failed
+            if sitemap_exception:
+                error_msg = f"Network error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
+            else:
+                error_msg = f"Network error during URL discovery: {e}"
+            raise CrawlerNetworkError(error_msg) from e
         except ValueError as e:
             # Wrap parsing errors at the public API boundary
             logger.exception(f"Paginated category strategy failed with parse error: {e}")
-            raise CrawlerParseError(f"Parse error during URL discovery: {e}") from e
+
+            # Include context from sitemap failure if both strategies failed
+            if sitemap_exception:
+                error_msg = f"Parse error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
+            else:
+                error_msg = f"Parse error during URL discovery: {e}"
+            raise CrawlerParseError(error_msg) from e
         except Exception as e:
             # Unexpected errors (including requests.InvalidURL, etc.) - wrap as base CrawlerError
             # to avoid misrepresenting error type
             logger.exception(f"Paginated category strategy failed: {e}")
-            raise CrawlerError(f"Unexpected error during URL discovery: {e}") from e
+
+            # Include context from sitemap failure if both strategies failed
+            if sitemap_exception:
+                error_msg = f"Unexpected error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
+            else:
+                error_msg = f"Unexpected error during URL discovery: {e}"
+            raise CrawlerError(error_msg) from e
 
     def _discover_from_sitemap(self) -> list[str]:
         """
