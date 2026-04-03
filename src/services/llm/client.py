@@ -19,6 +19,7 @@ from pydantic import BaseModel, ValidationError
 
 from src.config import get_settings
 from src.services.llm.exceptions import LLMUnavailableError, LLMResponseError
+from src.utils.sanitize import sanitize_llm_response_preview
 
 logger = logging.getLogger(__name__)
 
@@ -194,10 +195,10 @@ class OllamaClient(LLMClient):
                         },
                     )
 
-                    # Log response preview at DEBUG level to avoid exposing sensitive data
+                    # Log sanitized response preview at DEBUG level to avoid exposing PII
                     logger.debug(
                         "Response preview for debugging",
-                        extra={"response_preview": response_text[:200]},
+                        extra={"response_preview": sanitize_llm_response_preview(response_text, preview_length=200)},
                     )
 
                     # If we have retries left, append correction context and retry

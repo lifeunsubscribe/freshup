@@ -26,6 +26,7 @@ from src.schemas.receipt import ReceiptParseResult
 from src.services.llm.client import OllamaClient
 from src.services.llm.exceptions import LLMUnavailableError, LLMResponseError
 from src.services.llm.prompts.receipt import SYSTEM_PROMPT, create_user_prompt
+from src.utils.sanitize import sanitize_exception_message
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -226,7 +227,8 @@ async def process_pending_tasks() -> None:
 
                 except LLMResponseError as e:
                     # LLM validation failed after all retries
-                    # Mark task as failed with error details
+                    # Mark task as failed with sanitized error details
+                    # Note: e.validation_errors are already sanitized by LLMResponseError.__init__
                     logger.error(
                         f"Receipt parsing validation failed: {e}",
                         extra={
@@ -235,7 +237,8 @@ async def process_pending_tasks() -> None:
                         }
                     )
                     task.status = TaskStatus.failed.value
-                    task.error_message = f"Validation failed after retries: {str(e)}"
+                    # Sanitize error message before storing (defense in depth)
+                    task.error_message = sanitize_exception_message(f"Validation failed after retries: {str(e)}")
                     task.completed_at = datetime.now(timezone.utc)
                     session.commit()
                     # Continue to next task
@@ -248,7 +251,8 @@ async def process_pending_tasks() -> None:
                         exc_info=True
                     )
                     task.status = TaskStatus.failed.value
-                    task.error_message = f"Unexpected error: {str(e)}"
+                    # Sanitize error message before storing (may contain receipt data)
+                    task.error_message = sanitize_exception_message(f"Unexpected error: {str(e)}")
                     task.completed_at = datetime.now(timezone.utc)
                     session.commit()
                     # Continue to next task
