@@ -50,13 +50,17 @@ class ProcessingTask(Base):
     Processing tasks queue requests for LLM operations and track their
     status through the processing lifecycle. Results are stored as text
     references that can be resolved by the consuming service.
+
+    The processing_started_at timestamp enables automatic recovery of tasks
+    stuck in "processing" status due to worker crashes, preventing the race
+    condition window between status change and task completion.
     """
     __tablename__ = "processing_tasks"
 
     # Primary key
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
 
-    # User ownership
+    # User ownership for multi-tenant isolation
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
 
     # Task classification
@@ -71,9 +75,15 @@ class ProcessingTask(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    # Compound index for efficient pending task queries
+    # Indexes for efficient task queries
     __table_args__ = (
+        # Compound index for pending task queries
         Index('ix_processing_tasks_status_created_at', 'status', 'created_at'),
+        # Compound index for stale task detection
+        Index('ix_processing_tasks_status_processing_started_at', 'status', 'processing_started_at'),
+        # Single-column index for user-specific queries and foreign key performance
+        Index('ix_processing_tasks_user_id', 'user_id'),
     )

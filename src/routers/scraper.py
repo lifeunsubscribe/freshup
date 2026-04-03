@@ -28,7 +28,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
-import requests.exceptions
 
 from src.db.database import get_db
 from src.db.models.user import User, UserRole
@@ -39,6 +38,7 @@ from src.services.import_service import import_recipe_from_url, import_batch
 from src.services.scraper_service import ScraperError
 from src.services.crawlers.hellofresh_crawler import HelloFreshCrawler
 from src.services.crawlers.kitchen_sanctuary_crawler import KitchenSanctuaryCrawler
+from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
 from src.schemas.scraper import (
     ImportUrlRequest,
     ImportBatchRequest,
@@ -301,7 +301,7 @@ def discover_urls(
         logger.info(f"Discovered {len(urls)} URLs from {source}")
         return DiscoveryResponse(source=source, urls=urls, count=len(urls))
 
-    except requests.exceptions.RequestException as e:
+    except CrawlerNetworkError as e:
         # Network errors during URL discovery (connection failures, timeouts, HTTP errors)
         # Log full technical details for debugging (may include network topology)
         logger.warning(f"Network error during discovery for {source}: {type(e).__name__}: {e}")
@@ -310,7 +310,7 @@ def discover_urls(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unable to discover recipes from the source. Please try again later."
         )
-    except ValueError as e:
+    except CrawlerParseError as e:
         # Parsing errors during URL discovery (malformed sitemaps, invalid URLs)
         # Log full technical details for debugging (may include parsing internals)
         logger.warning(f"Parsing error during discovery for {source}: {e}")
@@ -410,7 +410,7 @@ def discover_and_import(
         )
         return result
 
-    except requests.exceptions.RequestException as e:
+    except CrawlerNetworkError as e:
         # Network errors during URL discovery phase
         # Log full technical details for debugging (may include network topology)
         logger.warning(f"Network error during discover-and-import for {source}: {type(e).__name__}: {e}")
@@ -419,7 +419,7 @@ def discover_and_import(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unable to discover recipes from the source. Please try again later."
         )
-    except ValueError as e:
+    except CrawlerParseError as e:
         # Parsing errors during URL discovery phase
         # Log full technical details for debugging (may include parsing internals)
         logger.warning(f"Parsing error during discover-and-import for {source}: {e}")

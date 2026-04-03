@@ -8,6 +8,26 @@ managing the settings cache to prevent test pollution.
 import os
 
 import pytest
+from _pytest.python import Package
+
+
+# Patch Package class to add obj property for pytest-asyncio compatibility with Python 3.14
+# This must be done at module level before pytest_asyncio hooks are registered
+if not hasattr(Package, '_original_getattribute'):
+    _original_getattribute = Package.__getattribute__
+
+    def _patched_getattribute(self, name):
+        if name == 'obj' and not hasattr(type(self), 'obj'):
+            # Return a simple namespace that can have attributes set on it
+            class DummyObj:
+                pass
+            # Cache it on the instance
+            object.__setattr__(self, 'obj', DummyObj())
+            return object.__getattribute__(self, 'obj')
+        return _original_getattribute(self, name)
+
+    Package.__getattribute__ = _patched_getattribute
+    Package._original_getattribute = _original_getattribute
 
 
 def pytest_configure(config):

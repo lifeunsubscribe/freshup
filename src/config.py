@@ -4,7 +4,7 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     environment: str = "local"
     database_url: str = "sqlite:///./data/freshup.db"
@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.1:8b"
     # Polling interval for checking task status updates (seconds)
     task_poll_interval_seconds: int = Field(default=10, gt=0)
+    # Timeout for tasks stuck in "processing" status (seconds) - prevents race condition from worker crashes
+    task_processing_timeout_seconds: int = Field(default=300, gt=0)
 
 
 @lru_cache

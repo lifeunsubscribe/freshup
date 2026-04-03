@@ -145,12 +145,12 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
         # Block localhost variants by name
         if hostname in ('localhost', 'localhost.localdomain'):
             logger.warning(f"SSRF protection: Blocked localhost hostname: {hostname}")
-            raise ScraperError("The provided URL is not accessible for recipe import.")
+            raise ScraperError("The provided URL is not allowed. Please use a publicly accessible recipe website URL.")
 
         # Block common cloud metadata endpoints
         if hostname in ('169.254.169.254', 'metadata.google.internal', 'metadata.azure.com', 'metadata.aws.amazon.com'):
             logger.warning(f"SSRF protection: Blocked cloud metadata endpoint: {hostname}")
-            raise ScraperError("The provided URL is not accessible for recipe import.")
+            raise ScraperError("The provided URL is not allowed. Please use a publicly accessible recipe website URL.")
 
         # Function to check if an IP address is safe
         def _is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -164,7 +164,7 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
             # Block private, loopback, link-local, multicast, and reserved IP addresses
             if not _is_safe_ip(ip):
                 logger.warning(f"SSRF protection: Blocked unsafe IP address: {ip}")
-                raise ScraperError("The provided URL is not accessible for recipe import.")
+                raise ScraperError("The provided URL is not allowed. Please use a publicly accessible recipe website URL.")
             # Store the validated IP for use in the request
             validated_ip = hostname
         except ValueError:
@@ -187,7 +187,7 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
                             # Log full technical details for debugging (includes IP address)
                             logger.warning(f"SSRF protection: Domain {hostname} resolves to blocked IP: {resolved_ip_str}")
                             # Raise sanitized user-facing message (no IP disclosure)
-                            raise ScraperError("The provided URL is not accessible for recipe import.")
+                            raise ScraperError("The provided URL is not allowed. Please use a publicly accessible recipe website URL.")
                         # Store the first validated IP for use in the request
                         if validated_ip is None:
                             validated_ip = resolved_ip_str

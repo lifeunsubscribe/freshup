@@ -19,6 +19,8 @@ from pydantic import BaseModel, ValidationError
 
 from src.config import get_settings
 from src.services.llm.exceptions import LLMUnavailableError, LLMResponseError
+from src.utils.sanitize import sanitize_llm_response_preview
+from src.utils.llm_input_sanitizer import sanitize_llm_input
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +46,11 @@ class LLMClient(ABC):
         """
         Generate a structured completion from the LLM.
 
+        Implementations MUST sanitize user input before sending to the LLM
+        using sanitize_llm_input() for defense-in-depth security.
+
         Args:
-            prompt: The user prompt/query
+            prompt: The user prompt/query (implementations must sanitize)
             system_prompt: System-level instructions for the LLM
             response_schema: Pydantic model class defining expected response structure
 
@@ -55,6 +60,7 @@ class LLMClient(ABC):
         Raises:
             LLMUnavailableError: If the LLM service is unreachable
             LLMResponseError: If response validation fails after all retries
+            ValueError: If prompt is empty or invalid after sanitization
         """
         pass
 
@@ -119,13 +125,14 @@ class OllamaClient(LLMClient):
         Generate a structured completion from Ollama.
 
         Implements retry logic with correction context:
-        1. Send prompt to Ollama with JSON format request
-        2. Parse response as JSON and validate against schema
-        3. On validation failure: append error to prompt and retry (up to MAX_RETRIES)
-        4. Raise LLMResponseError if all retries exhausted
+        1. Sanitize user input (defense-in-depth security)
+        2. Send prompt to Ollama with JSON format request
+        3. Parse response as JSON and validate against schema
+        4. On validation failure: append error to prompt and retry (up to MAX_RETRIES)
+        5. Raise LLMResponseError if all retries exhausted
 
         Args:
-            prompt: The user prompt/query
+            prompt: The user prompt/query (will be sanitized before sending)
             system_prompt: System-level instructions for the LLM
             response_schema: Pydantic model class defining expected response structure
 
@@ -135,10 +142,15 @@ class OllamaClient(LLMClient):
         Raises:
             LLMUnavailableError: If Ollama is unreachable (connection refused, timeout)
             LLMResponseError: If response validation fails after all retries
+            ValueError: If prompt is empty or invalid (from sanitization)
         """
+        # SECURITY: Sanitize user input before sending to LLM (defense-in-depth)
+        # Prevents prompt injection, DoS via excessive length, and context overflow
+        sanitized_prompt = sanitize_llm_input(prompt, field_name="prompt")
+
         # Track validation errors across retries for debugging
         validation_errors: list[str] = []
-        current_prompt = prompt
+        current_prompt = sanitized_prompt
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
@@ -194,10 +206,10 @@ class OllamaClient(LLMClient):
                         },
                     )
 
-                    # Log response preview at DEBUG level to avoid exposing sensitive data
+                    # Log sanitized response preview at DEBUG level to avoid exposing PII
                     logger.debug(
                         "Response preview for debugging",
-                        extra={"response_preview": response_text[:200]},
+                        extra={"response_preview": sanitize_llm_response_preview(response_text, preview_length=200)},
                     )
 
                     # If we have retries left, append correction context and retry
@@ -207,7 +219,7 @@ class OllamaClient(LLMClient):
                             f"\n\nPrevious response failed validation: {error_msg}\n"
                             f"Please provide a valid JSON response matching the required schema."
                         )
-                        current_prompt = prompt + correction_context
+                        current_prompt = sanitized_prompt + correction_context
                         continue  # Retry with corrected prompt
 
                     # No retries left - raise error
