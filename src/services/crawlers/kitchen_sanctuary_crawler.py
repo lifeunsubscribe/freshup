@@ -6,6 +6,7 @@ Includes rate limiting and robots.txt compliance.
 """
 
 import logging
+import ssl
 import requests.exceptions
 import defusedxml.ElementTree as ET  # Use defusedxml for defense-in-depth XXE protection
 from typing import Optional
@@ -128,6 +129,10 @@ class KitchenSanctuaryCrawler:
             # These are genuine network/transport issues, not programming bugs
             logger.exception(f"Sitemap strategy failed with network error: {e}")
             raise CrawlerNetworkError(f"Network error during URL discovery: {e}") from e
+        except (ssl.SSLError, ssl.CertificateError) as e:
+            # Wrap SSL/TLS errors at the public API boundary
+            logger.exception(f"Sitemap strategy failed with SSL error: {e}")
+            raise CrawlerNetworkError(f"SSL error during URL discovery: {e}") from e
         except (ValueError, UnicodeDecodeError) as e:
             # Wrap parsing/encoding errors at the public API boundary
             logger.exception(f"Sitemap strategy failed with {type(e).__name__}: {e}")
@@ -170,9 +175,11 @@ class KitchenSanctuaryCrawler:
                 if urls:
                     recipe_urls.extend(urls)
                     break  # Successfully found sitemap, stop trying other locations
-            except Exception as e:
-                # INTENTIONAL broad catch: Try next sitemap location if this one fails
-                # This is a fallback/retry pattern for robustness
+            except (requests.exceptions.RequestException, ssl.SSLError, ssl.CertificateError,
+                    ValueError, UnicodeDecodeError, OSError, IOError) as e:
+                # Try next sitemap location if this one fails with external errors
+                # This is a fallback/retry pattern for robustness - external errors only
+                # Programming errors (AttributeError, TypeError, KeyError) will propagate
                 logger.warning(f"Failed to fetch sitemap from {sitemap_url}: {e}")
                 continue
 
@@ -276,9 +283,11 @@ class KitchenSanctuaryCrawler:
                                 pages_fetched += 1
                             else:
                                 logger.warning(f"robots.txt disallows {sub_sitemap_url}")
-                        except Exception as e:
-                            # INTENTIONAL broad catch: Continue processing other sub-sitemaps
-                            # if one fails (robustness pattern for partial failures)
+                        except (requests.exceptions.RequestException, ssl.SSLError, ssl.CertificateError,
+                                ValueError, UnicodeDecodeError, OSError, IOError) as e:
+                            # Continue processing other sub-sitemaps if one fails with external errors
+                            # Robustness pattern for partial failures - external errors only
+                            # Programming errors (AttributeError, TypeError, KeyError) will propagate
                             logger.warning(f"Failed to fetch sub-sitemap {sub_sitemap_url}: {e}")
                             continue
         else:

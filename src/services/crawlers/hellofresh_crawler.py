@@ -6,6 +6,7 @@ category crawl fallback. Includes rate limiting and robots.txt compliance.
 """
 
 import logging
+import ssl
 import requests.exceptions
 import defusedxml.ElementTree as ET  # Use defusedxml for defense-in-depth XXE protection
 from typing import Optional
@@ -133,7 +134,11 @@ class HelloFreshCrawler:
             logger.warning(f"Sitemap strategy failed with network error: {e}, trying fallback strategy")
             # Don't raise yet - try fallback first, but preserve exception for chaining
             sitemap_exception = e
-        except (ValueError, UnicodeDecodeError, OSError) as e:
+        except (ssl.SSLError, ssl.CertificateError) as e:
+            # Catch SSL/TLS errors specifically - these are external network issues
+            logger.warning(f"Sitemap strategy failed with SSL error: {e}, trying fallback strategy")
+            sitemap_exception = e
+        except (ValueError, UnicodeDecodeError, OSError, IOError) as e:
             # Catch specific external errors: parsing, encoding, I/O issues
             # Programming errors (AttributeError, TypeError, KeyError) will propagate
             logger.warning(f"Sitemap strategy failed with {type(e).__name__}: {e}, trying fallback strategy")
@@ -159,6 +164,16 @@ class HelloFreshCrawler:
                 error_msg = f"Network error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
             else:
                 error_msg = f"Network error during URL discovery: {e}"
+            raise CrawlerNetworkError(error_msg) from e
+        except (ssl.SSLError, ssl.CertificateError) as e:
+            # Wrap SSL/TLS errors at the public API boundary
+            logger.exception(f"Paginated category strategy failed with SSL error: {e}")
+
+            # Include context from sitemap failure if both strategies failed
+            if sitemap_exception:
+                error_msg = f"SSL error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
+            else:
+                error_msg = f"SSL error during URL discovery: {e}"
             raise CrawlerNetworkError(error_msg) from e
         except (ValueError, UnicodeDecodeError) as e:
             # Wrap parsing/encoding errors at the public API boundary
