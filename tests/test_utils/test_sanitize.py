@@ -59,15 +59,20 @@ class TestPIIPatterns:
             assert match is not None, f"Failed to match: {card}"
 
     def test_ssn_pattern_matches_formats(self):
-        """SSN pattern should match various SSN formats."""
-        test_cases = [
-            "123-45-6789",
-            "123456789",
-        ]
-        for ssn in test_cases:
-            text = f"SSN: {ssn}"
-            match = PIIPatterns.SSN.search(text)
-            assert match is not None, f"Failed to match: {ssn}"
+        """SSN pattern should match SSN format with dashes only.
+
+        Note: Pattern intentionally requires dashes to reduce false positives
+        from 9-digit transaction IDs and order numbers common in receipts.
+        """
+        # Should match: SSN with dashes
+        text_with_dashes = "SSN: 123-45-6789"
+        match = PIIPatterns.SSN.search(text_with_dashes)
+        assert match is not None, "Failed to match SSN with dashes"
+
+        # Should NOT match: SSN without dashes (to avoid false positives)
+        text_without_dashes = "Order: 123456789"
+        match = PIIPatterns.SSN.search(text_without_dashes)
+        assert match is None, "Should not match 9-digit number without dashes"
 
     def test_address_pattern_matches_street_addresses(self):
         """Address pattern should match common street address formats."""

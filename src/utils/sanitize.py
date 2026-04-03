@@ -42,9 +42,11 @@ class PIIPatterns:
         r'\b(?:\d{4}[-\s]?){3}\d{4}\b'
     )
 
-    # Social Security Numbers: 123-45-6789 or 123456789
+    # Social Security Numbers: 123-45-6789 (requires dashes to reduce false positives)
+    # Note: Does not match 9-digit sequences without dashes to avoid redacting
+    # transaction IDs, order numbers, etc. that commonly appear in receipts.
     SSN: Pattern[str] = re.compile(
-        r'\b\d{3}-?\d{2}-?\d{4}\b'
+        r'\b\d{3}-\d{2}-\d{4}\b'
     )
 
     # ZIP codes followed by street patterns (simple address detection)
@@ -98,6 +100,9 @@ def sanitize_exception_message(message: str, max_length: int = 500) -> str:
         This function intentionally favors over-redaction (false positives) to
         ensure PII is not leaked through logs or error tracking systems.
     """
+    # Handle None input to maintain str return type contract
+    if message is None:
+        return ""
     if not message:
         return message
 
