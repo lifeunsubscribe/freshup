@@ -104,7 +104,7 @@ def recover_stale_tasks(session: Session) -> int:
         session: Database session for queries and updates
 
     Returns:
-        Number of tasks recovered (includes both retried and failed tasks)
+        Number of tasks processed (includes both retried and failed tasks)
     """
     # Calculate timeout threshold
     timeout_threshold = datetime.now(timezone.utc) - timedelta(
@@ -127,7 +127,7 @@ def recover_stale_tasks(session: Session) -> int:
         return 0
 
     # Process stale tasks: retry or fail based on retry count
-    recovered_count = 0
+    processed_count = 0
     for task in stale_tasks:
         # Check if retry limit exceeded
         if task.retry_count >= settings.task_max_retry_count:
@@ -162,16 +162,16 @@ def recover_stale_tasks(session: Session) -> int:
             task.processing_started_at = None
             task.retry_count += 1
 
-        recovered_count += 1
+        processed_count += 1
 
     session.commit()
 
     logger.info(
-        f"Recovered {recovered_count} stale task(s)",
-        extra={"recovered_count": recovered_count}
+        f"Processed {processed_count} stale task(s)",
+        extra={"processed_count": processed_count}
     )
 
-    return recovered_count
+    return processed_count
 
 
 async def process_pending_tasks() -> None:
