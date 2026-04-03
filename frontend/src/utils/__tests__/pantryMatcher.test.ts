@@ -862,8 +862,8 @@ describe('pantryMatcher', () => {
         expect(result.inStockCount).toBe(1)
       })
 
-      it('maintains word boundaries with irregular plurals (prevents "goose oil" matching "geese")', () => {
-        // Ensures tokenization prevents false positive: "geese" should not match "goose oil"
+      it('matches "geese" recipe with "goose oil" inventory (asymmetric matching with irregular plurals)', () => {
+        // Verifies tokenization with irregular plurals: "geese" → ["goose"] matches "goose oil" → ["goose", "oil"]
         const ingredients = [
           createIngredient({ ingredient_name: 'geese' }),
         ]
@@ -874,10 +874,9 @@ describe('pantryMatcher', () => {
 
         const result = checkIngredientAvailability(ingredients, inventoryItems)
 
-        // Should NOT match: "geese" → ["goose"] but inventory is ["goose", "oil"]
-        // Recipe needs just "goose" but inventory has extra word "oil", making it more specific
-        // This follows asymmetric matching: recipe must be subset of inventory
-        expect(result.inStockCount).toBe(1) // Actually should match because recipe tokens are subset
+        // Should match: "geese" → ["goose"] and inventory has ["goose", "oil"]
+        // Recipe tokens are subset of inventory tokens (asymmetric matching)
+        expect(result.inStockCount).toBe(1)
       })
 
       it('asymmetric matching with irregular plurals (wild geese vs geese)', () => {
