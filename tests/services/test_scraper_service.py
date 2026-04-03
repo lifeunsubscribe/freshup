@@ -17,6 +17,7 @@ from unittest.mock import Mock, patch, MagicMock
 from recipe_scrapers._exceptions import WebsiteNotImplementedError
 import requests
 import socket
+import logging
 
 from src.services.scraper_service import (
     scrape_recipe,
@@ -688,7 +689,6 @@ class TestSecurityLogging:
 
     def test_logs_ssrf_localhost_block(self, caplog):
         """Test that blocking localhost by hostname is logged for security audit."""
-        import logging
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
 
         with pytest.raises(ScraperError):
@@ -701,7 +701,6 @@ class TestSecurityLogging:
 
     def test_logs_ssrf_cloud_metadata_block(self, caplog):
         """Test that blocking cloud metadata endpoints is logged for security audit."""
-        import logging
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
 
         with pytest.raises(ScraperError):
@@ -714,7 +713,6 @@ class TestSecurityLogging:
 
     def test_logs_ssrf_private_ip_block(self, caplog):
         """Test that blocking private IP addresses is logged for security audit."""
-        import logging
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
 
         with pytest.raises(ScraperError):
@@ -728,7 +726,6 @@ class TestSecurityLogging:
 
     def test_logs_ssrf_domain_resolving_to_private_ip(self, caplog):
         """Test that blocking domains resolving to private IPs is logged for security audit."""
-        import logging
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
 
         # Mock DNS resolution to return a private IP
@@ -748,7 +745,6 @@ class TestSecurityLogging:
 
     def test_logs_invalid_url_scheme(self, caplog):
         """Test that invalid URL schemes are logged for security audit."""
-        import logging
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
 
         with pytest.raises(ScraperError):
@@ -762,7 +758,6 @@ class TestSecurityLogging:
     @patch('src.services.scraper_service.requests.get')
     def test_logs_network_timeout_error(self, mock_requests_get, caplog):
         """Test that network timeout errors are logged with technical details."""
-        import logging
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
 
         # Simulate a timeout
@@ -782,7 +777,6 @@ class TestSecurityLogging:
     @patch('src.services.scraper_service.requests.get')
     def test_logs_network_connection_error(self, mock_requests_get, caplog):
         """Test that network connection errors are logged with technical details."""
-        import logging
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
 
         # Simulate a connection error
@@ -803,7 +797,6 @@ class TestSecurityLogging:
     @patch('src.services.scraper_service.requests.get')
     def test_logs_parse_error_in_wild_mode(self, mock_requests_get, mock_scrape_html, caplog):
         """Test that parse errors in wild_mode are logged with technical details."""
-        import logging
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
 
         # Mock HTTP response
@@ -831,7 +824,6 @@ class TestSecurityLogging:
     @patch('src.services.scraper_service.requests.get')
     def test_logs_unexpected_scraper_error(self, mock_requests_get, mock_scrape_html, caplog):
         """Test that unexpected scraper errors are logged with technical details."""
-        import logging
         caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
 
         # Mock HTTP response
@@ -855,7 +847,6 @@ class TestSecurityLogging:
     @patch('src.services.scraper_service.requests.get')
     def test_logs_data_extraction_failure(self, mock_requests_get, mock_scrape_html, caplog):
         """Test that data extraction failures are logged with technical details."""
-        import logging
         caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
 
         # Mock HTTP response
@@ -886,12 +877,11 @@ class TestSecurityLogging:
         assert len(error_records) >= 1
         error_log = error_records[0]
         assert "Failed to extract recipe data:" in error_log.message
-        assert "ValueError" in error_log.message
+        assert "ValidationError" in error_log.message
         assert "servings must be positive" in error_log.message
 
     def test_logs_dns_resolution_error(self, caplog):
         """Test that invalid DNS resolution results are logged."""
-        import logging
         caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
 
         # Mock DNS resolution to return invalid IP string
@@ -913,7 +903,6 @@ class TestSecurityLogging:
 
     def test_logs_unexpected_url_validation_error(self, caplog):
         """Test that unexpected errors during URL validation are logged."""
-        import logging
         caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
 
         # Mock urlparse to raise an unexpected exception
