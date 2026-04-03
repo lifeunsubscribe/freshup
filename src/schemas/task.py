@@ -64,6 +64,7 @@ class ProcessingTaskResponse(BaseModel):
     error_message: Optional[str]
     created_at: datetime
     updated_at: datetime
+    processing_started_at: Optional[datetime]
     completed_at: Optional[datetime]
 
 

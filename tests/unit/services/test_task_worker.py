@@ -22,7 +22,8 @@ from uuid import uuid4
 from src.services.task_worker import (
     process_receipt_task,
     process_pending_tasks,
-    background_task_worker
+    background_task_worker,
+    recover_stale_tasks
 )
 from src.db.models.processing_task import ProcessingTask, TaskStatus, TaskType
 from src.schemas.receipt import ReceiptParseResult, ReceiptLineItem
@@ -206,7 +207,8 @@ async def test_process_pending_tasks_success(
 
     with patch("src.services.task_worker.get_session_factory", return_value=mock_session_factory):
         with patch("src.services.task_worker.OllamaClient", return_value=mock_ollama_client):
-            await process_pending_tasks()
+            with patch("src.services.task_worker.recover_stale_tasks", return_value=0):
+                await process_pending_tasks()
 
     # Verify task was updated to completed
     assert mock_task.status == TaskStatus.completed.value
@@ -233,11 +235,14 @@ async def test_process_pending_tasks_ollama_unavailable():
     mock_ollama_client.__aenter__.return_value = mock_ollama_client
     mock_ollama_client.__aexit__.return_value = None
 
+    # Mock recover_stale_tasks since it runs before Ollama check
     with patch("src.services.task_worker.get_session_factory", return_value=mock_session_factory):
         with patch("src.services.task_worker.OllamaClient", return_value=mock_ollama_client):
-            await process_pending_tasks()
+            with patch("src.services.task_worker.recover_stale_tasks", return_value=0):
+                await process_pending_tasks()
 
-    # Verify no query was executed (early return)
+    # Verify no task query was executed (early return after Ollama check)
+    # Note: recover_stale_tasks is mocked, so no actual execute calls
     mock_session.execute.assert_not_called()
 
     # Verify session was closed
@@ -271,7 +276,8 @@ async def test_process_pending_tasks_validation_failure(mock_task):
 
     with patch("src.services.task_worker.get_session_factory", return_value=mock_session_factory):
         with patch("src.services.task_worker.OllamaClient", return_value=mock_ollama_client):
-            await process_pending_tasks()
+            with patch("src.services.task_worker.recover_stale_tasks", return_value=0):
+                await process_pending_tasks()
 
     # Verify task was marked as failed
     assert mock_task.status == TaskStatus.failed.value
@@ -309,7 +315,8 @@ async def test_process_pending_tasks_ollama_unavailable_during_processing(mock_t
 
     with patch("src.services.task_worker.get_session_factory", return_value=mock_session_factory):
         with patch("src.services.task_worker.OllamaClient", return_value=mock_ollama_client):
-            await process_pending_tasks()
+            with patch("src.services.task_worker.recover_stale_tasks", return_value=0):
+                await process_pending_tasks()
 
     # Verify task was reverted to pending
     assert mock_task.status == TaskStatus.pending.value
@@ -340,7 +347,8 @@ async def test_process_pending_tasks_no_tasks():
 
     with patch("src.services.task_worker.get_session_factory", return_value=mock_session_factory):
         with patch("src.services.task_worker.OllamaClient", return_value=mock_ollama_client):
-            await process_pending_tasks()
+            with patch("src.services.task_worker.recover_stale_tasks", return_value=0):
+                await process_pending_tasks()
 
     # Verify no errors occurred
     # Verify session was closed
@@ -434,7 +442,8 @@ async def test_process_pending_tasks_unexpected_error(mock_task):
 
     with patch("src.services.task_worker.get_session_factory", return_value=mock_session_factory):
         with patch("src.services.task_worker.OllamaClient", return_value=mock_ollama_client):
-            await process_pending_tasks()
+            with patch("src.services.task_worker.recover_stale_tasks", return_value=0):
+                await process_pending_tasks()
 
     # Verify task was marked as failed
     assert mock_task.status == TaskStatus.failed.value
@@ -444,3 +453,180 @@ async def test_process_pending_tasks_unexpected_error(mock_task):
 
     # Verify session was closed
     mock_session.close.assert_called_once()
+
+
+def test_recover_stale_tasks_no_stale_tasks():
+    """Test stale task recovery when no tasks are stale."""
+    # Mock database query to return empty list
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = []
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = MagicMock()
+
+    # Recover stale tasks
+    recovered_count = recover_stale_tasks(mock_session)
+
+    # Verify no tasks were recovered
+    assert recovered_count == 0
+    mock_session.commit.assert_not_called()
+
+
+def test_recover_stale_tasks_with_stale_tasks():
+    """Test stale task recovery when tasks exceed timeout."""
+    from datetime import timedelta
+
+    # Create mock stale task (processing for 10 minutes)
+    stale_task = MagicMock(spec=ProcessingTask)
+    stale_task.id = uuid4()
+    stale_task.status = TaskStatus.processing.value
+    stale_task.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+    # Mock database query to return stale task
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [stale_task]
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = MagicMock()
+
+    # Recover stale tasks
+    recovered_count = recover_stale_tasks(mock_session)
+
+    # Verify task was recovered
+    assert recovered_count == 1
+    assert stale_task.status == TaskStatus.pending.value
+    assert stale_task.processing_started_at is None
+    mock_session.commit.assert_called_once()
+
+
+def test_recover_stale_tasks_multiple_tasks():
+    """Test stale task recovery with multiple stale tasks."""
+    from datetime import timedelta
+
+    # Create multiple mock stale tasks
+    stale_task1 = MagicMock(spec=ProcessingTask)
+    stale_task1.id = uuid4()
+    stale_task1.status = TaskStatus.processing.value
+    stale_task1.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+    stale_task2 = MagicMock(spec=ProcessingTask)
+    stale_task2.id = uuid4()
+    stale_task2.status = TaskStatus.processing.value
+    stale_task2.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=15)
+
+    # Mock database query to return both tasks
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [stale_task1, stale_task2]
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = MagicMock()
+
+    # Recover stale tasks
+    recovered_count = recover_stale_tasks(mock_session)
+
+    # Verify both tasks were recovered
+    assert recovered_count == 2
+    assert stale_task1.status == TaskStatus.pending.value
+    assert stale_task1.processing_started_at is None
+    assert stale_task2.status == TaskStatus.pending.value
+    assert stale_task2.processing_started_at is None
+    mock_session.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_pending_tasks_calls_recovery():
+    """Test that process_pending_tasks calls stale task recovery."""
+    # Mock database query to return no pending tasks
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = []
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = mock_result
+    mock_session.close = MagicMock()
+
+    # Mock session factory
+    mock_session_factory = MagicMock(return_value=mock_session)
+
+    # Mock OllamaClient
+    mock_ollama_client = AsyncMock()
+    mock_ollama_client.is_available.return_value = True
+    mock_ollama_client.__aenter__.return_value = mock_ollama_client
+    mock_ollama_client.__aexit__.return_value = None
+
+    # Mock recover_stale_tasks to track if it's called
+    with patch("src.services.task_worker.get_session_factory", return_value=mock_session_factory), \
+         patch("src.services.task_worker.OllamaClient", return_value=mock_ollama_client), \
+         patch("src.services.task_worker.recover_stale_tasks") as mock_recover:
+        mock_recover.return_value = 0
+
+        await process_pending_tasks()
+
+        # Verify recovery was called
+        mock_recover.assert_called_once_with(mock_session)
+
+
+@pytest.mark.asyncio
+async def test_process_pending_tasks_sets_processing_started_at(mock_task, sample_receipt_result):
+    """Test that processing_started_at is set when task status changes to processing."""
+    # Mock database query to return one pending task
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [mock_task]
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = MagicMock()
+    mock_session.close = MagicMock()
+
+    # Mock session factory
+    mock_session_factory = MagicMock(return_value=mock_session)
+
+    # Mock OllamaClient
+    mock_ollama_client = AsyncMock()
+    mock_ollama_client.is_available.return_value = True
+    mock_ollama_client.complete.return_value = sample_receipt_result
+    mock_ollama_client.__aenter__.return_value = mock_ollama_client
+    mock_ollama_client.__aexit__.return_value = None
+
+    with patch("src.services.task_worker.get_session_factory", return_value=mock_session_factory), \
+         patch("src.services.task_worker.OllamaClient", return_value=mock_ollama_client), \
+         patch("src.services.task_worker.recover_stale_tasks", return_value=0):
+        await process_pending_tasks()
+
+    # Verify processing_started_at was set
+    assert mock_task.processing_started_at is not None
+    assert isinstance(mock_task.processing_started_at, datetime)
+
+
+@pytest.mark.asyncio
+async def test_process_pending_tasks_clears_processing_started_at_on_unavailable(mock_task):
+    """Test that processing_started_at is cleared when reverting to pending on LLM unavailable."""
+    # Mock database query to return one pending task
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [mock_task]
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = MagicMock()
+    mock_session.close = MagicMock()
+
+    # Mock session factory
+    mock_session_factory = MagicMock(return_value=mock_session)
+
+    # Mock OllamaClient - becomes unavailable during processing
+    mock_ollama_client = AsyncMock()
+    mock_ollama_client.is_available.return_value = True
+    mock_ollama_client.complete.side_effect = LLMUnavailableError("Connection lost")
+    mock_ollama_client.__aenter__.return_value = mock_ollama_client
+    mock_ollama_client.__aexit__.return_value = None
+
+    with patch("src.services.task_worker.get_session_factory", return_value=mock_session_factory), \
+         patch("src.services.task_worker.OllamaClient", return_value=mock_ollama_client), \
+         patch("src.services.task_worker.recover_stale_tasks", return_value=0):
+        await process_pending_tasks()
+
+    # Verify task was reverted to pending and processing_started_at was cleared
+    assert mock_task.status == TaskStatus.pending.value
+    assert mock_task.processing_started_at is None
