@@ -56,6 +56,7 @@ def mock_task():
     task.error_message = None
     task.created_at = datetime.now(timezone.utc)
     task.completed_at = None
+    task.retry_count = 0
     return task
 
 
@@ -482,6 +483,7 @@ def test_recover_stale_tasks_with_stale_tasks():
     stale_task.id = uuid4()
     stale_task.status = TaskStatus.processing.value
     stale_task.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    stale_task.retry_count = 0
 
     # Mock database query to return stale task
     mock_result = MagicMock()
@@ -494,10 +496,11 @@ def test_recover_stale_tasks_with_stale_tasks():
     # Recover stale tasks
     recovered_count = recover_stale_tasks(mock_session)
 
-    # Verify task was recovered
+    # Verify task was recovered and retry_count incremented
     assert recovered_count == 1
     assert stale_task.status == TaskStatus.pending.value
     assert stale_task.processing_started_at is None
+    assert stale_task.retry_count == 1
     mock_session.commit.assert_called_once()
 
 
@@ -510,11 +513,13 @@ def test_recover_stale_tasks_multiple_tasks():
     stale_task1.id = uuid4()
     stale_task1.status = TaskStatus.processing.value
     stale_task1.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    stale_task1.retry_count = 0
 
     stale_task2 = MagicMock(spec=ProcessingTask)
     stale_task2.id = uuid4()
     stale_task2.status = TaskStatus.processing.value
     stale_task2.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=15)
+    stale_task2.retry_count = 1
 
     # Mock database query to return both tasks
     mock_result = MagicMock()
@@ -527,12 +532,14 @@ def test_recover_stale_tasks_multiple_tasks():
     # Recover stale tasks
     recovered_count = recover_stale_tasks(mock_session)
 
-    # Verify both tasks were recovered
+    # Verify both tasks were recovered and retry_counts incremented
     assert recovered_count == 2
     assert stale_task1.status == TaskStatus.pending.value
     assert stale_task1.processing_started_at is None
+    assert stale_task1.retry_count == 1
     assert stale_task2.status == TaskStatus.pending.value
     assert stale_task2.processing_started_at is None
+    assert stale_task2.retry_count == 2
     mock_session.commit.assert_called_once()
 
 
@@ -630,3 +637,134 @@ async def test_process_pending_tasks_clears_processing_started_at_on_unavailable
     # Verify task was reverted to pending and processing_started_at was cleared
     assert mock_task.status == TaskStatus.pending.value
     assert mock_task.processing_started_at is None
+
+
+def test_recover_stale_tasks_retry_limit_exceeded():
+    """Test that tasks exceeding retry limit are marked as failed."""
+    from datetime import timedelta
+    from src.config import get_settings
+
+    settings = get_settings()
+
+    # Create mock stale task that has already hit retry limit
+    stale_task = MagicMock(spec=ProcessingTask)
+    stale_task.id = uuid4()
+    stale_task.status = TaskStatus.processing.value
+    stale_task.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    stale_task.retry_count = settings.task_max_retry_count  # Already at limit
+
+    # Mock database query to return stale task
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [stale_task]
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = MagicMock()
+
+    # Recover stale tasks
+    recovered_count = recover_stale_tasks(mock_session)
+
+    # Verify task was marked as failed (not retried)
+    assert recovered_count == 1
+    assert stale_task.status == TaskStatus.failed.value
+    assert stale_task.error_message is not None
+    assert "retry limit" in stale_task.error_message.lower()
+    assert stale_task.completed_at is not None
+    # retry_count should NOT be incremented when task fails
+    assert stale_task.retry_count == settings.task_max_retry_count
+    mock_session.commit.assert_called_once()
+
+
+def test_recover_stale_tasks_mixed_retry_scenarios():
+    """Test recovery with mix of tasks: some to retry, some to fail."""
+    from datetime import timedelta
+    from src.config import get_settings
+
+    settings = get_settings()
+
+    # Create task 1: below retry limit (will be retried)
+    task1 = MagicMock(spec=ProcessingTask)
+    task1.id = uuid4()
+    task1.status = TaskStatus.processing.value
+    task1.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    task1.retry_count = 1
+
+    # Create task 2: at retry limit (will be failed)
+    task2 = MagicMock(spec=ProcessingTask)
+    task2.id = uuid4()
+    task2.status = TaskStatus.processing.value
+    task2.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=15)
+    task2.retry_count = settings.task_max_retry_count
+
+    # Create task 3: below retry limit (will be retried)
+    task3 = MagicMock(spec=ProcessingTask)
+    task3.id = uuid4()
+    task3.status = TaskStatus.processing.value
+    task3.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+    task3.retry_count = 0
+
+    # Mock database query to return all tasks
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [task1, task2, task3]
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = MagicMock()
+
+    # Recover stale tasks
+    recovered_count = recover_stale_tasks(mock_session)
+
+    # Verify all tasks were processed
+    assert recovered_count == 3
+
+    # Task 1: should be retried (retry_count incremented)
+    assert task1.status == TaskStatus.pending.value
+    assert task1.processing_started_at is None
+    assert task1.retry_count == 2
+
+    # Task 2: should be failed (at limit)
+    assert task2.status == TaskStatus.failed.value
+    assert task2.error_message is not None
+    assert task2.completed_at is not None
+    assert task2.retry_count == settings.task_max_retry_count
+
+    # Task 3: should be retried (retry_count incremented)
+    assert task3.status == TaskStatus.pending.value
+    assert task3.processing_started_at is None
+    assert task3.retry_count == 1
+
+    mock_session.commit.assert_called_once()
+
+
+def test_recover_stale_tasks_zero_retry_limit():
+    """Test recovery when retry limit is set to 0 (no retries allowed)."""
+    from datetime import timedelta
+
+    # Create stale task with retry_count = 0
+    stale_task = MagicMock(spec=ProcessingTask)
+    stale_task.id = uuid4()
+    stale_task.status = TaskStatus.processing.value
+    stale_task.processing_started_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    stale_task.retry_count = 0
+
+    # Mock database query
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = [stale_task]
+
+    mock_session = MagicMock()
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = MagicMock()
+
+    # Temporarily set retry limit to 0
+    with patch("src.services.task_worker.settings") as mock_settings:
+        mock_settings.task_max_retry_count = 0
+        mock_settings.task_processing_timeout_seconds = 300
+
+        # Recover stale tasks
+        recovered_count = recover_stale_tasks(mock_session)
+
+    # With limit=0 and retry_count=0, task should be failed (0 >= 0)
+    assert recovered_count == 1
+    assert stale_task.status == TaskStatus.failed.value
+    assert stale_task.error_message is not None
+    mock_session.commit.assert_called_once()

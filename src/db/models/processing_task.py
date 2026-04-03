@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, func, Index, ForeignKey
+from sqlalchemy import String, Text, DateTime, Integer, func, Index, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.database import Base
@@ -54,6 +54,10 @@ class ProcessingTask(Base):
     The processing_started_at timestamp enables automatic recovery of tasks
     stuck in "processing" status due to worker crashes, preventing the race
     condition window between status change and task completion.
+
+    The retry_count field tracks how many times a task has been recovered
+    from stale status, preventing infinite retry loops for tasks that
+    consistently crash workers.
     """
     __tablename__ = "processing_tasks"
 
@@ -71,6 +75,9 @@ class ProcessingTask(Base):
     input_reference: Mapped[str] = mapped_column(Text, nullable=False)
     result_reference: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Retry tracking for stale task recovery
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
