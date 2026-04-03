@@ -360,7 +360,7 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
         try:
             yields_raw = scraper.yields()
             # yields() can return strings like "4 servings" or numbers
-            if yields_raw:
+            if yields_raw is not None:
                 if isinstance(yields_raw, (int, float)):
                     servings = int(yields_raw)
                 elif isinstance(yields_raw, str):
