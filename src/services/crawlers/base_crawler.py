@@ -163,8 +163,10 @@ class RobotsTxtParser:
             parser.read()
             logger.info(f"Successfully fetched robots.txt from {robots_url}")
         except Exception as e:
-            # If robots.txt fetch fails, initialize parser with empty rules
-            # to allow all crawling (consistent with "fail-open" policy)
+            # INTENTIONAL broad catch: Fail-open policy for robots.txt
+            # We want to continue crawling even if robots.txt fetch fails for ANY reason
+            # (network errors, parsing errors, encoding issues, etc.)
+            # This is acceptable because it's a graceful degradation, not error handling
             logger.warning(f"Failed to fetch robots.txt from {robots_url}: {type(e).__name__}: {e}")
             logger.info(f"Assuming crawling is allowed for {domain}")
             # Parse empty robots.txt (allows all URLs, no crawl delay)

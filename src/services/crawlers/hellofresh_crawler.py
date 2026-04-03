@@ -133,14 +133,11 @@ class HelloFreshCrawler:
             logger.warning(f"Sitemap strategy failed with network error: {e}, trying fallback strategy")
             # Don't raise yet - try fallback first, but preserve exception for chaining
             sitemap_exception = e
-        except ValueError as e:
-            # Wrap parsing errors at the public API boundary
-            logger.warning(f"Sitemap strategy failed with parse error: {e}, trying fallback strategy")
+        except (ValueError, UnicodeDecodeError, OSError) as e:
+            # Catch specific external errors: parsing, encoding, I/O issues
+            # Programming errors (AttributeError, TypeError, KeyError) will propagate
+            logger.warning(f"Sitemap strategy failed with {type(e).__name__}: {e}, trying fallback strategy")
             # Don't raise yet - try fallback first, but preserve exception for chaining
-            sitemap_exception = e
-        except Exception as e:
-            logger.warning(f"Sitemap strategy failed: {e}, trying fallback strategy")
-            # Preserve exception for chaining
             sitemap_exception = e
 
         # Strategy 2: Fallback to paginated category crawl
@@ -163,9 +160,9 @@ class HelloFreshCrawler:
             else:
                 error_msg = f"Network error during URL discovery: {e}"
             raise CrawlerNetworkError(error_msg) from e
-        except ValueError as e:
-            # Wrap parsing errors at the public API boundary
-            logger.exception(f"Paginated category strategy failed with parse error: {e}")
+        except (ValueError, UnicodeDecodeError) as e:
+            # Wrap parsing/encoding errors at the public API boundary
+            logger.exception(f"Paginated category strategy failed with {type(e).__name__}: {e}")
 
             # Include context from sitemap failure if both strategies failed
             if sitemap_exception:
@@ -173,16 +170,16 @@ class HelloFreshCrawler:
             else:
                 error_msg = f"Parse error during URL discovery: {e}"
             raise CrawlerParseError(error_msg) from e
-        except Exception as e:
-            # Unexpected errors (including requests.InvalidURL, etc.) - wrap as base CrawlerError
-            # to avoid misrepresenting error type
-            logger.exception(f"Paginated category strategy failed: {e}")
+        except (OSError, IOError) as e:
+            # Catch I/O errors specifically (network operations, file access)
+            # These are external errors, not programming bugs
+            logger.exception(f"Paginated category strategy failed with I/O error: {e}")
 
             # Include context from sitemap failure if both strategies failed
             if sitemap_exception:
-                error_msg = f"Unexpected error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
+                error_msg = f"I/O error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
             else:
-                error_msg = f"Unexpected error during URL discovery: {e}"
+                error_msg = f"I/O error during URL discovery: {e}"
             raise CrawlerError(error_msg) from e
 
     def _discover_from_sitemap(self) -> list[str]:
@@ -217,8 +214,9 @@ class HelloFreshCrawler:
             root = ET.fromstring(response.content)
         except ET.ParseError as e:
             raise ValueError(f"Failed to parse sitemap XML from {sitemap_url}: {e}")
-        except Exception as e:
-            raise ValueError(f"Error processing sitemap from {sitemap_url}: {e}")
+        except (UnicodeDecodeError, UnicodeError) as e:
+            # Catch encoding errors specifically - these are external data issues
+            raise ValueError(f"Encoding error processing sitemap from {sitemap_url}: {e}")
 
         # Handle sitemap index (sitemaps that link to other sitemaps)
         recipe_urls = []
@@ -250,8 +248,9 @@ class HelloFreshCrawler:
                             recipe_root = ET.fromstring(recipe_response.content)
                         except ET.ParseError as e:
                             raise ValueError(f"Failed to parse recipe sitemap XML from {recipe_sitemap_url}: {e}")
-                        except Exception as e:
-                            raise ValueError(f"Error processing recipe sitemap from {recipe_sitemap_url}: {e}")
+                        except (UnicodeDecodeError, UnicodeError) as e:
+                            # Catch encoding errors specifically - these are external data issues
+                            raise ValueError(f"Encoding error processing recipe sitemap from {recipe_sitemap_url}: {e}")
                         urls = self._extract_urls_from_sitemap(recipe_root, namespace)
                         recipe_urls.extend(urls)
                     else:
@@ -337,7 +336,8 @@ class HelloFreshCrawler:
             try:
                 response = self.session.get(page_url, timeout=10)
                 response.raise_for_status()
-            except Exception as e:
+            except (requests.exceptions.RequestException, OSError, IOError) as e:
+                # Catch specific network/I/O errors only - let programming bugs propagate
                 logger.error(f"Failed to fetch page {page_num}: {e}")
                 break
 
