@@ -93,16 +93,18 @@ def recover_stale_tasks(session: Session) -> int:
     Recover tasks stuck in "processing" status beyond the timeout window.
 
     Detects tasks that have been in "processing" status longer than
-    task_processing_timeout_seconds and resets them to "pending" for retry.
+    task_processing_timeout_seconds and either resets them to "pending"
+    for retry or marks them as "failed" if retry limit exceeded.
 
     This prevents tasks from being stuck forever if the worker crashes
-    between marking a task as "processing" and completing it.
+    between marking a task as "processing" and completing it, while also
+    preventing infinite retry loops for tasks that consistently crash workers.
 
     Args:
         session: Database session for queries and updates
 
     Returns:
-        Number of tasks recovered
+        Number of tasks recovered (includes both retried and failed tasks)
     """
     # Calculate timeout threshold
     timeout_threshold = datetime.now(timezone.utc) - timedelta(
@@ -124,19 +126,42 @@ def recover_stale_tasks(session: Session) -> int:
     if not stale_tasks:
         return 0
 
-    # Reset stale tasks to pending
+    # Process stale tasks: retry or fail based on retry count
     recovered_count = 0
     for task in stale_tasks:
-        logger.warning(
-            "Recovering stale task stuck in processing",
-            extra={
-                "task_id": str(task.id),
-                "processing_started_at": task.processing_started_at.isoformat() if task.processing_started_at else None,
-                "timeout_seconds": settings.task_processing_timeout_seconds
-            }
-        )
-        task.status = TaskStatus.pending.value
-        task.processing_started_at = None
+        # Check if retry limit exceeded
+        if task.retry_count >= settings.task_max_retry_count:
+            # Mark task as failed - retry limit exceeded
+            logger.warning(
+                "Task failed: retry limit exceeded",
+                extra={
+                    "task_id": str(task.id),
+                    "retry_count": task.retry_count,
+                    "max_retry_count": settings.task_max_retry_count,
+                    "processing_started_at": task.processing_started_at.isoformat() if task.processing_started_at else None
+                }
+            )
+            task.status = TaskStatus.failed.value
+            task.error_message = (
+                f"Task exceeded maximum retry limit ({settings.task_max_retry_count}) "
+                f"after repeated stale task recovery attempts"
+            )
+            task.completed_at = datetime.now(timezone.utc)
+        else:
+            # Reset to pending and increment retry count
+            logger.warning(
+                "Recovering stale task stuck in processing",
+                extra={
+                    "task_id": str(task.id),
+                    "retry_count": task.retry_count,
+                    "processing_started_at": task.processing_started_at.isoformat() if task.processing_started_at else None,
+                    "timeout_seconds": settings.task_processing_timeout_seconds
+                }
+            )
+            task.status = TaskStatus.pending.value
+            task.processing_started_at = None
+            task.retry_count += 1
+
         recovered_count += 1
 
     session.commit()

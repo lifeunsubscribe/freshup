@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     task_poll_interval_seconds: int = Field(default=10, gt=0)
     # Timeout for tasks stuck in "processing" status (seconds) - prevents race condition from worker crashes
     task_processing_timeout_seconds: int = Field(default=300, gt=0)
+    # Maximum retry count for stale task recovery before marking task as failed
+    task_max_retry_count: int = Field(default=3, ge=0)
 
 
 @lru_cache
