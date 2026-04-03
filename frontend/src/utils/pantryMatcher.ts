@@ -12,6 +12,91 @@ function normalizeIngredientName(name: string): string {
 }
 
 /**
+ * Lookup table for irregular plurals that cannot be handled by pattern rules.
+ * Maps both singular and plural forms to their canonical singular form.
+ *
+ * Categories:
+ * - Invariant plurals (same singular/plural): fish, sheep, deer
+ * - Vowel changes: goose→geese, mouse→mice, tooth→teeth
+ * - Complete transformations: person→people, child→children
+ * - -man/-men patterns: man→men, woman→women
+ *
+ * All entries normalize to the singular form for consistent matching.
+ */
+const IRREGULAR_PLURALS = new Map<string, string>([
+  // Invariant plurals (same singular and plural form)
+  ['fish', 'fish'],
+  ['sheep', 'sheep'],
+  ['deer', 'deer'],
+  ['moose', 'moose'],
+  ['salmon', 'salmon'],
+  ['trout', 'trout'],
+  ['shrimp', 'shrimp'],
+  ['cod', 'cod'],
+  ['squid', 'squid'],
+
+  // Vowel-change plurals (bidirectional: plural→singular, singular→singular)
+  ['goose', 'goose'],
+  ['geese', 'goose'],
+  ['mouse', 'mouse'],
+  ['mice', 'mouse'],
+  ['tooth', 'tooth'],
+  ['teeth', 'tooth'],
+  ['foot', 'foot'],
+  ['feet', 'foot'],
+  ['louse', 'louse'],
+  ['lice', 'louse'],
+
+  // Complete transformations
+  ['person', 'person'],
+  ['people', 'person'],
+  ['child', 'child'],
+  ['children', 'child'],
+  ['ox', 'ox'],
+  ['oxen', 'ox'],
+
+  // -man/-men patterns (common in compound food terms)
+  ['man', 'man'],
+  ['men', 'man'],
+  ['woman', 'woman'],
+  ['women', 'woman'],
+
+  // Latin/Greek plurals (common in food context)
+  ['octopus', 'octopus'],
+  ['octopi', 'octopus'],
+  ['octopuses', 'octopus'],
+  ['cactus', 'cactus'],
+  ['cacti', 'cactus'],
+  ['cactuses', 'cactus'],
+  ['fungus', 'fungus'],
+  ['fungi', 'fungus'],
+  ['funguses', 'fungus'],
+
+  // -f/-fe → -ves patterns that need special handling
+  // (Pattern rule handles most, but these override if needed)
+  ['knife', 'knife'],
+  ['knives', 'knife'],
+  ['life', 'life'],
+  ['lives', 'life'],
+  ['wife', 'wife'],
+  ['wives', 'wife'],
+  ['leaf', 'leaf'],
+  ['leaves', 'leaf'],
+  ['loaf', 'loaf'],
+  ['loaves', 'loaf'],
+  ['calf', 'calf'],
+  ['calves', 'calf'],
+  ['half', 'half'],
+  ['halves', 'half'],
+  ['shelf', 'shelf'],
+  ['shelves', 'shelf'],
+  ['thief', 'thief'],
+  ['thieves', 'thief'],
+  ['wolf', 'wolf'],
+  ['wolves', 'wolf'],
+])
+
+/**
  * Normalizes a word to its singular/base form to handle plural matching
  * Applies simple English pluralization rules for common food ingredients
  *
@@ -20,14 +105,24 @@ function normalizeIngredientName(name: string): string {
  * - "tomatoes" -> "tomato"
  * - "berries" -> "berry"
  * - "cherries" -> "cherry"
+ * - "geese" -> "goose" (irregular)
+ * - "fish" -> "fish" (invariant)
  *
- * Note: This is a lightweight approach focused on common food terms.
- * It handles regular plurals (-s, -es) and common irregular patterns (-ies).
+ * Note: This uses a hybrid approach:
+ * 1. First checks lookup table for irregular plurals
+ * 2. Falls back to pattern-based rules for regular plurals
  */
 function normalizeWordForPlurals(word: string): string {
   // Skip very short words (likely not plurals, e.g., "as", "is")
   if (word.length <= 2) {
     return word
+  }
+
+  // Check irregular plurals lookup table first (before pattern rules)
+  // This handles edge cases like fish/fish, geese/goose, people/person, etc.
+  const irregularForm = IRREGULAR_PLURALS.get(word)
+  if (irregularForm !== undefined) {
+    return irregularForm
   }
 
   // Handle -ies -> -y (berries -> berry, cherries -> cherry)

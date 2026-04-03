@@ -494,6 +494,326 @@ describe('pantryMatcher', () => {
       expect(result.inStockCount).toBe(0)
       expect(result.outOfStock).toHaveLength(1)
     })
+
+    // Irregular plural tests
+    describe('Irregular plurals', () => {
+      it('matches "fish" recipe with "fish" inventory (invariant plural)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'fish' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'fish' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+        expect(result.inStock[0].matchedInventoryItem?.name).toBe('fish')
+      })
+
+      it('matches "sheep" recipe with "sheep" inventory (invariant plural)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'sheep' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'sheep' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "deer" recipe with "deer" inventory (invariant plural)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'deer' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'deer' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "shrimp" recipe with "shrimp" inventory (invariant plural)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'shrimp' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'shrimp' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "goose" recipe with "geese" inventory (vowel change)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'goose' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'geese' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+        expect(result.inStock[0].matchedInventoryItem?.name).toBe('geese')
+      })
+
+      it('matches "geese" recipe with "goose" inventory (vowel change bidirectional)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'geese' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'goose' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+        expect(result.inStock[0].matchedInventoryItem?.name).toBe('goose')
+      })
+
+      it('matches "mouse" recipe with "mice" inventory (vowel change)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'mouse' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'mice' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "tooth" recipe with "teeth" inventory (vowel change)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'tooth' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'teeth' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "foot" recipe with "feet" inventory (vowel change)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'foot' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'feet' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "person" recipe with "people" inventory (complete transformation)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'person' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'people' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "people" recipe with "person" inventory (complete transformation bidirectional)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'people' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'person' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "child" recipe with "children" inventory (complete transformation)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'child' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'children' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "ox" recipe with "oxen" inventory (complete transformation)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'ox' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'oxen' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "octopus" recipe with "octopi" inventory (Latin plural)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'octopus' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'octopi' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "octopus" recipe with "octopuses" inventory (English plural)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'octopus' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'octopuses' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "knife" recipe with "knives" inventory (-ves ending)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'knife' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'knives' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+        expect(result.inStock[0].matchedInventoryItem?.name).toBe('knives')
+      })
+
+      it('matches "knives" recipe with "knife" inventory (-ves bidirectional)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'knives' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'knife' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches "life" recipe with "lives" inventory (-ves ending)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'life' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'lives' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches compound ingredients with irregular plurals (smoked fish)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'smoked fish' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'smoked fish' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('matches compound ingredients with irregular plurals (wild geese)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'wild goose' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'wild geese' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('irregular plurals work with asymmetric matching (salmon fillet)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'salmon' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'atlantic salmon fillet' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(1)
+      })
+
+      it('handles mixed regular and irregular plurals in compound words', () => {
+        const ingredients = [
+          createIngredient({ id: 'ing-1', ingredient_name: 'fish' }),
+          createIngredient({ id: 'ing-2', ingredient_name: 'potatoes' }),
+          createIngredient({ id: 'ing-3', ingredient_name: 'geese' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ id: 'inv-1', name: 'fish' }),
+          createInventoryItem({ id: 'inv-2', name: 'potato' }),
+          createInventoryItem({ id: 'inv-3', name: 'goose' }),
+        ]
+
+        const result = checkIngredientAvailability(ingredients, inventoryItems)
+
+        expect(result.inStockCount).toBe(3)
+        expect(result.outOfStock).toHaveLength(0)
+      })
+    })
   })
 
   describe('areAllIngredientsInStock', () => {
@@ -706,6 +1026,128 @@ describe('pantryMatcher', () => {
       const result = areAllIngredientsInStock(ingredients, inventoryItems)
 
       expect(result).toBe(true)
+    })
+
+    // Irregular plural tests for areAllIngredientsInStock
+    describe('Irregular plurals', () => {
+      it('returns true when "fish" matches "fish" (invariant)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'fish' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'fish' }),
+        ]
+
+        const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+        expect(result).toBe(true)
+      })
+
+      it('returns true when "goose" matches "geese" (vowel change)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'goose' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'geese' }),
+        ]
+
+        const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+        expect(result).toBe(true)
+      })
+
+      it('returns true when "geese" matches "goose" (bidirectional)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'geese' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'goose' }),
+        ]
+
+        const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+        expect(result).toBe(true)
+      })
+
+      it('returns true when "person" matches "people" (complete transformation)', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'person' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'people' }),
+        ]
+
+        const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+        expect(result).toBe(true)
+      })
+
+      it('returns true when "child" matches "children"', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'child' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'children' }),
+        ]
+
+        const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+        expect(result).toBe(true)
+      })
+
+      it('returns true when "knife" matches "knives"', () => {
+        const ingredients = [
+          createIngredient({ ingredient_name: 'knife' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ name: 'knives' }),
+        ]
+
+        const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+        expect(result).toBe(true)
+      })
+
+      it('returns true when all irregular plurals match', () => {
+        const ingredients = [
+          createIngredient({ id: 'ing-1', ingredient_name: 'fish' }),
+          createIngredient({ id: 'ing-2', ingredient_name: 'geese' }),
+          createIngredient({ id: 'ing-3', ingredient_name: 'children' }),
+          createIngredient({ id: 'ing-4', ingredient_name: 'knives' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ id: 'inv-1', name: 'fish' }),
+          createInventoryItem({ id: 'inv-2', name: 'goose' }),
+          createInventoryItem({ id: 'inv-3', name: 'child' }),
+          createInventoryItem({ id: 'inv-4', name: 'knife' }),
+        ]
+
+        const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+        expect(result).toBe(true)
+      })
+
+      it('returns false when irregular plural is missing', () => {
+        const ingredients = [
+          createIngredient({ id: 'ing-1', ingredient_name: 'fish' }),
+          createIngredient({ id: 'ing-2', ingredient_name: 'geese' }),
+        ]
+
+        const inventoryItems = [
+          createInventoryItem({ id: 'inv-1', name: 'fish' }),
+        ]
+
+        const result = areAllIngredientsInStock(ingredients, inventoryItems)
+
+        expect(result).toBe(false)
+      })
     })
   })
 })
