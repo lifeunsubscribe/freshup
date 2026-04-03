@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, func, Index
+from sqlalchemy import String, Text, DateTime, func, Index, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.database import Base
@@ -60,6 +60,9 @@ class ProcessingTask(Base):
     # Primary key
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
 
+    # User ownership for multi-tenant isolation
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+
     # Task classification
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default=TaskStatus.pending.value)
@@ -75,8 +78,12 @@ class ProcessingTask(Base):
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    # Compound indexes for efficient task queries
+    # Indexes for efficient task queries
     __table_args__ = (
+        # Compound index for pending task queries
         Index('ix_processing_tasks_status_created_at', 'status', 'created_at'),
+        # Compound index for stale task detection
         Index('ix_processing_tasks_status_processing_started_at', 'status', 'processing_started_at'),
+        # Single-column index for user-specific queries and foreign key performance
+        Index('ix_processing_tasks_user_id', 'user_id'),
     )
