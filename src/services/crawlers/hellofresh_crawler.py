@@ -351,7 +351,7 @@ class HelloFreshCrawler:
             try:
                 response = self.session.get(page_url, timeout=10)
                 response.raise_for_status()
-            except (requests.exceptions.RequestException, OSError, IOError) as e:
+            except (requests.exceptions.RequestException, ssl.SSLError, ssl.CertificateError, OSError, IOError) as e:
                 # Catch specific network/I/O errors only - let programming bugs propagate
                 logger.error(f"Failed to fetch page {page_num}: {e}")
                 break
