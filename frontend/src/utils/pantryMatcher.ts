@@ -181,23 +181,32 @@ function normalizeWordForPlurals(word: string): string {
 }
 
 /**
- * Tokenizes an ingredient name into individual words
- * Splits on spaces, hyphens, and other delimiters
- * Filters out empty strings
- * Normalizes each token for plural matching
+ * Tokenizes an ingredient name into individual words and normalizes each for plural matching
+ *
+ * Process:
+ * 1. Splits on spaces, hyphens, underscores, and slashes
+ * 2. Filters out empty strings
+ * 3. Applies plural normalization to EACH token independently
+ *
+ * This tokenization strategy enables compound ingredient matching with irregular plurals:
+ * - "wild goose" → ["wild", "goose"]
+ * - "wild geese" → ["wild", "goose"] (geese normalized to goose)
+ * - Both normalize to the same token array, enabling matching
  *
  * Examples:
  * - "all-purpose flour" -> ["all", "purpose", "flour"]
  * - "olive oil" -> ["olive", "oil"]
  * - "rice" -> ["rice"]
- * - "cherry tomatoes" -> ["cherry", "tomato"]
- * - "eggs" -> ["egg"]
+ * - "cherry tomatoes" -> ["cherry", "tomato"] (tomatoes → tomato)
+ * - "eggs" -> ["egg"] (eggs → egg)
+ * - "roasted geese" -> ["roasted", "goose"] (geese → goose via irregular plural)
+ * - "smoked fish" -> ["smoked", "fish"] (fish invariant plural)
  */
 function tokenizeIngredientName(name: string): string[] {
   return name
     .split(/[\s\-_/]+/) // Split on space, hyphen, underscore, slash
     .filter((word) => word.length > 0)
-    .map((word) => normalizeWordForPlurals(word)) // Normalize for plurals
+    .map((word) => normalizeWordForPlurals(word)) // Normalize EACH word for plurals independently
 }
 
 /**
@@ -208,7 +217,13 @@ function tokenizeIngredientName(name: string): string[] {
  * 1. Exact match after normalization
  * 2. Asymmetric word-boundary match: all recipe tokens must appear in inventory tokens
  *    (but NOT vice versa - this prevents "flour" in inventory matching "almond flour" in recipe)
- * 3. Plural normalization: "egg" matches "eggs", "tomato" matches "tomatoes", etc.
+ * 3. Plural normalization: Applied to EACH token independently, enabling compound word matching
+ *
+ * Compound word handling:
+ * - Tokenization splits multi-word ingredients and normalizes each word
+ * - "wild goose" → ["wild", "goose"] matches "wild geese" → ["wild", "goose"]
+ * - "roasted geese" → ["roasted", "goose"] matches "roasted goose" → ["roasted", "goose"]
+ * - This enables irregular plural matching in compound ingredients
  *
  * Examples:
  * - Recipe "flour" matches inventory "all-purpose flour" ✓ (inventory has the required ingredient)
@@ -217,6 +232,7 @@ function tokenizeIngredientName(name: string): string[] {
  * - Recipe "olive oil" matches inventory "extra virgin olive oil" ✓ (both words present)
  * - Recipe "egg" matches inventory "eggs" ✓ (plural normalization)
  * - Recipe "cherry tomatoes" matches inventory "cherry tomato" ✓ (bidirectional plural matching)
+ * - Recipe "wild goose" matches inventory "wild geese" ✓ (compound irregular plural)
  */
 function ingredientMatchesInventoryItem(
   ingredientName: string,
