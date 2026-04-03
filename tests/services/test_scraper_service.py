@@ -16,6 +16,8 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from recipe_scrapers._exceptions import WebsiteNotImplementedError
 import requests
+import socket
+import logging
 
 from src.services.scraper_service import (
     scrape_recipe,
@@ -680,3 +682,240 @@ class TestSsrfProtection:
 
         with pytest.raises(ScraperError, match="The provided URL is not allowed"):
             scrape_recipe("http://METADATA.GOOGLE.INTERNAL/recipe")
+
+
+class TestSecurityLogging:
+    """Tests for security event logging to verify audit trail for production observability."""
+
+    def test_logs_ssrf_localhost_block(self, caplog):
+        """Test that blocking localhost by hostname is logged for security audit."""
+        caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
+
+        with pytest.raises(ScraperError):
+            scrape_recipe("http://localhost/recipe")
+
+        # Verify security event was logged
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelname == "WARNING"
+        assert "SSRF protection: Blocked localhost hostname: localhost" in caplog.records[0].message
+
+    def test_logs_ssrf_cloud_metadata_block(self, caplog):
+        """Test that blocking cloud metadata endpoints is logged for security audit."""
+        caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
+
+        with pytest.raises(ScraperError):
+            scrape_recipe("http://169.254.169.254/latest/meta-data/")
+
+        # Verify security event was logged
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelname == "WARNING"
+        assert "SSRF protection: Blocked cloud metadata endpoint: 169.254.169.254" in caplog.records[0].message
+
+    def test_logs_ssrf_private_ip_block(self, caplog):
+        """Test that blocking private IP addresses is logged for security audit."""
+        caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
+
+        with pytest.raises(ScraperError):
+            scrape_recipe("http://192.168.1.1/recipe")
+
+        # Verify security event was logged
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelname == "WARNING"
+        assert "SSRF protection: Blocked unsafe IP address:" in caplog.records[0].message
+        assert "192.168.1.1" in caplog.records[0].message
+
+    def test_logs_ssrf_domain_resolving_to_private_ip(self, caplog):
+        """Test that blocking domains resolving to private IPs is logged for security audit."""
+        caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
+
+        # Mock DNS resolution to return a private IP
+        with patch('src.services.scraper_service.socket.getaddrinfo') as mock_getaddrinfo:
+            # Return a private IP address (10.0.0.1)
+            mock_getaddrinfo.return_value = [
+                (socket.AF_INET, socket.SOCK_STREAM, 0, '', ('10.0.0.1', 80))
+            ]
+
+            with pytest.raises(ScraperError):
+                scrape_recipe("http://evil-domain.com/recipe")
+
+        # Verify security event was logged with technical details
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelname == "WARNING"
+        assert "SSRF protection: Domain evil-domain.com resolves to blocked IP: 10.0.0.1" in caplog.records[0].message
+
+    def test_logs_invalid_url_scheme(self, caplog):
+        """Test that invalid URL schemes are logged for security audit."""
+        caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
+
+        with pytest.raises(ScraperError):
+            scrape_recipe("file:///etc/passwd")
+
+        # Verify security event was logged
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelname == "WARNING"
+        assert "Invalid URL scheme rejected: file" in caplog.records[0].message
+
+    @patch('src.services.scraper_service.requests.get')
+    def test_logs_network_timeout_error(self, mock_requests_get, caplog):
+        """Test that network timeout errors are logged with technical details."""
+        caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
+
+        # Simulate a timeout
+        mock_requests_get.side_effect = requests.exceptions.Timeout("Connection timed out")
+
+        with pytest.raises(NetworkError):
+            scrape_recipe("https://www.hellofresh.com/recipes/test")
+
+        # Verify error was logged with technical details (timeout value, exception)
+        assert len(caplog.records) >= 1
+        warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warning_records) >= 1
+        timeout_log = warning_records[0]
+        assert "Request timeout for URL" in timeout_log.message
+        assert "timeout=30.0s" in timeout_log.message
+
+    @patch('src.services.scraper_service.requests.get')
+    def test_logs_network_connection_error(self, mock_requests_get, caplog):
+        """Test that network connection errors are logged with technical details."""
+        caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
+
+        # Simulate a connection error
+        mock_requests_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
+
+        with pytest.raises(NetworkError):
+            scrape_recipe("https://www.hellofresh.com/recipes/test")
+
+        # Verify error was logged with technical details
+        assert len(caplog.records) >= 1
+        warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warning_records) >= 1
+        connection_log = warning_records[0]
+        assert "Connection error for URL:" in connection_log.message
+        assert "Connection refused" in connection_log.message
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    @patch('src.services.scraper_service.requests.get')
+    def test_logs_parse_error_in_wild_mode(self, mock_requests_get, mock_scrape_html, caplog):
+        """Test that parse errors in wild_mode are logged with technical details."""
+        caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
+
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
+        # First call raises WebsiteNotImplementedError (triggers wild_mode)
+        # Second call (wild_mode) raises a parse error
+        mock_scrape_html.side_effect = [
+            WebsiteNotImplementedError("Site not supported"),
+            ValueError("Invalid JSON-LD schema")
+        ]
+
+        with pytest.raises(ParseError):
+            scrape_recipe("https://www.example.com/recipe")
+
+        # Verify parse error was logged with technical details
+        warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warning_records) >= 1
+        parse_log = warning_records[-1]  # Last warning should be the parse error
+        assert "Failed to parse recipe in wild_mode:" in parse_log.message
+        assert "ValueError" in parse_log.message
+        assert "Invalid JSON-LD schema" in parse_log.message
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    @patch('src.services.scraper_service.requests.get')
+    def test_logs_unexpected_scraper_error(self, mock_requests_get, mock_scrape_html, caplog):
+        """Test that unexpected scraper errors are logged with technical details."""
+        caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
+
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
+        # Simulate an unexpected error
+        mock_scrape_html.side_effect = RuntimeError("Unexpected parsing failure")
+
+        with pytest.raises(ScraperError):
+            scrape_recipe("https://www.hellofresh.com/recipes/test")
+
+        # Verify error was logged with technical details
+        error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert len(error_records) >= 1
+        error_log = error_records[0]
+        assert "Unexpected scraper error:" in error_log.message
+        assert "RuntimeError" in error_log.message
+        assert "Unexpected parsing failure" in error_log.message
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    @patch('src.services.scraper_service.requests.get')
+    def test_logs_data_extraction_failure(self, mock_requests_get, mock_scrape_html, caplog):
+        """Test that data extraction failures are logged with technical details."""
+        caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
+
+        # Mock HTTP response
+        mock_requests_get.return_value = _mock_successful_http_response()
+
+        # Mock scraper that returns invalid data that fails validation (during ScrapedRecipeData construction)
+        # Returning 0 servings will cause validation to fail with ValueError
+        mock_scraper = Mock()
+        mock_scraper.title.return_value = "Test Recipe"
+        mock_scraper.ingredients.return_value = []
+        mock_scraper.instructions.return_value = ""
+        mock_scraper.prep_time.return_value = None
+        mock_scraper.cook_time.return_value = None
+        mock_scraper.total_time.return_value = None
+        mock_scraper.yields.return_value = 0  # Invalid: will fail validation
+        mock_scraper.image.return_value = None
+        mock_scraper.nutrients.return_value = None
+        mock_scraper.author.return_value = None
+        mock_scraper.site_name.return_value = None
+
+        mock_scrape_html.return_value = mock_scraper
+
+        with pytest.raises(ParseError):
+            scrape_recipe("https://www.hellofresh.com/recipes/test")
+
+        # Verify error was logged with technical details
+        error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert len(error_records) >= 1
+        error_log = error_records[0]
+        assert "Failed to extract recipe data:" in error_log.message
+        assert "ValidationError" in error_log.message
+        assert "servings must be positive" in error_log.message
+
+    def test_logs_dns_resolution_error(self, caplog):
+        """Test that invalid DNS resolution results are logged."""
+        caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
+
+        # Mock DNS resolution to return invalid IP string
+        with patch('src.services.scraper_service.socket.getaddrinfo') as mock_getaddrinfo:
+            # Return an invalid IP that will cause ValueError when parsed
+            mock_getaddrinfo.return_value = [
+                (socket.AF_INET, socket.SOCK_STREAM, 0, '', ('invalid-ip', 80))
+            ]
+
+            with pytest.raises(ScraperError):
+                scrape_recipe("http://test-domain.com/recipe")
+
+        # Verify DNS error was logged with technical details
+        error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert len(error_records) >= 1
+        dns_log = error_records[0]
+        assert "Invalid IP address from DNS for test-domain.com:" in dns_log.message
+        assert "invalid-ip" in dns_log.message
+
+    def test_logs_unexpected_url_validation_error(self, caplog):
+        """Test that unexpected errors during URL validation are logged."""
+        caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
+
+        # Mock urlparse to raise an unexpected exception
+        with patch('src.services.scraper_service.urlparse') as mock_urlparse:
+            mock_urlparse.side_effect = RuntimeError("Unexpected parsing error")
+
+            with pytest.raises(ScraperError):
+                scrape_recipe("https://www.example.com/recipe")
+
+        # Verify unexpected error was logged with technical details
+        error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert len(error_records) >= 1
+        error_log = error_records[0]
+        assert "Unexpected error during URL validation:" in error_log.message
+        assert "RuntimeError" in error_log.message
+        assert "Unexpected parsing error" in error_log.message
