@@ -103,6 +103,11 @@ class TestPIIPatterns:
 class TestSanitizeExceptionMessage:
     """Test exception message sanitization."""
 
+    def test_sanitize_none_message(self):
+        """None input should return empty string."""
+        result = sanitize_exception_message(None)
+        assert result == ""
+
     def test_sanitize_empty_message(self):
         """Empty message should remain empty."""
         result = sanitize_exception_message("")
