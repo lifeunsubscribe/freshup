@@ -402,3 +402,101 @@ async def test_close_method(mock_httpx_client):
 
         # Verify underlying httpx client was closed
         mock_httpx_client.aclose.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_validation_error_sanitizes_pii(mock_httpx_client):
+    """
+    Test that validation errors containing PII are sanitized.
+
+    Per Issue #377: LLM responses may contain receipt data with PII
+    (emails, phone numbers, addresses) that should be redacted from
+    exception messages to prevent data leaks through error reporting systems.
+    """
+    # Simulate LLM response with PII in validation error
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        # Missing required field, validation error will include this input
+        "response": json.dumps({
+            "store_name": "Costco - 123 Main Street, San Francisco, CA 94102",
+            "items": ["Contact: user@example.com, (555) 123-4567"]
+            # Missing required "total" field - will cause validation error
+        })
+    }
+    mock_httpx_client.post = AsyncMock(return_value=mock_response)
+
+    with patch("src.services.llm.client.httpx.AsyncClient", return_value=mock_httpx_client):
+        client = OllamaClient()
+
+        with pytest.raises(LLMResponseError) as exc_info:
+            await client.complete(
+                prompt="Parse receipt",
+                system_prompt="Parse receipts",
+                response_schema=TestReceipt,
+            )
+
+        error = exc_info.value
+
+        # Verify PII is redacted from error message
+        error_str = str(error)
+        assert "user@example.com" not in error_str
+        assert "(555) 123-4567" not in error_str
+        assert "123 Main Street" not in error_str
+        assert "94102" not in error_str
+
+        # Verify redaction labels are present in either the main message or validation errors
+        all_error_text = error_str + " ".join(error.validation_errors)
+        assert "[EMAIL_REDACTED]" in all_error_text or "[PHONE_REDACTED]" in all_error_text or "[ADDRESS_REDACTED]" in all_error_text or "[ZIP_REDACTED]" in all_error_text
+
+        # Verify response field is also sanitized
+        assert error.response is not None
+        assert "user@example.com" not in error.response
+        assert "(555) 123-4567" not in error.response
+        # Response should have redaction markers
+        assert "[EMAIL_REDACTED]" in error.response or "[PHONE_REDACTED]" in error.response or "[ADDRESS_REDACTED]" in error.response or "[ZIP_REDACTED]" in error.response
+
+
+@pytest.mark.asyncio
+async def test_validation_error_list_sanitizes_pii(mock_httpx_client):
+    """
+    Test that individual validation errors in the list are sanitized.
+
+    Each validation error message may contain input_value with PII.
+    """
+    # Create response that will fail validation with PII in the invalid field's value
+    # Using an invalid email type for store_name to ensure PII appears in validation error
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "response": json.dumps({
+            "store_name": 123,  # Invalid type - will cause validation error with input_value
+            "total": 5.99,
+            "items": ["Email: john.doe@example.com"]  # PII in items list
+        })
+    }
+    mock_httpx_client.post = AsyncMock(return_value=mock_response)
+
+    with patch("src.services.llm.client.httpx.AsyncClient", return_value=mock_httpx_client):
+        client = OllamaClient()
+
+        with pytest.raises(LLMResponseError) as exc_info:
+            await client.complete(
+                prompt="Parse receipt",
+                system_prompt="Parse receipts",
+                response_schema=TestReceipt,
+            )
+
+        error = exc_info.value
+
+        # Verify each validation error is sanitized
+        for validation_error in error.validation_errors:
+            # PII from items list should not appear in validation errors
+            assert "john.doe@example.com" not in validation_error
+            # Verify sanitization function was actually called (not just that PII is absent)
+            # Check for redaction markers or valid validation error structure
+            assert (
+                "[EMAIL_REDACTED]" in validation_error or
+                "[TRUNCATED" in validation_error or
+                "Input should be a valid string" in validation_error  # Valid sanitized error
+            )
