@@ -122,29 +122,47 @@ class TestHelloFreshCrawlerExceptionWrapping:
 
     @patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._configure_from_robots_txt')
     @patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._discover_from_sitemap')
-    def test_unexpected_error_wrapping(self, mock_discover_sitemap, mock_robots_config):
-        """Test that unexpected exceptions are wrapped in base CrawlerError."""
+    def test_programming_errors_propagate(self, mock_discover_sitemap, mock_robots_config):
+        """Test that programming errors (AttributeError, TypeError, etc.) propagate without wrapping.
+
+        This is the desired behavior after fixing broad exception catching.
+        Programming errors should NOT be caught so they can be debugged easily.
+        """
         crawler = HelloFreshCrawler()
 
-        # Mock sitemap strategy to fail with unexpected error (will be caught and fallback attempted)
-        mock_discover_sitemap.side_effect = RuntimeError("Unexpected runtime error")
+        # Mock sitemap strategy to fail with programming error
+        mock_discover_sitemap.side_effect = AttributeError("'NoneType' object has no attribute 'find'")
 
-        # Mock the fallback pagination to also fail with unexpected error
+        # Programming errors should propagate from sitemap strategy
+        # (they are NOT caught by the specific exception handlers)
+        with pytest.raises(AttributeError) as exc_info:
+            crawler.discover_recipe_urls()
+
+        # Verify the original programming error propagates unchanged
+        assert "'NoneType' object has no attribute 'find'" in str(exc_info.value)
+
+    @patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._configure_from_robots_txt')
+    @patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._discover_from_sitemap')
+    def test_io_error_wrapping(self, mock_discover_sitemap, mock_robots_config):
+        """Test that I/O errors are wrapped in base CrawlerError."""
+        crawler = HelloFreshCrawler()
+
+        # Mock sitemap strategy to succeed (return empty list to trigger fallback)
+        mock_discover_sitemap.return_value = []
+
+        # Mock the fallback pagination to fail with I/O error
         with patch.object(crawler, '_discover_from_paginated_categories') as mock_paginated:
-            mock_paginated.side_effect = RuntimeError("Unexpected runtime error")
+            mock_paginated.side_effect = OSError("Connection refused")
 
-            # Should raise CrawlerError (base class), not RuntimeError
+            # Should raise CrawlerError (base class) for I/O errors
             with pytest.raises(CrawlerError) as exc_info:
                 crawler.discover_recipe_urls()
 
-            # Verify it's not a subclass (should be base CrawlerError)
-            assert type(exc_info.value) == CrawlerError
-
             # Verify the error message contains context
-            assert "Unexpected error during URL discovery" in str(exc_info.value)
+            assert "I/O error during URL discovery" in str(exc_info.value)
 
             # Verify original exception is chained
-            assert isinstance(exc_info.value.__cause__, RuntimeError)
+            assert isinstance(exc_info.value.__cause__, OSError)
 
 
 class TestKitchenSanctuaryCrawlerExceptionWrapping:
@@ -187,25 +205,42 @@ class TestKitchenSanctuaryCrawlerExceptionWrapping:
 
     @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._configure_from_robots_txt')
     @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._discover_from_sitemap')
-    def test_unexpected_error_wrapping(self, mock_discover_sitemap, mock_robots_config):
-        """Test that unexpected exceptions are wrapped in base CrawlerError."""
+    def test_programming_errors_propagate(self, mock_discover_sitemap, mock_robots_config):
+        """Test that programming errors (TypeError, AttributeError, etc.) propagate without wrapping.
+
+        This is the desired behavior after fixing broad exception catching.
+        Programming errors should NOT be caught so they can be debugged easily.
+        """
         crawler = KitchenSanctuaryCrawler()
 
-        # Mock sitemap strategy to raise unexpected error
-        mock_discover_sitemap.side_effect = RuntimeError("Unexpected runtime error")
+        # Mock sitemap strategy to raise programming error
+        mock_discover_sitemap.side_effect = TypeError("'int' object is not iterable")
 
-        # Should raise CrawlerError (base class), not RuntimeError
+        # Programming errors should propagate without wrapping
+        with pytest.raises(TypeError) as exc_info:
+            crawler.discover_recipe_urls()
+
+        # Verify the original programming error propagates unchanged
+        assert "'int' object is not iterable" in str(exc_info.value)
+
+    @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._configure_from_robots_txt')
+    @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._discover_from_sitemap')
+    def test_io_error_wrapping(self, mock_discover_sitemap, mock_robots_config):
+        """Test that I/O errors are wrapped in base CrawlerError."""
+        crawler = KitchenSanctuaryCrawler()
+
+        # Mock sitemap strategy to raise I/O error
+        mock_discover_sitemap.side_effect = IOError("Network unreachable")
+
+        # Should raise CrawlerError (base class) for I/O errors
         with pytest.raises(CrawlerError) as exc_info:
             crawler.discover_recipe_urls()
 
-        # Verify it's not a subclass (should be base CrawlerError)
-        assert type(exc_info.value) == CrawlerError
-
         # Verify the error message contains context
-        assert "Unexpected error during URL discovery" in str(exc_info.value)
+        assert "I/O error during URL discovery" in str(exc_info.value)
 
         # Verify original exception is chained
-        assert isinstance(exc_info.value.__cause__, RuntimeError)
+        assert isinstance(exc_info.value.__cause__, IOError)
 
 
 class TestNoLeakyAbstractions:

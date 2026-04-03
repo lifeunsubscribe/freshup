@@ -6,6 +6,7 @@ Includes rate limiting and robots.txt compliance.
 """
 
 import logging
+import ssl
 import requests.exceptions
 import defusedxml.ElementTree as ET  # Use defusedxml for defense-in-depth XXE protection
 from typing import Optional
@@ -128,15 +129,18 @@ class KitchenSanctuaryCrawler:
             # These are genuine network/transport issues, not programming bugs
             logger.exception(f"Sitemap strategy failed with network error: {e}")
             raise CrawlerNetworkError(f"Network error during URL discovery: {e}") from e
-        except ValueError as e:
-            # Wrap parsing errors at the public API boundary
-            logger.exception(f"Sitemap strategy failed with parse error: {e}")
+        except (ssl.SSLError, ssl.CertificateError) as e:
+            # Wrap SSL/TLS errors at the public API boundary
+            logger.exception(f"Sitemap strategy failed with SSL error: {e}")
+            raise CrawlerNetworkError(f"SSL error during URL discovery: {e}") from e
+        except (ValueError, UnicodeDecodeError) as e:
+            # Wrap parsing/encoding errors at the public API boundary
+            logger.exception(f"Sitemap strategy failed with {type(e).__name__}: {e}")
             raise CrawlerParseError(f"Parse error during URL discovery: {e}") from e
-        except Exception as e:
-            # Unexpected errors (including requests.InvalidURL, etc.) - wrap as base CrawlerError
-            # to avoid misrepresenting error type
-            logger.exception(f"Sitemap strategy failed: {e}")
-            raise CrawlerError(f"Unexpected error during URL discovery: {e}") from e
+        except (OSError, IOError) as e:
+            # Catch I/O errors specifically - these are external errors, not programming bugs
+            logger.exception(f"Sitemap strategy failed with I/O error: {e}")
+            raise CrawlerError(f"I/O error during URL discovery: {e}") from e
 
     def _discover_from_sitemap(self, max_pages: Optional[int] = None) -> list[str]:
         """
@@ -171,7 +175,11 @@ class KitchenSanctuaryCrawler:
                 if urls:
                     recipe_urls.extend(urls)
                     break  # Successfully found sitemap, stop trying other locations
-            except Exception as e:
+            except (requests.exceptions.RequestException, ssl.SSLError, ssl.CertificateError,
+                    ValueError, UnicodeDecodeError, OSError, IOError) as e:
+                # Try next sitemap location if this one fails with external errors
+                # This is a fallback/retry pattern for robustness - external errors only
+                # Programming errors (AttributeError, TypeError, KeyError) will propagate
                 logger.warning(f"Failed to fetch sitemap from {sitemap_url}: {e}")
                 continue
 
@@ -219,8 +227,9 @@ class KitchenSanctuaryCrawler:
             root = ET.fromstring(response.content)
         except ET.ParseError as e:
             raise ValueError(f"Failed to parse sitemap XML from {sitemap_url}: {e}")
-        except Exception as e:
-            raise ValueError(f"Error processing sitemap from {sitemap_url}: {e}")
+        except (UnicodeDecodeError, UnicodeError) as e:
+            # Catch encoding errors specifically - these are external data issues
+            raise ValueError(f"Encoding error processing sitemap from {sitemap_url}: {e}")
 
         # Define sitemap XML namespace for parsing
         namespace = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
@@ -264,8 +273,9 @@ class KitchenSanctuaryCrawler:
                                     sub_root = ET.fromstring(sub_response.content)
                                 except ET.ParseError as e:
                                     raise ValueError(f"Failed to parse sub-sitemap XML from {sub_sitemap_url}: {e}")
-                                except Exception as e:
-                                    raise ValueError(f"Error processing sub-sitemap from {sub_sitemap_url}: {e}")
+                                except (UnicodeDecodeError, UnicodeError) as e:
+                                    # Catch encoding errors specifically - these are external data issues
+                                    raise ValueError(f"Encoding error processing sub-sitemap from {sub_sitemap_url}: {e}")
 
                                 # Extract URLs from sub-sitemap
                                 urls = self._extract_recipe_urls_from_sitemap(sub_root, namespace)
@@ -273,7 +283,11 @@ class KitchenSanctuaryCrawler:
                                 pages_fetched += 1
                             else:
                                 logger.warning(f"robots.txt disallows {sub_sitemap_url}")
-                        except Exception as e:
+                        except (requests.exceptions.RequestException, ssl.SSLError, ssl.CertificateError,
+                                ValueError, UnicodeDecodeError, OSError, IOError) as e:
+                            # Continue processing other sub-sitemaps if one fails with external errors
+                            # Robustness pattern for partial failures - external errors only
+                            # Programming errors (AttributeError, TypeError, KeyError) will propagate
                             logger.warning(f"Failed to fetch sub-sitemap {sub_sitemap_url}: {e}")
                             continue
         else:
