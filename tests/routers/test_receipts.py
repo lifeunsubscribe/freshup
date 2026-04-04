@@ -296,6 +296,49 @@ def test_submit_receipt_invalid_token(client):
     assert response.status_code == 401
 
 
+# --- Error Cases: Multi-Tenant Isolation ---
+
+
+def test_submit_receipt_creates_task_for_authenticated_user_only(
+    client, db_session, test_user, other_user, auth_headers
+):
+    """Test that submitted receipts create tasks owned by the authenticated user only.
+
+    Multi-tenant isolation: Verify that when a user submits a receipt, the created
+    task belongs to them and not to any other user in the system.
+    """
+    request_data = {
+        "receipt_text": "TARGET\n04/01/2026\nApples 5.99\nBread 2.49",
+        "store_name": "Target"
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    task_id = UUID(data["task_id"])
+
+    # Verify task exists and belongs to authenticated user (test_user)
+    task = db_session.query(ProcessingTask).filter(
+        ProcessingTask.id == task_id
+    ).first()
+    assert task is not None
+    assert task.user_id == test_user.id
+
+    # Verify task does NOT belong to other_user
+    assert task.user_id != other_user.id
+
+    # Verify other_user has no tasks
+    other_user_tasks = db_session.query(ProcessingTask).filter(
+        ProcessingTask.user_id == other_user.id
+    ).all()
+    assert len(other_user_tasks) == 0
+
+
 # --- Error Cases: Validation ---
 
 
