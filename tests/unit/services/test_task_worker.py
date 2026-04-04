@@ -768,3 +768,308 @@ def test_recover_stale_tasks_zero_retry_limit():
     assert stale_task.status == TaskStatus.failed.value
     assert stale_task.error_message is not None
     mock_session.commit.assert_called_once()
+
+
+# ============================================================================
+# STORE-AWARE RECEIPT PARSING TESTS (Phase 4A)
+# ============================================================================
+
+@pytest.fixture
+def mock_task_with_json_input():
+    """Create a mock ProcessingTask with JSON input (new format)."""
+    task = MagicMock(spec=ProcessingTask)
+    task.id = uuid4()
+    task.task_type = TaskType.receipt_parse.value
+    task.status = TaskStatus.pending.value
+    task.input_reference = '{"receipt_text": "Costco\\n2024-03-29\\nBananas $3.99", "store_name": "Costco"}'
+    task.result_reference = None
+    task.error_message = None
+    task.created_at = datetime.now(timezone.utc)
+    task.completed_at = None
+    task.retry_count = 0
+    return task
+
+
+@pytest.fixture
+def mock_store():
+    """Create a mock Store with parsing_profile."""
+    from src.db.models.store import Store
+    store = MagicMock(spec=Store)
+    store.id = uuid4()
+    store.name = "Costco"
+    store.has_digital_receipts = False
+    store.parsing_profile = {
+        "item_name_patterns": ["Kirkland Signature", "Organic"],
+        "quantity_patterns": ["2-pack", "ct"],
+        "price_format_hints": ["$/oz", "$/lb"],
+        "common_abbreviations": {"ORG": "Organic", "KS": "Kirkland Signature"}
+    }
+    return store
+
+
+@pytest.mark.asyncio
+async def test_process_receipt_task_with_json_input_and_store_hints(
+    mock_task_with_json_input,
+    mock_session,
+    mock_ollama_client,
+    mock_store,
+    sample_receipt_result
+):
+    """Test processing task with JSON input and store hints lookup."""
+    # Configure mock to return valid result
+    mock_ollama_client.complete.return_value = sample_receipt_result
+
+    # Mock database query to return store with parsing_profile
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_store
+    mock_session.execute.return_value = mock_result
+
+    # Process the task
+    await process_receipt_task(mock_task_with_json_input, mock_session, mock_ollama_client)
+
+    # Verify store lookup was performed (case-insensitive)
+    mock_session.execute.assert_called_once()
+
+    # Verify OllamaClient was called
+    mock_ollama_client.complete.assert_called_once()
+    call_args = mock_ollama_client.complete.call_args[1]
+
+    # Verify prompt includes receipt text
+    assert "Costco" in call_args["prompt"]
+    assert "Bananas $3.99" in call_args["prompt"]
+
+    # Verify prompt includes store-specific hints
+    assert "Store-specific parsing hints:" in call_args["prompt"]
+    assert "Kirkland Signature" in call_args["prompt"]
+    assert "ORG=Organic" in call_args["prompt"]
+
+    # Verify task was updated correctly
+    assert mock_task_with_json_input.status == TaskStatus.completed.value
+    assert mock_task_with_json_input.result_reference is not None
+    assert mock_task_with_json_input.completed_at is not None
+
+    # Verify session commit was called
+    mock_session.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_receipt_task_with_json_input_store_not_found(
+    mock_task_with_json_input,
+    mock_session,
+    mock_ollama_client,
+    sample_receipt_result
+):
+    """Test processing task when store is not found (should use generic prompt)."""
+    # Configure mock to return valid result
+    mock_ollama_client.complete.return_value = sample_receipt_result
+
+    # Mock database query to return None (store not found)
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_session.execute.return_value = mock_result
+
+    # Process the task (should not raise error)
+    await process_receipt_task(mock_task_with_json_input, mock_session, mock_ollama_client)
+
+    # Verify store lookup was attempted
+    mock_session.execute.assert_called_once()
+
+    # Verify OllamaClient was called
+    mock_ollama_client.complete.assert_called_once()
+    call_args = mock_ollama_client.complete.call_args[1]
+
+    # Verify prompt does NOT include store-specific hints
+    assert "Store-specific parsing hints:" not in call_args["prompt"]
+
+    # Verify prompt includes receipt text
+    assert "Costco" in call_args["prompt"]
+    assert "Bananas $3.99" in call_args["prompt"]
+
+    # Verify task completed successfully
+    assert mock_task_with_json_input.status == TaskStatus.completed.value
+
+
+@pytest.mark.asyncio
+async def test_process_receipt_task_with_json_input_null_parsing_profile(
+    mock_task_with_json_input,
+    mock_session,
+    mock_ollama_client,
+    mock_store,
+    sample_receipt_result
+):
+    """Test processing task when store has null parsing_profile."""
+    # Configure mock to return valid result
+    mock_ollama_client.complete.return_value = sample_receipt_result
+
+    # Mock store with null parsing_profile
+    mock_store.parsing_profile = None
+
+    # Mock database query to return store
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_store
+    mock_session.execute.return_value = mock_result
+
+    # Process the task (should not raise error)
+    await process_receipt_task(mock_task_with_json_input, mock_session, mock_ollama_client)
+
+    # Verify OllamaClient was called
+    mock_ollama_client.complete.assert_called_once()
+    call_args = mock_ollama_client.complete.call_args[1]
+
+    # Verify prompt does NOT include store-specific hints
+    assert "Store-specific parsing hints:" not in call_args["prompt"]
+
+    # Verify task completed successfully
+    assert mock_task_with_json_input.status == TaskStatus.completed.value
+
+
+@pytest.mark.asyncio
+async def test_process_receipt_task_with_plain_text_input(
+    mock_task,
+    mock_session,
+    mock_ollama_client,
+    sample_receipt_result
+):
+    """Test backward compatibility with plain text input (legacy format)."""
+    # Configure mock to return valid result
+    mock_ollama_client.complete.return_value = sample_receipt_result
+
+    # Process the task with plain text input_reference
+    await process_receipt_task(mock_task, mock_session, mock_ollama_client)
+
+    # Verify NO store lookup was attempted (plain text has no store_name)
+    mock_session.execute.assert_not_called()
+
+    # Verify OllamaClient was called
+    mock_ollama_client.complete.assert_called_once()
+    call_args = mock_ollama_client.complete.call_args[1]
+
+    # Verify prompt includes receipt text
+    assert "Costco" in call_args["prompt"]
+    assert "Bananas $3.99" in call_args["prompt"]
+
+    # Verify prompt does NOT include store-specific hints
+    assert "Store-specific parsing hints:" not in call_args["prompt"]
+
+    # Verify task completed successfully
+    assert mock_task.status == TaskStatus.completed.value
+
+
+@pytest.mark.asyncio
+async def test_process_receipt_task_with_json_missing_receipt_text():
+    """Test handling of malformed JSON input (missing receipt_text field)."""
+    from src.schemas.receipt import ReceiptParseResult, ReceiptLineItem
+
+    # Create task with JSON missing receipt_text
+    task = MagicMock(spec=ProcessingTask)
+    task.id = uuid4()
+    task.input_reference = '{"store_name": "Costco"}'
+
+    mock_session = MagicMock()
+    mock_session.commit = MagicMock()
+
+    mock_ollama_client = AsyncMock()
+    mock_ollama_client.complete.return_value = ReceiptParseResult(
+        store_name="Costco",
+        receipt_date="2024-03-29",
+        line_items=[
+            ReceiptLineItem(
+                item_name="Bananas",
+                quantity=1.0,
+                total_price=3.99,
+                category_guess="produce"
+            )
+        ]
+    )
+
+    # Process the task (should fall back to treating JSON as receipt text)
+    await process_receipt_task(task, mock_session, mock_ollama_client)
+
+    # Verify OllamaClient was called
+    mock_ollama_client.complete.assert_called_once()
+
+    # Verify task completed successfully (fallback behavior)
+    assert task.status == TaskStatus.completed.value
+
+
+@pytest.mark.asyncio
+async def test_process_receipt_task_with_json_input_without_store_name():
+    """Test JSON input without store_name field (should use generic prompt)."""
+    from src.schemas.receipt import ReceiptParseResult, ReceiptLineItem
+
+    # Create task with JSON but no store_name
+    task = MagicMock(spec=ProcessingTask)
+    task.id = uuid4()
+    task.input_reference = '{"receipt_text": "Target\\n2024-04-01\\nBread $2.49"}'
+
+    mock_session = MagicMock()
+    mock_session.commit = MagicMock()
+    mock_session.execute = MagicMock()
+
+    mock_ollama_client = AsyncMock()
+    mock_ollama_client.complete.return_value = ReceiptParseResult(
+        store_name="Target",
+        receipt_date="2024-04-01",
+        line_items=[
+            ReceiptLineItem(
+                item_name="Bread",
+                quantity=1.0,
+                total_price=2.49,
+                category_guess="grain"
+            )
+        ]
+    )
+
+    # Process the task
+    await process_receipt_task(task, mock_session, mock_ollama_client)
+
+    # Verify NO store lookup was attempted (no store_name in input)
+    mock_session.execute.assert_not_called()
+
+    # Verify OllamaClient was called
+    mock_ollama_client.complete.assert_called_once()
+    call_args = mock_ollama_client.complete.call_args[1]
+
+    # Verify prompt does NOT include store-specific hints
+    assert "Store-specific parsing hints:" not in call_args["prompt"]
+
+    # Verify task completed successfully
+    assert task.status == TaskStatus.completed.value
+
+
+@pytest.mark.asyncio
+async def test_process_receipt_task_case_insensitive_store_lookup(
+    mock_session,
+    mock_ollama_client,
+    mock_store,
+    sample_receipt_result
+):
+    """Test that store lookup is case-insensitive."""
+    from sqlalchemy.sql import func
+
+    # Create task with lowercase store name
+    task = MagicMock(spec=ProcessingTask)
+    task.id = uuid4()
+    task.input_reference = '{"receipt_text": "Receipt text", "store_name": "costco"}'
+
+    # Configure mock to return valid result
+    mock_ollama_client.complete.return_value = sample_receipt_result
+
+    # Mock database query to return store
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_store
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = MagicMock()
+
+    # Process the task
+    await process_receipt_task(task, mock_session, mock_ollama_client)
+
+    # Verify store lookup was performed
+    mock_session.execute.assert_called_once()
+
+    # Verify task completed successfully with hints
+    assert task.status == TaskStatus.completed.value
+
+    # Verify prompt includes store-specific hints (case-insensitive match worked)
+    call_args = mock_ollama_client.complete.call_args[1]
+    assert "Store-specific parsing hints:" in call_args["prompt"]

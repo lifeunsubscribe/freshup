@@ -63,14 +63,75 @@ USER_PROMPT_TEMPLATE = """Parse the following grocery receipt text into structur
 Remember: Return ONLY valid JSON with no additional text or formatting."""
 
 
-def create_user_prompt(receipt_text: str) -> str:
+# User prompt template with store-specific hints
+USER_PROMPT_WITH_HINTS_TEMPLATE = """Parse the following grocery receipt text into structured JSON:
+
+{receipt_text}
+
+{store_hints_section}
+
+Remember: Return ONLY valid JSON with no additional text or formatting."""
+
+
+def create_user_prompt(receipt_text: str, store_hints: dict | None = None) -> str:
     """
-    Create a user prompt for receipt parsing.
+    Create a user prompt for receipt parsing, optionally with store-specific hints.
 
     Args:
         receipt_text: Raw text extracted from receipt (from OCR or digital source)
+        store_hints: Optional dict containing store-specific parsing hints:
+            - item_name_patterns: List of common product name patterns
+            - quantity_patterns: List of bulk quantity indicators
+            - price_format_hints: List of price display formats
+            - common_abbreviations: Dict mapping abbreviations to full terms
 
     Returns:
         Formatted prompt ready to send to LLM
+
+    Examples:
+        >>> # Generic prompt without hints
+        >>> prompt = create_user_prompt("Costco\\n2024-03-29\\nBananas $3.99")
+
+        >>> # Store-aware prompt with Costco hints
+        >>> hints = {
+        ...     "item_name_patterns": ["Kirkland Signature", "Organic"],
+        ...     "common_abbreviations": {"ORG": "Organic", "KS": "Kirkland Signature"}
+        ... }
+        >>> prompt = create_user_prompt("Costco\\n2024-03-29\\nKS ORG Bananas", hints)
     """
-    return USER_PROMPT_TEMPLATE.format(receipt_text=receipt_text)
+    # If no store hints provided, use generic template (backward compatible)
+    if not store_hints:
+        return USER_PROMPT_TEMPLATE.format(receipt_text=receipt_text)
+
+    # Build store-specific hints section
+    hints_parts = ["Store-specific parsing hints:"]
+
+    # Add item name patterns if provided
+    if "item_name_patterns" in store_hints and store_hints["item_name_patterns"]:
+        patterns = store_hints["item_name_patterns"]
+        hints_parts.append(f"- Common product patterns: {', '.join(patterns)}")
+
+    # Add quantity patterns if provided
+    if "quantity_patterns" in store_hints and store_hints["quantity_patterns"]:
+        patterns = store_hints["quantity_patterns"]
+        hints_parts.append(f"- Bulk quantity indicators: {', '.join(patterns)}")
+
+    # Add price format hints if provided
+    if "price_format_hints" in store_hints and store_hints["price_format_hints"]:
+        formats = store_hints["price_format_hints"]
+        hints_parts.append(f"- Price formats: {', '.join(formats)}")
+
+    # Add common abbreviations if provided
+    if "common_abbreviations" in store_hints and store_hints["common_abbreviations"]:
+        abbrevs = store_hints["common_abbreviations"]
+        abbrev_list = [f"{k}={v}" for k, v in abbrevs.items()]
+        hints_parts.append(f"- Abbreviations: {', '.join(abbrev_list)}")
+
+    # Join all hint parts into a cohesive section
+    store_hints_section = "\n".join(hints_parts)
+
+    # Return prompt with store hints
+    return USER_PROMPT_WITH_HINTS_TEMPLATE.format(
+        receipt_text=receipt_text,
+        store_hints_section=store_hints_section
+    )
