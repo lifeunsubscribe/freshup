@@ -10,7 +10,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
-from src.db.models.inventory_item import InventoryItem, Shareability
+from src.db.models.inventory_item import InventoryItem
 from src.schemas.inventory import InventoryItemCreate
 
 logger = logging.getLogger(__name__)
