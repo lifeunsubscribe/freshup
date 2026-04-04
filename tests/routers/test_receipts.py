@@ -10,11 +10,12 @@ Tests cover:
 - Input validation: empty items, invalid enums, receipt text length, etc.
 """
 
+import json
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from uuid import uuid4
+from uuid import uuid4, UUID
 from datetime import datetime, timezone
 
 from src.db.database import Base, get_db
@@ -220,7 +221,6 @@ def test_submit_receipt_success(client, db_session, test_user, auth_headers):
 
     # Verify task exists in database
     # Convert string UUID from JSON response to UUID object for database query
-    from uuid import UUID
     task_id = UUID(data["task_id"])
     task = db_session.query(ProcessingTask).filter(
         ProcessingTask.id == task_id
@@ -231,7 +231,6 @@ def test_submit_receipt_success(client, db_session, test_user, auth_headers):
     assert task.status == TaskStatus.pending.value
 
     # Verify input_reference contains JSON with receipt_text and store_name
-    import json
     input_data = json.loads(task.input_reference)
     assert input_data["receipt_text"] == request_data["receipt_text"]
     assert input_data["store_name"] == request_data["store_name"]
@@ -256,12 +255,10 @@ def test_submit_receipt_without_store_name(client, db_session, test_user, auth_h
 
     # Verify task exists with null store_name
     # Convert string UUID from JSON response to UUID object for database query
-    from uuid import UUID
     task_id = UUID(data["task_id"])
     task = db_session.query(ProcessingTask).filter(
         ProcessingTask.id == task_id
     ).first()
-    import json
     input_data = json.loads(task.input_reference)
     assert input_data["receipt_text"] == request_data["receipt_text"]
     assert input_data["store_name"] is None

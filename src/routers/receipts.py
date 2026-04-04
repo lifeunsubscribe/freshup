@@ -78,10 +78,6 @@ def submit_receipt_for_processing(
         store_name=request.store_name,
     )
 
-    logger.info(
-        f"Receipt submitted: user_id={current_user.id}, task_id={task.id}"
-    )
-
     return ReceiptSubmitResponse(
         task_id=task.id,
         status=task.status,
