@@ -98,6 +98,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove Costco store record."""
+    # Use the same ID as in upgrade for consistency
+    costco_id = "a1b2c3d4-e5f6-4789-0abc-def123456789"
     op.execute(
-        sa.text("DELETE FROM stores WHERE name = 'Costco'")
+        sa.text("DELETE FROM stores WHERE id = :id").bindparams(id=costco_id)
     )
