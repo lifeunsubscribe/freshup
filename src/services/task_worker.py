@@ -13,15 +13,18 @@ Per ADR Section 2A: Background Task Processing
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 
 from src.config import get_settings
 from src.db.database import get_session_factory
 from src.db.models.processing_task import ProcessingTask, TaskStatus, TaskType
+from src.db.models.store import Store
 from src.schemas.receipt import ReceiptParseResult
 from src.services.llm.client import OllamaClient
 from src.services.llm.exceptions import LLMUnavailableError, LLMResponseError
@@ -40,8 +43,9 @@ async def process_receipt_task(
     """
     Process a single receipt parsing task.
 
-    Extracts receipt text from input_reference, sends to OllamaClient for parsing,
-    and updates the task with the result or error.
+    Extracts receipt text from input_reference, optionally looks up store-specific
+    parsing hints, sends to OllamaClient for parsing, and updates the task with
+    the result or error.
 
     Args:
         task: The ProcessingTask to process
@@ -51,14 +55,75 @@ async def process_receipt_task(
     Raises:
         LLMUnavailableError: If Ollama is unreachable (task should stay pending)
         LLMResponseError: If LLM response validation fails after retries
-    """
-    # Extract receipt text from input_reference
-    # For now, input_reference contains the raw receipt text directly
-    # In future, this could be a file path or S3 reference
-    receipt_text = task.input_reference
 
-    # Create user prompt from receipt text
-    user_prompt = create_user_prompt(receipt_text)
+    Input Format:
+        input_reference can be either:
+        1. Plain text (legacy format): "Costco\\n2024-03-29\\nBananas $3.99"
+        2. JSON (new format): {"receipt_text": "...", "store_name": "Costco"}
+    """
+    # Parse input_reference to extract receipt text and optional store name
+    receipt_text = None
+    store_name = None
+
+    # Try to parse as JSON first (new format with store_name support)
+    try:
+        input_data = json.loads(task.input_reference)
+        receipt_text = input_data.get("receipt_text")
+        store_name = input_data.get("store_name")
+
+        if not receipt_text:
+            # JSON format but missing required receipt_text field
+            logger.warning(
+                "Task input is JSON but missing 'receipt_text' field",
+                extra={"task_id": str(task.id)}
+            )
+            # Fall back to treating entire input as receipt text
+            receipt_text = task.input_reference
+            store_name = None
+
+    except (json.JSONDecodeError, TypeError):
+        # Not valid JSON - treat as plain text (backward compatible)
+        receipt_text = task.input_reference
+        store_name = None
+        logger.debug(
+            "Task input is plain text (not JSON), using generic prompt",
+            extra={"task_id": str(task.id)}
+        )
+
+    # Look up store parsing profile if store_name provided
+    store_hints = None
+    if store_name:
+        # Query Store table for matching store (case-insensitive)
+        stmt = select(Store).where(func.lower(Store.name) == func.lower(store_name))
+        result = session.execute(stmt)
+        store = result.scalar_one_or_none()
+
+        if store and store.parsing_profile:
+            # Store found with parsing profile - use it
+            store_hints = store.parsing_profile
+            logger.info(
+                "Using store-specific parsing hints",
+                extra={
+                    "task_id": str(task.id),
+                    "store_name": store.name,
+                    "has_hints": bool(store_hints)
+                }
+            )
+        elif store and not store.parsing_profile:
+            # Store found but no parsing profile - continue with generic prompt
+            logger.debug(
+                "Store found but has no parsing_profile, using generic prompt",
+                extra={"task_id": str(task.id), "store_name": store.name}
+            )
+        else:
+            # Store not found - continue with generic prompt (no error)
+            logger.debug(
+                "Store not found in database, using generic prompt",
+                extra={"task_id": str(task.id), "store_name": store_name}
+            )
+
+    # Create user prompt with optional store hints
+    user_prompt = create_user_prompt(receipt_text, store_hints=store_hints)
 
     # Call Ollama to parse the receipt
     # This raises LLMUnavailableError or LLMResponseError on failure
@@ -83,7 +148,8 @@ async def process_receipt_task(
         extra={
             "task_id": str(task.id),
             "store_name": result.store_name,
-            "line_item_count": len(result.line_items)
+            "line_item_count": len(result.line_items),
+            "used_store_hints": bool(store_hints)
         }
     )
 
