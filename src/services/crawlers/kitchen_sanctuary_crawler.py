@@ -97,6 +97,15 @@ class KitchenSanctuaryCrawler:
         Parses WordPress sitemap.xml to extract recipe URLs, filtering out
         non-recipe pages (category, tag, about, contact, etc.).
 
+        Exception Handling:
+            This method uses standardized exception handling (aligned with HelloFreshCrawler):
+            - InvalidURL -> CrawlerNetworkError
+            - RequestException (Connection, Timeout, HTTP errors) -> CrawlerNetworkError
+            - SSL/Certificate errors -> CrawlerNetworkError
+            - Parsing errors (ValueError, UnicodeDecodeError) -> CrawlerParseError
+            - I/O errors (OSError, IOError) -> CrawlerError
+            - Programming errors (AttributeError, TypeError, etc.) propagate unchanged
+
         Args:
             max_pages: Maximum number of sitemap pages to crawl. None means no limit.
                       Used primarily for testing.
@@ -123,6 +132,11 @@ class KitchenSanctuaryCrawler:
         except (CrawlerNetworkError, CrawlerParseError):
             # Re-raise crawler exceptions as-is (already wrapped)
             raise
+        except requests.exceptions.InvalidURL as e:
+            # Wrap malformed URLs from external data at the public API boundary
+            # This catches InvalidURL exceptions from external sitemaps - these are external data errors
+            logger.exception(f"Sitemap strategy failed with invalid URL: {e}")
+            raise CrawlerNetworkError(f"Invalid URL during URL discovery: {e}") from e
         except requests.exceptions.RequestException as e:
             # Wrap actual network errors at the public API boundary
             # This catches all requests exceptions: ConnectionError, Timeout, HTTPError, etc.
