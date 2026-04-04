@@ -211,6 +211,86 @@ class TestHelloFreshCrawlerUnit:
         assert crawler.robots_parser.user_agent.startswith("FreshUp-Crawler")
 
 
+class TestErrorMessageConstruction:
+    """Unit tests for error message construction helper method."""
+
+    def test_build_error_message_without_sitemap_exception(self):
+        """Test error message construction when sitemap strategy didn't fail."""
+        crawler = HelloFreshCrawler()
+
+        test_error = ValueError("Invalid data format")
+        result = crawler._build_error_message_with_context(
+            "Parse error",
+            test_error,
+            None
+        )
+
+        expected = "Parse error during URL discovery: Invalid data format"
+        assert result == expected
+
+    def test_build_error_message_with_sitemap_exception(self):
+        """Test error message construction when sitemap strategy also failed."""
+        crawler = HelloFreshCrawler()
+
+        test_error = ValueError("Invalid data format")
+        sitemap_error = ConnectionError("Connection timeout")
+
+        result = crawler._build_error_message_with_context(
+            "Parse error",
+            test_error,
+            sitemap_error
+        )
+
+        expected = "Parse error during URL discovery: Invalid data format. Sitemap strategy also failed: Connection timeout"
+        assert result == expected
+
+    def test_build_error_message_different_error_types(self):
+        """Test error message construction with different error type strings."""
+        crawler = HelloFreshCrawler()
+
+        test_error = RuntimeError("Test error")
+
+        # Test with "Network error"
+        result1 = crawler._build_error_message_with_context(
+            "Network error",
+            test_error,
+            None
+        )
+        assert result1 == "Network error during URL discovery: Test error"
+
+        # Test with "SSL error"
+        result2 = crawler._build_error_message_with_context(
+            "SSL error",
+            test_error,
+            None
+        )
+        assert result2 == "SSL error during URL discovery: Test error"
+
+        # Test with "Invalid URL"
+        result3 = crawler._build_error_message_with_context(
+            "Invalid URL",
+            test_error,
+            None
+        )
+        assert result3 == "Invalid URL during URL discovery: Test error"
+
+    def test_build_error_message_exception_str_representation(self):
+        """Test that exceptions are properly stringified in error messages."""
+        crawler = HelloFreshCrawler()
+
+        # Create exceptions with different string representations
+        error_with_args = ValueError("arg1", "arg2")
+        result = crawler._build_error_message_with_context(
+            "Parse error",
+            error_with_args,
+            None
+        )
+
+        # Should contain the string representation of the exception
+        assert "Parse error during URL discovery:" in result
+        assert str(error_with_args) in result
+
+
 class TestBaseCrawlerUtilities:
     """Unit tests for base crawler utilities."""
 
