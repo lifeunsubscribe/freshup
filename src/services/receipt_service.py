@@ -86,9 +86,11 @@ def submit_receipt(
             detail="An error occurred while submitting the receipt"
         )
 
+    # Sanitize store_name for logging to prevent log injection
+    safe_store_name = store_name.replace('\n', ' ').replace('\r', ' ') if store_name else None
     logger.info(
         f"Receipt submitted for processing: user_id={user_id}, "
-        f"task_id={task.id}, store_name={store_name}"
+        f"task_id={task.id}, store_name={safe_store_name}"
     )
 
     return task
