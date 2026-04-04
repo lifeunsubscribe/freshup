@@ -189,6 +189,25 @@ class TestKitchenSanctuaryCrawlerExceptionWrapping:
 
     @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._configure_from_robots_txt')
     @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._discover_from_sitemap')
+    def test_invalid_url_error_wrapping(self, mock_discover_sitemap, mock_robots_config):
+        """Test that requests.exceptions.InvalidURL is wrapped in CrawlerNetworkError."""
+        crawler = KitchenSanctuaryCrawler()
+
+        # Mock sitemap strategy to raise InvalidURL error
+        mock_discover_sitemap.side_effect = requests.exceptions.InvalidURL("Invalid URL format")
+
+        # Should raise CrawlerNetworkError, not requests.exceptions.InvalidURL
+        with pytest.raises(CrawlerNetworkError) as exc_info:
+            crawler.discover_recipe_urls()
+
+        # Verify the error message contains context
+        assert "Invalid URL during URL discovery" in str(exc_info.value)
+
+        # Verify original exception is chained
+        assert isinstance(exc_info.value.__cause__, requests.exceptions.InvalidURL)
+
+    @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._configure_from_robots_txt')
+    @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._discover_from_sitemap')
     def test_parse_error_wrapping(self, mock_discover_sitemap, mock_robots_config):
         """Test that ValueError from parsing is wrapped in CrawlerParseError."""
         crawler = KitchenSanctuaryCrawler()
@@ -248,15 +267,16 @@ class TestNoLeakyAbstractions:
 
     @patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._configure_from_robots_txt')
     @patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._discover_from_sitemap')
-    def test_discover_urls_never_raises_requests_exception(self, mock_discover_sitemap, mock_robots_config):
-        """Test that discover_recipe_urls never raises requests.exceptions.*"""
+    def test_hellofresh_discover_urls_never_raises_requests_exception(self, mock_discover_sitemap, mock_robots_config):
+        """Test that HelloFresh discover_recipe_urls never raises requests.exceptions.*"""
         crawler = HelloFreshCrawler()
 
-        # Try various requests exceptions
+        # Try various requests exceptions, including InvalidURL
         exceptions_to_test = [
             requests.exceptions.ConnectionError("Connection failed"),
             requests.exceptions.Timeout("Timeout"),
             requests.exceptions.HTTPError("HTTP Error"),
+            requests.exceptions.InvalidURL("Invalid URL format"),
             requests.exceptions.RequestException("Generic error"),
         ]
 
@@ -280,3 +300,35 @@ class TestNoLeakyAbstractions:
                 except CrawlerNetworkError:
                     # This is expected
                     pass
+
+    @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._configure_from_robots_txt')
+    @patch('src.services.crawlers.kitchen_sanctuary_crawler.KitchenSanctuaryCrawler._discover_from_sitemap')
+    def test_kitchen_sanctuary_discover_urls_never_raises_requests_exception(self, mock_discover_sitemap, mock_robots_config):
+        """Test that KitchenSanctuary discover_recipe_urls never raises requests.exceptions.*"""
+        crawler = KitchenSanctuaryCrawler()
+
+        # Try various requests exceptions, including InvalidURL
+        exceptions_to_test = [
+            requests.exceptions.ConnectionError("Connection failed"),
+            requests.exceptions.Timeout("Timeout"),
+            requests.exceptions.HTTPError("HTTP Error"),
+            requests.exceptions.InvalidURL("Invalid URL format"),
+            requests.exceptions.RequestException("Generic error"),
+        ]
+
+        for exc in exceptions_to_test:
+            # Mock sitemap strategy to fail
+            mock_discover_sitemap.side_effect = exc
+
+            # Should raise CrawlerNetworkError, not the original requests exception
+            with pytest.raises(CrawlerNetworkError):
+                crawler.discover_recipe_urls()
+
+            # Explicitly verify it does NOT raise requests.exceptions
+            try:
+                crawler.discover_recipe_urls()
+            except requests.exceptions.RequestException:
+                pytest.fail("discover_recipe_urls() leaked a requests.exceptions.RequestException")
+            except CrawlerNetworkError:
+                # This is expected
+                pass
