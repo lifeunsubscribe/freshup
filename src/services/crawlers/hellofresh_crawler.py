@@ -96,6 +96,15 @@ class HelloFreshCrawler:
         Attempts to discover URLs using sitemap.xml first, falling back to
         paginated category crawling if sitemap is unavailable or fails.
 
+        Exception Handling:
+            This method uses standardized exception handling (aligned with KitchenSanctuaryCrawler):
+            - InvalidURL -> CrawlerNetworkError
+            - RequestException (Connection, Timeout, HTTP errors) -> CrawlerNetworkError
+            - SSL/Certificate errors -> CrawlerNetworkError
+            - Parsing errors (ValueError, UnicodeDecodeError) -> CrawlerParseError
+            - I/O errors (OSError, IOError) -> CrawlerError
+            - Programming errors (AttributeError, TypeError, etc.) propagate unchanged
+
         Args:
             max_pages: Maximum number of pages to crawl (for fallback strategy only).
                       None means no limit. Used primarily for testing.
