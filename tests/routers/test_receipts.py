@@ -26,7 +26,7 @@ from src.db.models.processing_task import ProcessingTask, TaskStatus, TaskType
 from src.services.auth_service import hash_password, create_access_token
 
 from fastapi import FastAPI
-from src.routers import receipts_router
+from src.routers import receipts_router, tasks_router
 
 # Create a test app without lifespan
 app = FastAPI(
@@ -35,8 +35,9 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Register the receipts router
+# Register the receipts and tasks routers
 app.include_router(receipts_router)
+app.include_router(tasks_router)
 
 
 # Create an in-memory SQLite database for testing
@@ -838,3 +839,192 @@ def test_confirm_receipt_empty_name(client, completed_task, auth_headers):
     )
 
     assert response.status_code == 422
+
+
+# --- Receipt Task Status Polling Tests ---
+
+# --- Success Cases ---
+
+
+def test_get_task_status_pending(client, pending_task, auth_headers):
+    """Test retrieving pending receipt task status."""
+    response = client.get(
+        f"/tasks/{pending_task.id}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(pending_task.id)
+    assert data["status"] == "pending"
+    assert data["parsed_result"] is None
+    assert data["error_message"] is None
+    assert data["completed_at"] is None
+    assert "created_at" in data
+
+
+def test_get_task_status_completed_with_result(client, db_session, test_user, auth_headers):
+    """Test retrieving completed receipt task with parsed result."""
+    # Create a completed task with valid ReceiptParseResult JSON
+    task = ProcessingTask(
+        id=uuid4(),
+        user_id=test_user.id,
+        task_type=TaskType.receipt_parse.value,
+        status=TaskStatus.completed.value,
+        input_reference='{"receipt_text": "test", "store_name": "Costco"}',
+        result_reference=json.dumps({
+            "store_name": "Costco Wholesale",
+            "receipt_date": "2026-04-01",
+            "line_items": [
+                {
+                    "item_name": "Bananas",
+                    "quantity": 3.0,
+                    "unit_price": 0.59,
+                    "total_price": 1.77,
+                    "category_guess": "produce"
+                },
+                {
+                    "item_name": "Milk 1 Gallon",
+                    "quantity": 2.0,
+                    "unit_price": 4.59,
+                    "total_price": 9.18,
+                    "category_guess": "dairy"
+                }
+            ]
+        }),
+        completed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(task)
+    db_session.commit()
+    db_session.refresh(task)
+
+    response = client.get(
+        f"/tasks/{task.id}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(task.id)
+    assert data["status"] == "completed"
+    assert data["error_message"] is None
+    assert data["completed_at"] is not None
+
+    # Verify parsed_result is present and correct
+    assert data["parsed_result"] is not None
+    parsed = data["parsed_result"]
+    assert parsed["store_name"] == "Costco Wholesale"
+    assert parsed["receipt_date"] == "2026-04-01"
+    assert len(parsed["line_items"]) == 2
+
+    # Verify first line item
+    item1 = parsed["line_items"][0]
+    assert item1["item_name"] == "Bananas"
+    assert item1["quantity"] == 3.0
+    assert item1["unit_price"] == 0.59
+    assert item1["total_price"] == 1.77
+    assert item1["category_guess"] == "produce"
+
+    # Verify second line item
+    item2 = parsed["line_items"][1]
+    assert item2["item_name"] == "Milk 1 Gallon"
+    assert item2["quantity"] == 2.0
+
+
+def test_get_task_status_processing(client, db_session, test_user, auth_headers):
+    """Test retrieving processing receipt task status."""
+    task = ProcessingTask(
+        id=uuid4(),
+        user_id=test_user.id,
+        task_type=TaskType.receipt_parse.value,
+        status=TaskStatus.processing.value,
+        input_reference='{"receipt_text": "test", "store_name": "Target"}',
+    )
+    db_session.add(task)
+    db_session.commit()
+    db_session.refresh(task)
+
+    response = client.get(
+        f"/tasks/{task.id}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(task.id)
+    assert data["status"] == "processing"
+    assert data["parsed_result"] is None
+    assert data["error_message"] is None
+    assert data["completed_at"] is None
+
+
+def test_get_task_status_failed(client, db_session, test_user, auth_headers):
+    """Test retrieving failed receipt task with error message."""
+    task = ProcessingTask(
+        id=uuid4(),
+        user_id=test_user.id,
+        task_type=TaskType.receipt_parse.value,
+        status=TaskStatus.failed.value,
+        input_reference='{"receipt_text": "test", "store_name": "Walmart"}',
+        error_message="LLM service unavailable: connection timeout",
+    )
+    db_session.add(task)
+    db_session.commit()
+    db_session.refresh(task)
+
+    response = client.get(
+        f"/tasks/{task.id}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(task.id)
+    assert data["status"] == "failed"
+    assert data["parsed_result"] is None
+    assert data["error_message"] == "LLM service unavailable: connection timeout"
+    assert data["completed_at"] is None
+
+
+# --- Error Cases ---
+
+
+def test_get_task_status_not_found(client, auth_headers):
+    """Test retrieving non-existent task returns 404."""
+    fake_task_id = uuid4()
+    response = client.get(
+        f"/tasks/{fake_task_id}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_get_task_status_no_auth(client, pending_task):
+    """Test retrieving task status requires authentication."""
+    response = client.get(f"/tasks/{pending_task.id}")
+
+    assert response.status_code == 401
+
+
+def test_get_task_status_invalid_token(client, pending_task):
+    """Test retrieving task status fails with invalid token."""
+    response = client.get(
+        f"/tasks/{pending_task.id}",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_get_task_status_other_user_task(client, other_user_task, auth_headers):
+    """Test users cannot access tasks owned by other users."""
+    response = client.get(
+        f"/tasks/{other_user_task.id}",
+        headers=auth_headers,
+    )
+
+    # Should return 404 to prevent information leakage
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()

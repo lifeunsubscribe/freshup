@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.db.models.processing_task import ProcessingTask, TaskStatus, TaskType
 from src.db.models.inventory_item import InventoryItem
-from src.schemas.receipt import ReceiptInventoryCandidate
+from src.schemas.receipt import ReceiptInventoryCandidate, ReceiptParseResult, ReceiptTaskStatusResponse
 from src.schemas.inventory import InventoryItemCreate
 from src.services.task_service import get_task_by_id
 from src.services.inventory_service import create_inventory_items_bulk
@@ -167,3 +167,68 @@ def confirm_receipt_items(
     )
 
     return created_items
+
+
+def get_receipt_task_status(
+    task_id: UUID,
+    user_id: UUID,
+    db: Session
+) -> Optional[ReceiptTaskStatusResponse]:
+    """
+    Get receipt task status with parsed result.
+
+    Retrieves a receipt parsing task and parses the result_reference JSON
+    into a ReceiptParseResult when the task status is 'completed'.
+
+    Multi-tenant isolation: Service layer validates task ownership to ensure
+    users can only access their own receipt parsing tasks.
+
+    Args:
+        task_id: ID of the receipt parsing task
+        user_id: ID of the authenticated user
+        db: Database session
+
+    Returns:
+        ReceiptTaskStatusResponse with parsed result if completed, None if task not found
+
+    Raises:
+        HTTPException(500): If result_reference JSON parsing fails for completed task
+    """
+    # Retrieve task with multi-tenant isolation
+    task = get_task_by_id(task_id, user_id, db)
+
+    if not task:
+        return None
+
+    # Parse result_reference into ReceiptParseResult if completed
+    parsed_result = None
+    if task.status == TaskStatus.completed.value and task.result_reference:
+        try:
+            # Parse JSON string into ReceiptParseResult schema
+            result_data = json.loads(task.result_reference)
+            parsed_result = ReceiptParseResult.model_validate(result_data)
+        except (json.JSONDecodeError, ValueError) as e:
+            # Log error but don't fail the request - return task status without parsed result
+            logger.error(
+                f"Failed to parse result_reference for task {task_id}: {e}"
+            )
+            logger.debug(f"Invalid result_reference content: {task.result_reference}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to parse receipt result"
+            )
+
+    # Build response
+    return ReceiptTaskStatusResponse(
+        id=task.id,
+        task_type=task.task_type,
+        status=task.status,
+        input_reference=task.input_reference,
+        result_reference=task.result_reference,
+        error_message=task.error_message,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+        processing_started_at=task.processing_started_at,
+        completed_at=task.completed_at,
+        parsed_result=parsed_result
+    )

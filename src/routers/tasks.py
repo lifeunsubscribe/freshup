@@ -7,14 +7,18 @@ to check task completion.
 """
 
 import logging
+from typing import Union
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
 from src.db.models.user import User
+from src.db.models.processing_task import TaskType
 from src.schemas.task import ProcessingTaskResponse
+from src.schemas.receipt import ReceiptTaskStatusResponse
 from src.services.task_service import get_task_by_id
+from src.services.receipt_service import get_receipt_task_status
 from src.middleware.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -22,7 +26,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
-@router.get("/{task_id}", response_model=ProcessingTaskResponse, status_code=status.HTTP_200_OK)
+@router.get("/{task_id}", response_model=Union[ReceiptTaskStatusResponse, ProcessingTaskResponse], status_code=status.HTTP_200_OK)
 def get_task_status(
     task_id: UUID,
     current_user: User = Depends(get_current_user),
@@ -32,6 +36,7 @@ def get_task_status(
     Get the status of a processing task.
 
     Returns the current status of a task and its result (if completed) or error (if failed).
+    For receipt parsing tasks, includes parsed ReceiptParseResult when status is 'completed'.
     Requires authentication. Users can only access their own tasks.
 
     Args:
@@ -40,11 +45,13 @@ def get_task_status(
         db: Database session
 
     Returns:
-        ProcessingTaskResponse with task status, metadata, and result/error if applicable
+        ReceiptTaskStatusResponse (for receipt tasks) or ProcessingTaskResponse (for other tasks)
+        with task status, metadata, and result/error if applicable
 
     Raises:
         HTTPException 404: Task not found or not owned by current user
         HTTPException 401: Unauthorized (no valid token)
+        HTTPException 500: If result parsing fails for receipt tasks
     """
     # Service layer enforces user_id filtering for defense-in-depth
     task = get_task_by_id(task_id, current_user.id, db)
@@ -56,4 +63,13 @@ def get_task_status(
             detail=f"Task with id {task_id} not found"
         )
 
+    # For receipt parsing tasks, return parsed result when completed
+    if task.task_type == TaskType.receipt_parse.value:
+        receipt_status = get_receipt_task_status(task_id, current_user.id, db)
+        if receipt_status:
+            return receipt_status
+        # Fallback to generic response if parsing fails (shouldn't happen)
+        return ProcessingTaskResponse.model_validate(task)
+
+    # For other task types, return generic response
     return ProcessingTaskResponse.model_validate(task)

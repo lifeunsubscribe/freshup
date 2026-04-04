@@ -135,7 +135,7 @@ def completed_task(db_session, test_user):
         task_type=TaskType.receipt_parse.value,
         status=TaskStatus.completed.value,
         input_reference="s3://bucket/receipts/completed-receipt.jpg",
-        result_reference='{"store_name": "Whole Foods", "total": 45.67, "items": []}',
+        result_reference='{"store_name": "Whole Foods", "receipt_date": null, "line_items": [{"item_name": "Test Item"}]}',
         completed_at=datetime.now(timezone.utc),
     )
     db_session.add(task)

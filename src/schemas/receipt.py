@@ -8,7 +8,7 @@ Per ADR Phase 4B: Receipt parsing handles messy OCR output from grocery receipts
 extracting store name, date, and line items with quantities and prices.
 """
 
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
@@ -320,4 +320,59 @@ class ReceiptSubmitResponse(BaseModel):
     message: str = Field(
         ...,
         description="Human-readable message"
+    )
+
+
+class ReceiptTaskStatusResponse(BaseModel):
+    """
+    Response body for receipt task status polling.
+
+    Returns task status with parsed receipt result when completed.
+    This schema extends ProcessingTaskResponse with parsed ReceiptParseResult
+    for client-side polling and result display.
+    """
+
+    id: UUID = Field(
+        ...,
+        description="Processing task ID"
+    )
+    task_type: str = Field(
+        ...,
+        description="Task type (receipt_parse)"
+    )
+    status: str = Field(
+        ...,
+        description="Task status: pending, processing, completed, or failed"
+    )
+    input_reference: str = Field(
+        ...,
+        description="Reference to input data"
+    )
+    result_reference: Optional[str] = Field(
+        default=None,
+        description="Reference to result data (raw JSON, use parsed_result for structured data)"
+    )
+    error_message: Optional[str] = Field(
+        default=None,
+        description="Error message if task failed (null otherwise)"
+    )
+    created_at: datetime = Field(
+        ...,
+        description="Task creation timestamp"
+    )
+    updated_at: datetime = Field(
+        ...,
+        description="Task last updated timestamp"
+    )
+    processing_started_at: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp when processing started (null if not started)"
+    )
+    completed_at: Optional[datetime] = Field(
+        default=None,
+        description="Task completion timestamp (null if not completed)"
+    )
+    parsed_result: Optional[ReceiptParseResult] = Field(
+        default=None,
+        description="Parsed receipt data (only present when status is 'completed')"
     )
