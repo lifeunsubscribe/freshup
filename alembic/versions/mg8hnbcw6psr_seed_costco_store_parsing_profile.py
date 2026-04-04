@@ -19,6 +19,9 @@ down_revision: Union[str, None] = 'lf9gmzbv5orr'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+# Deterministic UUID for Costco store (same across all environments)
+COSTCO_STORE_ID = "a1b2c3d4-e5f6-4789-0abc-def123456789"
+
 
 def upgrade() -> None:
     """
@@ -75,10 +78,6 @@ def upgrade() -> None:
         }
     }
 
-    # Generate a deterministic UUID for Costco (same across all environments)
-    # Using a fixed UUID allows for predictable foreign key references
-    costco_id = "a1b2c3d4-e5f6-4789-0abc-def123456789"
-
     # Insert Costco store with parsing profile
     # Using raw SQL with INSERT OR IGNORE for SQLite compatibility
     op.execute(
@@ -88,7 +87,7 @@ def upgrade() -> None:
             VALUES (:id, :name, :has_digital_receipts, :parsing_profile)
             """
         ).bindparams(
-            id=costco_id,
+            id=COSTCO_STORE_ID,
             name="Costco",
             has_digital_receipts=False,
             parsing_profile=json.dumps(costco_profile)
@@ -98,8 +97,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove Costco store record."""
-    # Use the same ID as in upgrade for consistency
-    costco_id = "a1b2c3d4-e5f6-4789-0abc-def123456789"
     op.execute(
-        sa.text("DELETE FROM stores WHERE id = :id").bindparams(id=costco_id)
+        sa.text("DELETE FROM stores WHERE id = :id").bindparams(id=COSTCO_STORE_ID)
     )
