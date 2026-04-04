@@ -32,7 +32,7 @@ def get_task_status(
     Get the status of a processing task.
 
     Returns the current status of a task and its result (if completed) or error (if failed).
-    Requires authentication.
+    Requires authentication. Users can only access their own tasks.
 
     Args:
         task_id: UUID of the task to retrieve
@@ -43,19 +43,14 @@ def get_task_status(
         ProcessingTaskResponse with task status, metadata, and result/error if applicable
 
     Raises:
-        HTTPException 404: Task not found
+        HTTPException 404: Task not found or not owned by current user
         HTTPException 401: Unauthorized (no valid token)
     """
-    task = get_task_by_id(task_id, db)
+    # Service layer enforces user_id filtering for defense-in-depth
+    task = get_task_by_id(task_id, current_user.id, db)
 
     if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task with id {task_id} not found"
-        )
-
-    # Verify ownership - users can only access their own tasks
-    if task.user_id != current_user.id:
+        # Return 404 for both not-found and unauthorized to prevent information disclosure
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Task with id {task_id} not found"
