@@ -131,6 +131,33 @@ class TestPIIPatterns:
             match = PIIPatterns.ZIP_CODE.search(text)
             assert match is None, f"Should not match port in: {text}"
 
+    def test_zip_code_pattern_excludes_query_params(self):
+        """ZIP code pattern should NOT match 5-digit numbers in query parameters.
+
+        Per Issue #425 (deferred from PR #424): Query parameter values should not
+        be redacted as ZIP codes to avoid false positives in error messages
+        containing URLs with numeric parameters.
+
+        This applies to ALL query parameters, even those named 'zip', because:
+        1. Query params are more likely to contain IDs than actual ZIP codes
+        2. The parameter name already provides context (e.g., '?zip=' reveals intent)
+        3. Avoiding false positives in URLs is more important than redacting
+           ZIP codes from query strings in error messages
+        """
+        # Should NOT match: 5-digit numbers in query parameter values
+        test_cases = [
+            "http://api.example.com/search?user_id=12345",
+            "https://example.com/orders?order_id=98765&status=pending",
+            "GET /products?page=54321",
+            "https://store.com/items?zip=90210",  # Even explicit zip params
+            "http://example.com/api?limit=10&offset=12345&sort=desc",
+            "?postal_code=94102",
+            "url=/search?location_id=12345",
+        ]
+        for url in test_cases:
+            match = PIIPatterns.ZIP_CODE.search(url)
+            assert match is None, f"Should not match query param in: {url}"
+
 
 class TestSanitizeExceptionMessage:
     """Test exception message sanitization."""
@@ -394,3 +421,49 @@ class TestIntegrationScenarios:
         # But actual ZIP code SHOULD be redacted
         assert "90210" not in result_mixed
         assert "[ZIP_REDACTED]" in result_mixed
+
+    def test_api_error_with_query_params_not_redacted(self):
+        """
+        Test that API errors with query parameters don't have values redacted.
+
+        Per Issue #425 (deferred from PR #424): Query parameter values should not
+        be redacted as ZIP codes to avoid false positives in error messages.
+        This is the real-world use case that motivated this issue.
+        """
+        # Test case 1: API error with user_id query parameter (the reported issue)
+        error_message = (
+            "Failed to fetch user: GET http://api.example.com/users?user_id=12345 "
+            "returned 500 Internal Server Error"
+        )
+        result = sanitize_exception_message(error_message)
+
+        # Query parameter should NOT be redacted
+        assert "?user_id=12345" in result
+        assert "[ZIP_REDACTED]" not in result
+
+        # Test case 2: Multiple query parameters with numeric values
+        error_message_multi = (
+            "Request failed: GET https://api.example.com/orders?"
+            "order_id=98765&user_id=12345&page=54321"
+        )
+        result_multi = sanitize_exception_message(error_message_multi)
+
+        # Query parameters should NOT be redacted
+        assert "order_id=98765" in result_multi
+        assert "user_id=12345" in result_multi
+        assert "page=54321" in result_multi
+        assert "[ZIP_REDACTED]" not in result_multi
+
+        # Test case 3: Combined URL with path, query params, AND actual ZIP code
+        error_message_combined = (
+            "API request failed for location 94102: "
+            "GET https://api.example.com/stores/12345?user_id=67890&limit=10"
+        )
+        result_combined = sanitize_exception_message(error_message_combined)
+
+        # URL path and query params should NOT be redacted
+        assert "/stores/12345" in result_combined
+        assert "user_id=67890" in result_combined
+        # But the standalone ZIP code SHOULD be redacted
+        assert "94102" not in result_combined
+        assert "[ZIP_REDACTED]" in result_combined

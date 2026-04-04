@@ -60,8 +60,9 @@ class PIIPatterns:
     # Use word boundaries and negative lookbehind to avoid matching:
     # - Port numbers (preceded by colon): localhost:12345
     # - URL path segments (preceded by slash): /users/12345
+    # - Query parameter values (preceded by equals): ?user_id=12345
     ZIP_CODE: Pattern[str] = re.compile(
-        r'(?<![:\/])\b\d{5}(?:-\d{4})?\b'
+        r'(?<![=:\/])\b\d{5}(?:-\d{4})?\b'
     )
 
 
