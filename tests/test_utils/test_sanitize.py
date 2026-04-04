@@ -99,6 +99,38 @@ class TestPIIPatterns:
             match = PIIPatterns.ZIP_CODE.search(text)
             assert match is not None, f"Failed to match: {zip_code}"
 
+    def test_zip_code_pattern_excludes_url_paths(self):
+        """ZIP code pattern should NOT match 5-digit numbers in URL paths.
+
+        Per Issue #409: URL path segments should not be redacted as ZIP codes
+        to avoid false positives in error messages containing URLs.
+        """
+        # Should NOT match: 5-digit numbers in URL paths
+        test_cases = [
+            "http://api.example.com/users/12345",
+            "https://example.com/orders/98765/items",
+            "GET /products/54321",
+            "https://example.com/zip/12345",
+            "/api/v1/resource/11111",
+        ]
+        for url in test_cases:
+            match = PIIPatterns.ZIP_CODE.search(url)
+            assert match is None, f"Should not match URL path in: {url}"
+
+    def test_zip_code_pattern_excludes_ports(self):
+        """ZIP code pattern should NOT match port numbers.
+
+        Existing behavior: port numbers should not be redacted as ZIP codes.
+        """
+        test_cases = [
+            "http://localhost:11434/api/generate",
+            "connect to 127.0.0.1:54321",
+            "server:12345",
+        ]
+        for text in test_cases:
+            match = PIIPatterns.ZIP_CODE.search(text)
+            assert match is None, f"Should not match port in: {text}"
+
 
 class TestSanitizeExceptionMessage:
     """Test exception message sanitization."""
@@ -330,3 +362,35 @@ class TestIntegrationScenarios:
         # Verify context is preserved
         assert "IntegrityError" in result
         assert "duplicate key" in result
+
+    def test_api_error_with_url_path_not_redacted(self):
+        """
+        Test that API errors with URLs don't have path segments redacted.
+
+        Per Issue #409: URL path segments should not be redacted as ZIP codes.
+        This ensures error messages with URLs remain useful for debugging.
+        """
+        # Test case 1: REST API error with numeric ID in path
+        error_message = (
+            "Failed to fetch user: GET http://api.example.com/users/12345 "
+            "returned 404 Not Found"
+        )
+        result = sanitize_exception_message(error_message)
+
+        # URL path should NOT be redacted
+        assert "/users/12345" in result
+        assert "[ZIP_REDACTED]" not in result
+        assert "api.example.com" in result
+
+        # Test case 2: Error with both URL and actual ZIP code
+        error_message_mixed = (
+            "API error for user at 90210: "
+            "GET https://example.com/orders/98765 failed"
+        )
+        result_mixed = sanitize_exception_message(error_message_mixed)
+
+        # URL path should NOT be redacted
+        assert "/orders/98765" in result_mixed
+        # But actual ZIP code SHOULD be redacted
+        assert "90210" not in result_mixed
+        assert "[ZIP_REDACTED]" in result_mixed
