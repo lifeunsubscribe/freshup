@@ -12,7 +12,9 @@ from datetime import date
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
-from src.schemas.validators import validate_name_not_empty
+from src.db.models.inventory_item import Category, UnitType, StorageLocation
+from src.schemas.validators import validate_name_not_empty, validate_enum_value, validate_non_negative
+from src.schemas.inventory import InventoryItemResponse
 
 
 class ReceiptLineItem(BaseModel):
@@ -129,3 +131,130 @@ class ReceiptParseResult(BaseModel):
         if not v:
             raise ValueError('Receipt must have at least one line item')
         return v
+
+
+class ReceiptInventoryCandidate(BaseModel):
+    """
+    A receipt line item ready for inventory confirmation.
+
+    Represents a parsed receipt item that users can review, edit, and confirm
+    to add to their inventory. Users can override any field before confirmation.
+
+    This schema bridges the gap between LLM-parsed receipt data (ReceiptLineItem)
+    and confirmed inventory items (InventoryItem).
+    """
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Item name (user can override parsed value)"
+    )
+    quantity: float = Field(
+        ...,
+        gt=0,
+        description="Quantity to add to inventory"
+    )
+    unit: str = Field(
+        ...,
+        description="Unit of measurement (must be valid UnitType enum value)"
+    )
+    category: str = Field(
+        ...,
+        description="Item category (must be valid Category enum value)"
+    )
+    storage_location: str = Field(
+        ...,
+        description="Storage location: pantry, fridge, or freezer"
+    )
+    price: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Price of the item (nullable, deferred)"
+    )
+
+    @field_validator('name')
+    @classmethod
+    def validate_name_field(cls, v: str) -> str:
+        """Ensure name is not empty or whitespace only."""
+        result = validate_name_not_empty(v)
+        return result  # type: ignore
+
+    @field_validator('quantity')
+    @classmethod
+    def validate_quantity_field(cls, v: float) -> float:
+        """Ensure quantity is positive."""
+        result = validate_non_negative('Quantity', v, allow_none=False)
+        if result is not None and result <= 0:
+            raise ValueError('Quantity must be positive')
+        return result  # type: ignore
+
+    @field_validator('price')
+    @classmethod
+    def validate_price_field(cls, v: Optional[float]) -> Optional[float]:
+        """Ensure price is non-negative if provided."""
+        return validate_non_negative('Price', v, allow_none=True)
+
+    @field_validator('unit')
+    @classmethod
+    def validate_unit_field(cls, v: str) -> str:
+        """Ensure unit is a valid UnitType enum value."""
+        result = validate_enum_value('Unit', v, UnitType, allow_none=False)
+        return result  # type: ignore
+
+    @field_validator('category')
+    @classmethod
+    def validate_category_field(cls, v: str) -> str:
+        """Ensure category is a valid Category enum value."""
+        result = validate_enum_value('Category', v, Category, allow_none=False)
+        return result  # type: ignore
+
+    @field_validator('storage_location')
+    @classmethod
+    def validate_storage_location_field(cls, v: str) -> str:
+        """Ensure storage_location is a valid StorageLocation enum value."""
+        result = validate_enum_value('Storage location', v, StorageLocation, allow_none=False)
+        return result  # type: ignore
+
+
+class ReceiptConfirmRequest(BaseModel):
+    """
+    Request body for receipt confirmation endpoint.
+
+    Contains the list of inventory candidates that the user has reviewed
+    and confirmed for addition to their inventory.
+    """
+
+    items: list[ReceiptInventoryCandidate] = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="List of confirmed items to add to inventory (must not be empty)"
+    )
+
+    @field_validator('items')
+    @classmethod
+    def validate_items_not_empty(cls, v: list[ReceiptInventoryCandidate]) -> list[ReceiptInventoryCandidate]:
+        """Ensure at least one item is present."""
+        if not v:
+            raise ValueError('Must confirm at least one item')
+        return v
+
+
+class ReceiptConfirmResponse(BaseModel):
+    """
+    Response body for successful receipt confirmation.
+
+    Returns the count of created items and their full details including
+    generated IDs and timestamps.
+    """
+
+    created_count: int = Field(
+        ...,
+        ge=0,
+        description="Number of inventory items created"
+    )
+    items: list[InventoryItemResponse] = Field(
+        ...,
+        description="List of created inventory items with IDs"
+    )
