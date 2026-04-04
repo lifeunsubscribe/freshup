@@ -107,12 +107,24 @@ def _apply_package_obj_patch():
         Package.__getattribute__ = _patched_getattribute
         Package._original_getattribute = _original_getattribute
 
+        # Validate that the patch was applied successfully
+        if Package.__getattribute__ != _patched_getattribute:
+            warnings.warn(
+                "pytest-asyncio compatibility patch failed to apply: "
+                "__getattribute__ assignment did not take effect. "
+                "Tests may fail with pytest-asyncio on Python 3.14+.",
+                RuntimeWarning,
+                stacklevel=2
+            )
+            return False
+
         return True
 
     except Exception as e:
         # Log warning but don't fail - tests might still work on older versions
         warnings.warn(
-            f"Failed to apply pytest-asyncio compatibility patch: {e}. "
+            f"Failed to apply pytest-asyncio compatibility patch: "
+            f"{type(e).__name__}: {e}. "
             f"Tests may fail with pytest-asyncio on Python 3.14+.",
             RuntimeWarning,
             stacklevel=2
