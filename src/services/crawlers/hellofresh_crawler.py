@@ -140,8 +140,9 @@ class HelloFreshCrawler:
         except requests.exceptions.InvalidURL as e:
             # Wrap malformed URLs from external data at the public API boundary
             # This catches InvalidURL exceptions from external sitemaps - these are external data errors
-            logger.exception(f"Sitemap strategy failed with invalid URL: {e}")
-            raise CrawlerNetworkError(f"Invalid URL during URL discovery: {e}") from e
+            logger.warning(f"Sitemap strategy failed with invalid URL: {e}, trying fallback strategy")
+            # Don't raise yet - try fallback first, but preserve exception for chaining
+            sitemap_exception = e
         except requests.exceptions.RequestException as e:
             # Actual network errors - log and try fallback
             # This catches all requests exceptions: ConnectionError, Timeout, HTTPError, etc.
