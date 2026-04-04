@@ -89,6 +89,28 @@ class HelloFreshCrawler:
             self.rate_limiter.set_domain_delay(self.domain, crawl_delay)
             logger.info(f"Using Crawl-delay from robots.txt: {crawl_delay}s")
 
+    def _build_error_message_with_context(
+        self,
+        error_type: str,
+        current_error: Exception,
+        sitemap_exception: Optional[Exception]
+    ) -> str:
+        """
+        Build error message with optional sitemap failure context.
+
+        Args:
+            error_type: Type of error (e.g., "Invalid URL", "Network error")
+            current_error: The current exception being handled
+            sitemap_exception: Optional exception from sitemap strategy failure
+
+        Returns:
+            Formatted error message with optional sitemap context
+        """
+        base_msg = f"{error_type} during URL discovery: {current_error}"
+        if sitemap_exception:
+            return f"{base_msg}. Sitemap strategy also failed: {sitemap_exception}"
+        return base_msg
+
     def discover_recipe_urls(self, max_pages: Optional[int] = None) -> list[str]:
         """
         Discover recipe URLs from HelloFresh.
@@ -171,55 +193,30 @@ class HelloFreshCrawler:
         except requests.exceptions.InvalidURL as e:
             # Wrap malformed URLs from external data at the public API boundary
             logger.exception(f"Paginated category strategy failed with invalid URL: {e}")
-
-            # Include context from sitemap failure if both strategies failed
-            if sitemap_exception:
-                error_msg = f"Invalid URL during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
-            else:
-                error_msg = f"Invalid URL during URL discovery: {e}"
+            error_msg = self._build_error_message_with_context("Invalid URL", e, sitemap_exception)
             raise CrawlerNetworkError(error_msg) from e
         except requests.exceptions.RequestException as e:
             # Wrap actual network errors at the public API boundary
             # This catches all requests exceptions: ConnectionError, Timeout, HTTPError, etc.
             # These are genuine network/transport issues, not programming bugs
             logger.exception(f"Paginated category strategy failed with network error: {e}")
-
-            # Include context from sitemap failure if both strategies failed
-            if sitemap_exception:
-                error_msg = f"Network error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
-            else:
-                error_msg = f"Network error during URL discovery: {e}"
+            error_msg = self._build_error_message_with_context("Network error", e, sitemap_exception)
             raise CrawlerNetworkError(error_msg) from e
         except (ssl.SSLError, ssl.CertificateError) as e:
             # Wrap SSL/TLS errors at the public API boundary
             logger.exception(f"Paginated category strategy failed with SSL error: {e}")
-
-            # Include context from sitemap failure if both strategies failed
-            if sitemap_exception:
-                error_msg = f"SSL error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
-            else:
-                error_msg = f"SSL error during URL discovery: {e}"
+            error_msg = self._build_error_message_with_context("SSL error", e, sitemap_exception)
             raise CrawlerNetworkError(error_msg) from e
         except (ValueError, UnicodeDecodeError) as e:
             # Wrap parsing/encoding errors at the public API boundary
             logger.exception(f"Paginated category strategy failed with {type(e).__name__}: {e}")
-
-            # Include context from sitemap failure if both strategies failed
-            if sitemap_exception:
-                error_msg = f"Parse error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
-            else:
-                error_msg = f"Parse error during URL discovery: {e}"
+            error_msg = self._build_error_message_with_context("Parse error", e, sitemap_exception)
             raise CrawlerParseError(error_msg) from e
         except (OSError, IOError) as e:
             # Catch I/O errors specifically (network operations, file access)
             # These are external errors, not programming bugs
             logger.exception(f"Paginated category strategy failed with I/O error: {e}")
-
-            # Include context from sitemap failure if both strategies failed
-            if sitemap_exception:
-                error_msg = f"I/O error during URL discovery: {e}. Sitemap strategy also failed: {sitemap_exception}"
-            else:
-                error_msg = f"I/O error during URL discovery: {e}"
+            error_msg = self._build_error_message_with_context("I/O error", e, sitemap_exception)
             raise CrawlerError(error_msg) from e
 
     def _discover_from_sitemap(self) -> list[str]:
