@@ -1,19 +1,21 @@
 """
-Integration tests for receipt confirmation endpoints.
+Integration tests for receipt endpoints.
 
 Tests cover:
+- POST /receipts: submit receipt text for async LLM parsing
 - POST /receipts/{task_id}/confirm: confirm receipt items and create inventory
 - Task validation: existence, status, ownership
 - Multi-tenant isolation: users can only confirm their own tasks
 - Authentication requirements
-- Input validation: empty items, invalid enums, etc.
+- Input validation: empty items, invalid enums, receipt text length, etc.
 """
 
+import json
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from uuid import uuid4
+from uuid import uuid4, UUID
 from datetime import datetime, timezone
 
 from src.db.database import Base, get_db
@@ -192,6 +194,247 @@ def other_user_task(db_session, other_user):
     db_session.refresh(task)
     return task
 
+
+# --- Receipt Submission Tests ---
+
+# --- Success Cases ---
+
+
+def test_submit_receipt_success(client, db_session, test_user, auth_headers):
+    """Test successful receipt submission creates ProcessingTask."""
+    request_data = {
+        "receipt_text": "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99\nMilk 4.59",
+        "store_name": "Costco"
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert "task_id" in data
+    assert data["status"] == "pending"
+    assert data["message"] == "Receipt submitted for processing"
+
+    # Verify task exists in database
+    # Convert string UUID from JSON response to UUID object for database query
+    task_id = UUID(data["task_id"])
+    task = db_session.query(ProcessingTask).filter(
+        ProcessingTask.id == task_id
+    ).first()
+    assert task is not None
+    assert task.user_id == test_user.id
+    assert task.task_type == TaskType.receipt_parse.value
+    assert task.status == TaskStatus.pending.value
+
+    # Verify input_reference contains JSON with receipt_text and store_name
+    input_data = json.loads(task.input_reference)
+    assert input_data["receipt_text"] == request_data["receipt_text"]
+    assert input_data["store_name"] == request_data["store_name"]
+
+
+def test_submit_receipt_without_store_name(client, db_session, test_user, auth_headers):
+    """Test receipt submission without store_name (optional field)."""
+    request_data = {
+        "receipt_text": "Generic Store\n04/01/2026\nBananas 3.99"
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert "task_id" in data
+    assert data["status"] == "pending"
+
+    # Verify task exists with null store_name
+    # Convert string UUID from JSON response to UUID object for database query
+    task_id = UUID(data["task_id"])
+    task = db_session.query(ProcessingTask).filter(
+        ProcessingTask.id == task_id
+    ).first()
+    input_data = json.loads(task.input_reference)
+    assert input_data["receipt_text"] == request_data["receipt_text"]
+    assert input_data["store_name"] is None
+
+
+# --- Error Cases: Authentication ---
+
+
+def test_submit_receipt_no_auth(client):
+    """Test receipt submission requires authentication."""
+    request_data = {
+        "receipt_text": "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99"
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+    )
+
+    assert response.status_code == 401
+
+
+def test_submit_receipt_invalid_token(client):
+    """Test receipt submission fails with invalid token."""
+    request_data = {
+        "receipt_text": "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99"
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
+
+
+# --- Error Cases: Multi-Tenant Isolation ---
+
+
+def test_submit_receipt_creates_task_for_authenticated_user_only(
+    client, db_session, test_user, other_user, auth_headers
+):
+    """Test that submitted receipts create tasks owned by the authenticated user only.
+
+    Multi-tenant isolation: Verify that when a user submits a receipt, the created
+    task belongs to them and not to any other user in the system.
+    """
+    request_data = {
+        "receipt_text": "TARGET\n04/01/2026\nApples 5.99\nBread 2.49",
+        "store_name": "Target"
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    task_id = UUID(data["task_id"])
+
+    # Verify task exists and belongs to authenticated user (test_user)
+    task = db_session.query(ProcessingTask).filter(
+        ProcessingTask.id == task_id
+    ).first()
+    assert task is not None
+    assert task.user_id == test_user.id
+
+    # Verify task does NOT belong to other_user
+    assert task.user_id != other_user.id
+
+    # Verify other_user has no tasks
+    other_user_tasks = db_session.query(ProcessingTask).filter(
+        ProcessingTask.user_id == other_user.id
+    ).all()
+    assert len(other_user_tasks) == 0
+
+
+# --- Error Cases: Validation ---
+
+
+def test_submit_receipt_empty_text(client, auth_headers):
+    """Test receipt submission fails when receipt_text is empty."""
+    request_data = {
+        "receipt_text": ""
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_submit_receipt_whitespace_only(client, auth_headers):
+    """Test receipt submission fails when receipt_text is whitespace only."""
+    request_data = {
+        "receipt_text": "   \n\t   "
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_submit_receipt_too_short(client, auth_headers):
+    """Test receipt submission fails when receipt_text is too short (< 10 chars)."""
+    request_data = {
+        "receipt_text": "short"
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_submit_receipt_too_long(client, auth_headers):
+    """Test receipt submission fails when receipt_text exceeds max length."""
+    request_data = {
+        "receipt_text": "X" * 50001  # Exceeds max_length=50000
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_submit_receipt_empty_store_name(client, auth_headers):
+    """Test receipt submission fails when store_name is empty string."""
+    request_data = {
+        "receipt_text": "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99",
+        "store_name": ""
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_submit_receipt_whitespace_store_name(client, auth_headers):
+    """Test receipt submission fails when store_name is whitespace only."""
+    request_data = {
+        "receipt_text": "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99",
+        "store_name": "   "
+    }
+
+    response = client.post(
+        "/receipts",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+# --- Receipt Confirmation Tests ---
 
 # --- Success Cases ---
 
