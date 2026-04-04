@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 
 from src.config import get_settings
 from src.db.database import Base, init_engine, get_engine, get_session_factory
-from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router, tasks_router
+from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router, tasks_router, receipts_router
 from src.middleware.rate_limit import limiter
 from src.services.task_worker import background_task_worker
 from src.services.llm.client import OllamaClient
@@ -121,6 +121,7 @@ app.include_router(grocery_router)
 app.include_router(prepared_foods_router)
 app.include_router(scraper_router)
 app.include_router(tasks_router)
+app.include_router(receipts_router)
 
 
 @app.get("/health")
