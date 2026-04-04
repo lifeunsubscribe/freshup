@@ -228,6 +228,7 @@ class ReceiptConfirmRequest(BaseModel):
     items: list[ReceiptInventoryCandidate] = Field(
         ...,
         min_length=1,
+        max_length=200,
         description="List of confirmed items to add to inventory (must not be empty)"
     )
 
