@@ -1,16 +1,19 @@
 """
 Service layer for receipt processing operations.
 
-Provides business logic for receipt confirmation and inventory item creation
-from parsed receipt data.
+Provides business logic for receipt submission, confirmation, and inventory
+item creation from parsed receipt data.
 """
 
+import json
 import logging
+from typing import Optional
 from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
-from src.db.models.processing_task import ProcessingTask, TaskStatus
+from src.db.models.processing_task import ProcessingTask, TaskStatus, TaskType
 from src.db.models.inventory_item import InventoryItem
 from src.schemas.receipt import ReceiptInventoryCandidate
 from src.schemas.inventory import InventoryItemCreate
@@ -18,6 +21,77 @@ from src.services.task_service import get_task_by_id
 from src.services.inventory_service import create_inventory_items_bulk
 
 logger = logging.getLogger(__name__)
+
+
+def submit_receipt(
+    receipt_text: str,
+    user_id: UUID,
+    db: Session,
+    store_name: Optional[str] = None,
+) -> ProcessingTask:
+    """
+    Submit receipt text for async LLM parsing.
+
+    Creates a ProcessingTask with task_type='receipt_parse' and stores
+    the receipt text and optional store name as JSON in input_reference.
+    The background task worker will pick up and process this task.
+
+    Args:
+        receipt_text: Receipt text content (digital copy-paste or OCR output)
+        user_id: ID of the authenticated user submitting the receipt
+        db: Database session
+        store_name: Optional store name for store-specific parsing hints
+
+    Returns:
+        ProcessingTask: Created task with status='pending'
+
+    Raises:
+        HTTPException(500): If database error occurs during task creation
+    """
+    # Create JSON input_reference matching task worker expectations
+    # (see task_worker.py lines 68-83 for JSON format parsing)
+    input_data = {
+        "receipt_text": receipt_text,
+        "store_name": store_name
+    }
+    input_reference = json.dumps(input_data)
+
+    # Create ProcessingTask
+    task = ProcessingTask(
+        user_id=user_id,
+        task_type=TaskType.receipt_parse.value,
+        status=TaskStatus.pending.value,
+        input_reference=input_reference,
+    )
+
+    db.add(task)
+
+    try:
+        db.commit()
+        db.refresh(task)
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error during receipt submission for user {user_id}")
+        logger.debug(f"Integrity error occurred during receipt submission: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Receipt submission failed due to data integrity violation"
+        )
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during receipt submission for user {user_id}")
+        logger.debug(f"Database error occurred during receipt submission: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while submitting the receipt"
+        )
+
+    logger.info(
+        f"Receipt submitted for processing: user_id={user_id}, "
+        f"task_id={task.id}, store_name={store_name}"
+    )
+
+    return task
 
 
 def confirm_receipt_items(

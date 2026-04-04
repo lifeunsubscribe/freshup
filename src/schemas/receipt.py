@@ -10,6 +10,7 @@ extracting store name, date, and line items with quantities and prices.
 
 from datetime import date
 from typing import Optional
+from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from src.db.models.inventory_item import Category, UnitType, StorageLocation
@@ -257,4 +258,66 @@ class ReceiptConfirmResponse(BaseModel):
     items: list[InventoryItemResponse] = Field(
         ...,
         description="List of created inventory items with IDs"
+    )
+
+
+class ReceiptSubmitRequest(BaseModel):
+    """
+    Request body for receipt submission endpoint.
+
+    Accepts receipt text (e.g., from Costco copy-paste) and optional store name
+    for async LLM parsing. Creates a ProcessingTask for background processing.
+    """
+
+    receipt_text: str = Field(
+        ...,
+        min_length=10,
+        max_length=50000,
+        description="Receipt text content (digital receipt copy-paste or OCR output)"
+    )
+    store_name: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Optional store name for store-specific parsing hints (e.g., 'Costco')"
+    )
+
+    @field_validator('receipt_text')
+    @classmethod
+    def validate_receipt_text_not_empty(cls, v: str) -> str:
+        """Ensure receipt_text is not empty or whitespace only."""
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError('Receipt text cannot be empty or only whitespace')
+        return stripped
+
+    @field_validator('store_name')
+    @classmethod
+    def validate_store_name_not_empty(cls, v: Optional[str]) -> Optional[str]:
+        """Ensure store_name is not empty or whitespace if provided."""
+        if v is not None:
+            stripped = v.strip()
+            if not stripped:
+                raise ValueError('Store name cannot be empty or only whitespace')
+            return stripped
+        return None
+
+
+class ReceiptSubmitResponse(BaseModel):
+    """
+    Response body for successful receipt submission.
+
+    Returns task ID for polling status and result retrieval.
+    """
+
+    task_id: UUID = Field(
+        ...,
+        description="Processing task ID for status polling"
+    )
+    status: str = Field(
+        ...,
+        description="Task status (will be 'pending' on submission)"
+    )
+    message: str = Field(
+        ...,
+        description="Human-readable message"
     )

@@ -1,14 +1,15 @@
 """
 Receipt processing endpoints for FreshUp.
 
-Provides endpoints for users to confirm parsed receipt data and add items
-to their inventory. All endpoints are scoped to the authenticated user.
+Provides endpoints for users to submit receipts for async LLM parsing and
+confirm parsed receipt data to add items to their inventory. All endpoints
+are scoped to the authenticated user.
 
 Logging Policy:
-    User-provided item names are NOT logged as they may contain sensitive
-    health information (e.g., prescription names, dietary restrictions).
-    Logs include operational metadata (user_id, task_id, timestamps) for
-    debugging while protecting user privacy per OWASP recommendations.
+    Receipt text content is NOT logged as it may contain sensitive information
+    (e.g., prescription names, dietary restrictions). Logs include operational
+    metadata (user_id, task_id, timestamps) for debugging while protecting
+    user privacy per OWASP recommendations.
 """
 
 import logging
@@ -20,16 +21,72 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from src.db.database import get_db
 from src.db.models.user import User
 from src.schemas.receipt import (
+    ReceiptSubmitRequest,
+    ReceiptSubmitResponse,
     ReceiptConfirmRequest,
     ReceiptConfirmResponse,
 )
 from src.schemas.inventory import InventoryItemResponse
-from src.services.receipt_service import confirm_receipt_items
+from src.services.receipt_service import submit_receipt, confirm_receipt_items
 from src.middleware.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
+
+
+@router.post(
+    "",
+    response_model=ReceiptSubmitResponse,
+    status_code=status.HTTP_202_ACCEPTED
+)
+def submit_receipt_for_processing(
+    request: ReceiptSubmitRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Submit receipt text for async LLM parsing.
+
+    Accepts receipt text (e.g., from Costco digital receipt copy-paste) and
+    optional store name, creates a ProcessingTask for background LLM parsing,
+    and returns 202 Accepted with task ID for status polling.
+
+    This is text-only input for digital receipts. File upload is handled
+    separately in Phase 4B.
+
+    Multi-tenant isolation: Task is created with current_user.id for ownership.
+
+    Args:
+        request: ReceiptSubmitRequest with receipt_text and optional store_name
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        ReceiptSubmitResponse with task_id, status='pending', and message
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(422): If receipt_text is empty, too short, or too long
+        HTTPException(500): If database error occurs during task creation
+    """
+    # Submit receipt via service layer
+    task = submit_receipt(
+        receipt_text=request.receipt_text,
+        user_id=current_user.id,
+        db=db,
+        store_name=request.store_name,
+    )
+
+    logger.info(
+        f"Receipt submitted: user_id={current_user.id}, task_id={task.id}"
+    )
+
+    return ReceiptSubmitResponse(
+        task_id=task.id,
+        status=task.status,
+        message="Receipt submitted for processing"
+    )
 
 
 @router.post(
