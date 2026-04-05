@@ -394,6 +394,6 @@ def bulk_purchase_items(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
-        logger.error(f"Runtime error in bulk_purchase_items: user_id={current_user.id}")
+        logger.error(f"Runtime error in bulk_purchase_items: user_id={current_user.id}, item_ids={request_data.item_ids}")
         logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
