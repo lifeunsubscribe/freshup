@@ -157,7 +157,8 @@ def infer_storage_location(category: Category) -> StorageLocation:
     Mapping rules:
     - produce, dairy → fridge
     - frozen → freezer
-    - all others → pantry
+    - all others → pantry (including protein, which defaults to pantry
+      since we can't distinguish fresh vs shelf-stable without context)
 
     Args:
         category: Item category enum value
