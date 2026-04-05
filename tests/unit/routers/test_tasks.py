@@ -135,7 +135,7 @@ def completed_task(db_session, test_user):
         task_type=TaskType.receipt_parse.value,
         status=TaskStatus.completed.value,
         input_reference="s3://bucket/receipts/completed-receipt.jpg",
-        result_reference='{"store_name": "Whole Foods", "total": 45.67, "items": []}',
+        result_reference='{"store_name": "Whole Foods", "receipt_date": null, "line_items": [{"item_name": "Test Item", "quantity": null, "unit_price": null, "total_price": null, "category_guess": null}]}',
         completed_at=datetime.now(timezone.utc),
     )
     db_session.add(task)
@@ -275,7 +275,7 @@ class TestGetTaskStatus:
             task_type=TaskType.receipt_parse.value,
             status=TaskStatus.completed.value,
             input_reference="s3://bucket/receipts/other-user-receipt.jpg",
-            result_reference='{"store_name": "Target", "total": 100.00, "items": []}',
+            result_reference='{"store_name": "Target", "receipt_date": null, "line_items": [{"item_name": "Milk", "quantity": null, "unit_price": null, "total_price": null, "category_guess": null}]}',
         )
         db_session.add(other_task)
         db_session.commit()
