@@ -159,6 +159,9 @@ def confirm_receipt(
     except DomainException as e:
         # Convert domain exceptions to HTTPException
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        # Convert runtime errors to 500
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     except IntegrityError as e:
         logger.error(

@@ -68,7 +68,7 @@ def create_prepared_food(
         db.rollback()
         logger.error(f"Database error during prepared food creation for user {current_user.id}")
         logger.debug(f"Database error occurred during prepared food creation: {e}")
-        raise RuntimeError("An error occurred while creating the prepared food item")
+        raise RuntimeError("An error occurred while creating the prepared food item") from e
 
     logger.info(
         f"Prepared food created: user_id={current_user.id}, "
@@ -147,7 +147,7 @@ def consume_prepared_food(
             db.rollback()
             logger.error(f"Database error during prepared food consumption deletion for user {current_user.id}")
             logger.debug(f"Database error occurred during prepared food consumption deletion: {e}")
-            raise RuntimeError("An error occurred while deleting the consumed item")
+            raise RuntimeError("An error occurred while deleting the consumed item") from e
 
         logger.info(
             f"Prepared food consumed and deleted: user_id={current_user.id}, "
@@ -170,7 +170,7 @@ def consume_prepared_food(
             db.rollback()
             logger.error(f"Database error during prepared food consumption for user {current_user.id}")
             logger.debug(f"Database error occurred during prepared food consumption: {e}")
-            raise RuntimeError("An error occurred while consuming the item")
+            raise RuntimeError("An error occurred while consuming the item") from e
 
         logger.info(
             f"Prepared food consumed: user_id={current_user.id}, "
@@ -220,7 +220,7 @@ def transfer_prepared_food(
         db.rollback()
         logger.error(f"Database error during prepared food transfer for user {current_user.id}")
         logger.debug(f"Database error occurred during prepared food transfer: {e}")
-        raise RuntimeError("An error occurred while transferring the prepared food item")
+        raise RuntimeError("An error occurred while transferring the prepared food item") from e
 
     logger.info(
         f"Prepared food transferred: user_id={current_user.id}, "
@@ -263,7 +263,7 @@ def freeze_prepared_food(
         db.rollback()
         logger.error(f"Database error during prepared food freeze for user {current_user.id}")
         logger.debug(f"Database error occurred during prepared food freeze: {e}")
-        raise RuntimeError("An error occurred while freezing the prepared food item")
+        raise RuntimeError("An error occurred while freezing the prepared food item") from e
 
     logger.info(
         f"Prepared food frozen: user_id={current_user.id}, "
@@ -306,7 +306,7 @@ def thaw_prepared_food(
         db.rollback()
         logger.error(f"Database error during prepared food thaw for user {current_user.id}")
         logger.debug(f"Database error occurred during prepared food thaw: {e}")
-        raise RuntimeError("An error occurred while thawing the prepared food item")
+        raise RuntimeError("An error occurred while thawing the prepared food item") from e
 
     logger.info(
         f"Prepared food thawed: user_id={current_user.id}, "
