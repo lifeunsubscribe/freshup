@@ -1054,3 +1054,82 @@ def test_get_task_status_invalid_result_json(client, db_session, test_user, auth
     # Should return 500 because result_reference should always be valid for completed tasks
     assert response.status_code == 500
     assert "failed to parse" in response.json()["detail"].lower()
+
+
+def test_get_task_status_wrong_task_type(client, db_session, test_user, auth_headers):
+    """Test retrieving task with non-receipt task type returns 400.
+
+    Service layer defensive programming: Even though router validates task type,
+    service functions should validate their preconditions to prevent misuse
+    from other calling contexts.
+    """
+    # Create a task with a different task type (simulating future task types)
+    # We bypass the enum by setting the task_type directly to a string
+    task = ProcessingTask(
+        id=uuid4(),
+        user_id=test_user.id,
+        task_type="recipe_scrape",  # Non-receipt task type
+        status=TaskStatus.completed.value,
+        input_reference='{"url": "https://example.com/recipe"}',
+        result_reference='{"recipe": "data"}',
+        completed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(task)
+    db_session.commit()
+    db_session.refresh(task)
+
+    # Router checks task type first, so we're directly calling the endpoint
+    # This simulates the service being called from another context
+    response = client.get(
+        f"/tasks/{task.id}",
+        headers=auth_headers,
+    )
+
+    # Should return 400 from service layer validation
+    assert response.status_code == 400
+    assert "task type" in response.json()["detail"].lower()
+    assert "receipt_parse" in response.json()["detail"].lower()
+
+
+def test_confirm_receipt_wrong_task_type(client, db_session, test_user, auth_headers):
+    """Test confirming task with non-receipt task type returns 400.
+
+    Service layer defensive programming: Even though router would typically
+    prevent this, service functions should validate their preconditions.
+    """
+    # Create a completed task with a different task type
+    task = ProcessingTask(
+        id=uuid4(),
+        user_id=test_user.id,
+        task_type="recipe_scrape",  # Non-receipt task type
+        status=TaskStatus.completed.value,
+        input_reference='{"url": "https://example.com/recipe"}',
+        result_reference='{"recipe": "data"}',
+        completed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(task)
+    db_session.commit()
+    db_session.refresh(task)
+
+    request_data = {
+        "items": [
+            {
+                "name": "Bananas",
+                "quantity": 2.0,
+                "unit": "bunch",
+                "category": "produce",
+                "storage_location": "pantry",
+            },
+        ]
+    }
+
+    response = client.post(
+        f"/receipts/{task.id}/confirm",
+        json=request_data,
+        headers=auth_headers,
+    )
+
+    # Should return 400 from service layer validation
+    assert response.status_code == 400
+    assert "task type" in response.json()["detail"].lower()
+    assert "receipt_parse" in response.json()["detail"].lower()
