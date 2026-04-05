@@ -16,6 +16,7 @@ from src.db.models.user import User
 from src.schemas.receipt import ReceiptTaskStatusResponse
 from src.services.receipt_service import get_receipt_task_status
 from src.middleware.auth import get_current_user
+from src.exceptions import DomainException
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +50,24 @@ def get_task_status(
         HTTPException 401: Unauthorized (no valid token)
         HTTPException 500: If result parsing fails for completed task
     """
-    # Call receipt service which validates task type and ownership (defense-in-depth)
-    receipt_status = get_receipt_task_status(task_id, current_user.id, db)
+    try:
+        # Call receipt service which validates task type and ownership (defense-in-depth)
+        receipt_status = get_receipt_task_status(task_id, current_user.id, db)
 
-    if not receipt_status:
-        # Return 404 for both not-found and unauthorized to prevent information disclosure
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task with id {task_id} not found"
-        )
+        if not receipt_status:
+            # Return 404 for both not-found and unauthorized to prevent information disclosure
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task with id {task_id} not found"
+            )
 
-    return receipt_status
+        return receipt_status
+
+    except DomainException as e:
+        # Convert domain exceptions to HTTPException
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        # Log unexpected runtime errors before converting to HTTP 500
+        logger.error(f"RuntimeError in get_task_status for task_id={task_id}: {str(e)}", exc_info=True)
+        # Convert runtime errors to 500, preserving the error message for debugging
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

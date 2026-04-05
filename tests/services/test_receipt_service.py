@@ -138,12 +138,10 @@ class TestInferStorageLocation:
         result = infer_storage_location(Category.grain)
         assert result == StorageLocation.pantry
 
-    def test_protein_infers_pantry(self):
-        """Test protein category infers pantry storage (default)."""
-        # Note: Fresh protein should go to fridge, but without more context
-        # we default to pantry. Users can override during confirmation.
+    def test_protein_infers_fridge(self):
+        """Test protein category infers fridge storage."""
         result = infer_storage_location(Category.protein)
-        assert result == StorageLocation.pantry
+        assert result == StorageLocation.fridge
 
     def test_snack_infers_pantry(self):
         """Test snack category infers pantry storage."""
