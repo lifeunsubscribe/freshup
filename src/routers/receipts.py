@@ -91,6 +91,8 @@ def submit_receipt_for_processing(
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
         # Convert runtime errors to 500
+        logger.error(f"Runtime error in submit_receipt_for_processing: user_id={current_user.id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -161,6 +163,8 @@ def confirm_receipt(
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
         # Convert runtime errors to 500
+        logger.error(f"Runtime error in confirm_receipt: user_id={current_user.id}, task_id={task_id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     except SQLAlchemyError as e:

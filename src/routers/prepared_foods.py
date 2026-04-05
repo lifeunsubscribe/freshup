@@ -132,6 +132,8 @@ def create_prepared_food_endpoint(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in create_prepared_food_endpoint: user_id={current_user.id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -464,6 +466,8 @@ def consume_prepared_food_endpoint(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in consume_prepared_food_endpoint: user_id={current_user.id}, item_id={item_id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -505,6 +509,8 @@ def transfer_prepared_food_endpoint(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in transfer_prepared_food_endpoint: user_id={current_user.id}, item_id={item_id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -544,6 +550,8 @@ def freeze_prepared_food_endpoint(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in freeze_prepared_food_endpoint: user_id={current_user.id}, item_id={item_id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -583,4 +591,6 @@ def thaw_prepared_food_endpoint(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in thaw_prepared_food_endpoint: user_id={current_user.id}, item_id={item_id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
