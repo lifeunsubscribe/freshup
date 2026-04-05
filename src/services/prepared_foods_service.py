@@ -11,7 +11,6 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy import or_
-from fastapi import HTTPException, status
 
 from src.constants import FLOAT_COMPARISON_TOLERANCE
 from src.db.models.prepared_food import PreparedFood
@@ -19,6 +18,7 @@ from src.db.models.user import User
 from src.db.models.inventory_item import StorageLocation, Shareability
 from src.schemas.prepared_food import PreparedFoodCreate
 from src.schemas.inventory import ConsumptionRequest
+from src.exceptions import ValidationError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,8 @@ def create_prepared_food(
         PreparedFood: Created prepared food item
 
     Raises:
-        HTTPException(400): If data integrity violation occurs
-        HTTPException(500): If database error occurs
+        ValidationError: If data integrity violation occurs
+        RuntimeError: If database error occurs
     """
     # Create new prepared food item with prepared_by set to current user
     # Exclude date_prepared if None so the DB default (func.now()) kicks in
@@ -63,18 +63,12 @@ def create_prepared_food(
         db.rollback()
         logger.error(f"Integrity error during prepared food creation for user {current_user.id}")
         logger.debug(f"Integrity error occurred during prepared food creation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Prepared food creation failed due to data integrity violation"
-        )
+        raise ValidationError("Prepared food creation failed due to data integrity violation")
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error during prepared food creation for user {current_user.id}")
         logger.debug(f"Database error occurred during prepared food creation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the prepared food item"
-        )
+        raise RuntimeError("An error occurred while creating the prepared food item") from e
 
     logger.info(
         f"Prepared food created: user_id={current_user.id}, "
@@ -113,8 +107,8 @@ def consume_prepared_food(
             - item: Updated PreparedFood item, or None if deleted
 
     Raises:
-        HTTPException(404): If item doesn't exist or is not accessible to current user
-        HTTPException(400): If consumption amount exceeds available servings
+        NotFoundError: If item doesn't exist or is not accessible to current user
+        ValidationError: If consumption amount exceeds available servings
     """
     # Shareability-aware fetch: shared items accessible to all, personal/reserved only to owner
     item = (
@@ -130,17 +124,13 @@ def consume_prepared_food(
     )
 
     if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Prepared food item not found"
-        )
+        raise NotFoundError("Prepared food item not found")
 
     # Validate consumption amount doesn't exceed available servings
     # Use tolerance to handle floating-point precision issues
     if consumption_data.amount > item.servings_remaining + FLOAT_COMPARISON_TOLERANCE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot consume {consumption_data.amount} servings. Only {item.servings_remaining} servings available."
+        raise ValidationError(
+            f"Cannot consume {consumption_data.amount} servings. Only {item.servings_remaining} servings available."
         )
 
     # Calculate new servings count
@@ -157,10 +147,7 @@ def consume_prepared_food(
             db.rollback()
             logger.error(f"Database error during prepared food consumption deletion for user {current_user.id}")
             logger.debug(f"Database error occurred during prepared food consumption deletion: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while deleting the consumed item"
-            )
+            raise RuntimeError("An error occurred while deleting the consumed item") from e
 
         logger.info(
             f"Prepared food consumed and deleted: user_id={current_user.id}, "
@@ -183,10 +170,7 @@ def consume_prepared_food(
             db.rollback()
             logger.error(f"Database error during prepared food consumption for user {current_user.id}")
             logger.debug(f"Database error occurred during prepared food consumption: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while consuming the item"
-            )
+            raise RuntimeError("An error occurred while consuming the item") from e
 
         logger.info(
             f"Prepared food consumed: user_id={current_user.id}, "
@@ -224,7 +208,7 @@ def transfer_prepared_food(
         PreparedFood: Updated prepared food item
 
     Raises:
-        HTTPException(500): If database error occurs
+        RuntimeError: If database error occurs
     """
     # Update storage location
     item.storage_location = storage_location
@@ -236,10 +220,7 @@ def transfer_prepared_food(
         db.rollback()
         logger.error(f"Database error during prepared food transfer for user {current_user.id}")
         logger.debug(f"Database error occurred during prepared food transfer: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while transferring the prepared food item"
-        )
+        raise RuntimeError("An error occurred while transferring the prepared food item") from e
 
     logger.info(
         f"Prepared food transferred: user_id={current_user.id}, "
@@ -270,7 +251,7 @@ def freeze_prepared_food(
         PreparedFood: Updated prepared food item with freezer location
 
     Raises:
-        HTTPException(500): If database error occurs
+        RuntimeError: If database error occurs
     """
     # Update storage location to freezer
     item.storage_location = StorageLocation.freezer.value
@@ -282,10 +263,7 @@ def freeze_prepared_food(
         db.rollback()
         logger.error(f"Database error during prepared food freeze for user {current_user.id}")
         logger.debug(f"Database error occurred during prepared food freeze: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while freezing the prepared food item"
-        )
+        raise RuntimeError("An error occurred while freezing the prepared food item") from e
 
     logger.info(
         f"Prepared food frozen: user_id={current_user.id}, "
@@ -316,7 +294,7 @@ def thaw_prepared_food(
         PreparedFood: Updated prepared food item with fridge location
 
     Raises:
-        HTTPException(500): If database error occurs
+        RuntimeError: If database error occurs
     """
     # Update storage location to fridge
     item.storage_location = StorageLocation.fridge.value
@@ -328,10 +306,7 @@ def thaw_prepared_food(
         db.rollback()
         logger.error(f"Database error during prepared food thaw for user {current_user.id}")
         logger.debug(f"Database error occurred during prepared food thaw: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while thawing the prepared food item"
-        )
+        raise RuntimeError("An error occurred while thawing the prepared food item") from e
 
     logger.info(
         f"Prepared food thawed: user_id={current_user.id}, "

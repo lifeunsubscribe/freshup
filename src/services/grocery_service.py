@@ -12,11 +12,11 @@ from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from fastapi import HTTPException, status
 
 from src.db.models.user import User
 from src.db.models.grocery_list import GroceryListItem
 from src.db.models.inventory_item import InventoryItem, UnitType
+from src.exceptions import ValidationError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +37,11 @@ def _validate_unit_for_inventory(unit: str, item_name: str) -> None:
         item_name: Name of the item (for error messages)
 
     Raises:
-        HTTPException(422): If the unit is not a valid UnitType enum value
+        ValidationError: If the unit is not a valid UnitType enum value
     """
     if unit not in _VALID_INVENTORY_UNITS:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Cannot create inventory item for '{item_name}': unit '{unit}' is not valid for inventory. Valid units: {', '.join(sorted(_VALID_INVENTORY_UNITS))}"
+        raise ValidationError(
+            f"Cannot create inventory item for '{item_name}': unit '{unit}' is not valid for inventory. Valid units: {', '.join(sorted(_VALID_INVENTORY_UNITS))}"
         )
 
 
@@ -74,8 +73,8 @@ def create_item(
         GroceryListItem: Created grocery item
 
     Raises:
-        HTTPException(400): If data integrity violation occurs
-        HTTPException(500): If database error occurs
+        ValidationError: If data integrity violation occurs
+        RuntimeError: If database error occurs
     """
     new_item = GroceryListItem(
         item_name=item_name,
@@ -95,18 +94,12 @@ def create_item(
         db.rollback()
         logger.error(f"Integrity error during grocery item creation for user {current_user.id}")
         logger.debug(f"Integrity error occurred during grocery item creation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Grocery item creation failed due to data integrity violation"
-        )
+        raise ValidationError("Grocery item creation failed due to data integrity violation")
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error during grocery item creation for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item creation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the grocery item"
-        )
+        raise RuntimeError("An error occurred while creating the grocery item") from e
 
     logger.info(
         f"Grocery item created: user_id={current_user.id}, "
@@ -190,15 +183,12 @@ def get_item_by_id(
         GroceryListItem: Requested grocery item
 
     Raises:
-        HTTPException(404): If item doesn't exist
+        NotFoundError: If item doesn't exist
     """
     item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
 
     if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Grocery item not found"
-        )
+        raise NotFoundError("Grocery item not found")
 
     return item
 
@@ -227,18 +217,15 @@ def update_item(
         GroceryListItem: Updated grocery item
 
     Raises:
-        HTTPException(404): If item doesn't exist or is not owned by current user
-        HTTPException(422): If validation fails
-        HTTPException(500): If database error occurs
+        NotFoundError: If item doesn't exist or is not owned by current user
+        ValidationError: If validation fails
+        RuntimeError: If database error occurs
     """
     item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
 
     # Return 404 if item doesn't exist OR is not owned by current user
     if not item or item.added_by != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Grocery item not found"
-        )
+        raise NotFoundError("Grocery item not found")
 
     # Update only the fields that were provided
     # Using 'in' operator allows distinguishing between "not provided" and "explicitly set to None"
@@ -258,18 +245,12 @@ def update_item(
         db.rollback()
         logger.error(f"Integrity error during grocery item update for user {current_user.id}")
         logger.debug(f"Integrity error occurred during grocery item update: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Grocery item update failed due to data integrity violation"
-        )
+        raise ValidationError("Grocery item update failed due to data integrity violation")
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error during grocery item update for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item update: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while updating the grocery item"
-        )
+        raise RuntimeError("An error occurred while updating the grocery item") from e
 
     logger.info(
         f"Grocery item updated: user_id={current_user.id}, "
@@ -296,17 +277,14 @@ def delete_item(
         db: Database session
 
     Raises:
-        HTTPException(404): If item doesn't exist or is not owned by current user
-        HTTPException(500): If database error occurs
+        NotFoundError: If item doesn't exist or is not owned by current user
+        RuntimeError: If database error occurs
     """
     item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
 
     # Return 404 if item doesn't exist OR is not owned by current user
     if not item or item.added_by != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Grocery item not found"
-        )
+        raise NotFoundError("Grocery item not found")
 
     try:
         db.delete(item)
@@ -315,10 +293,7 @@ def delete_item(
         db.rollback()
         logger.error(f"Database error during grocery item deletion for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item deletion: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while deleting the grocery item"
-        )
+        raise RuntimeError("An error occurred while deleting the grocery item") from e
 
     logger.info(
         f"Grocery item deleted: user_id={current_user.id}, "
@@ -346,16 +321,13 @@ def mark_purchased(
         GroceryListItem: Updated grocery item
 
     Raises:
-        HTTPException(404): If item doesn't exist
-        HTTPException(500): If database error occurs
+        NotFoundError: If item doesn't exist
+        RuntimeError: If database error occurs
     """
     item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
 
     if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Grocery item not found"
-        )
+        raise NotFoundError("Grocery item not found")
 
     # Update purchase fields
     item.purchased = True
@@ -369,10 +341,7 @@ def mark_purchased(
         db.rollback()
         logger.error(f"Database error during grocery item purchase for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item purchase: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while marking the item as purchased"
-        )
+        raise RuntimeError("An error occurred while marking the item as purchased") from e
 
     logger.info(
         f"Grocery item purchased: user_id={current_user.id}, "
@@ -402,16 +371,13 @@ def mark_unpurchased(
         GroceryListItem: Updated grocery item
 
     Raises:
-        HTTPException(404): If item doesn't exist
-        HTTPException(500): If database error occurs
+        NotFoundError: If item doesn't exist
+        RuntimeError: If database error occurs
     """
     item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
 
     if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Grocery item not found"
-        )
+        raise NotFoundError("Grocery item not found")
 
     # Clear purchase fields
     item.purchased = False
@@ -425,10 +391,7 @@ def mark_unpurchased(
         db.rollback()
         logger.error(f"Database error during grocery item unpurchase for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item unpurchase: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while marking the item as unpurchased"
-        )
+        raise RuntimeError("An error occurred while marking the item as unpurchased") from e
 
     logger.info(
         f"Grocery item unpurchased: user_id={current_user.id}, "
@@ -465,8 +428,8 @@ def bulk_purchase(
         tuple[list[GroceryListItem], int]: Updated grocery items and count of inventory items created
 
     Raises:
-        HTTPException(404): If any item_id is not found (entire batch fails)
-        HTTPException(500): If database error occurs
+        NotFoundError: If any item_id is not found (entire batch fails)
+        RuntimeError: If database error occurs
     """
     updated_items = []
     inventory_count = 0
@@ -481,10 +444,7 @@ def bulk_purchase(
         if len(items) != len(item_ids):
             found_ids = {item.id for item in items}
             missing_ids = [item_id for item_id in item_ids if item_id not in found_ids]
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Grocery item not found: {missing_ids[0]}"
-            )
+            raise NotFoundError(f"Grocery item not found: {missing_ids[0]}")
 
         # Pre-validate all units before making any modifications (ensures atomic all-or-nothing)
         if create_inventory_item:
@@ -526,18 +486,15 @@ def bulk_purchase(
         for item in updated_items:
             db.refresh(item)
 
-    except HTTPException:
-        # Re-raise HTTP exceptions (404s)
+    except (NotFoundError, ValidationError):
+        # Re-raise domain exceptions (404s, 400s)
         db.rollback()
         raise
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error during bulk grocery purchase for user {current_user.id}")
         logger.debug(f"Database error occurred during bulk grocery purchase: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while processing the bulk purchase"
-        )
+        raise RuntimeError("An error occurred while processing the bulk purchase") from e
 
     logger.info(
         f"Bulk grocery purchase: user_id={current_user.id}, "

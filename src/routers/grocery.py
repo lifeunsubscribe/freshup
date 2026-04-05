@@ -21,7 +21,7 @@ Logging Policy:
 import logging
 from uuid import UUID
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
@@ -36,6 +36,7 @@ from src.schemas.grocery import (
 )
 from src.middleware.auth import get_current_user
 from src.services import grocery_service
+from src.exceptions import DomainException
 
 logger = logging.getLogger(__name__)
 
@@ -67,15 +68,20 @@ def create_grocery_item(
         HTTPException(400): If data integrity violation occurs
         HTTPException(422): If validation fails (invalid unit, source, etc.)
     """
-    return grocery_service.create_item(
-        item_name=item_data.item_name,
-        quantity=item_data.quantity,
-        unit=item_data.unit,
-        source=item_data.source,
-        current_user=current_user,
-        db=db,
-        target_store=item_data.target_store,
-    )
+    try:
+        return grocery_service.create_item(
+            item_name=item_data.item_name,
+            quantity=item_data.quantity,
+            unit=item_data.unit,
+            source=item_data.source,
+            current_user=current_user,
+            db=db,
+            target_store=item_data.target_store,
+        )
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.get("", response_model=list[GroceryItemResponse])
@@ -177,7 +183,10 @@ def get_grocery_item(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist
     """
-    return grocery_service.get_item_by_id(item_id=item_id, db=db)
+    try:
+        return grocery_service.get_item_by_id(item_id=item_id, db=db)
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
 
 
 @router.put("/{item_id}", response_model=GroceryItemResponse)
@@ -207,13 +216,18 @@ def update_grocery_item(
         HTTPException(404): If item doesn't exist or is not owned by current user
         HTTPException(422): If validation fails (invalid unit, etc.)
     """
-    update_dict = update_data.model_dump(exclude_unset=True)
-    return grocery_service.update_item(
-        item_id=item_id,
-        current_user=current_user,
-        db=db,
-        **update_dict,
-    )
+    try:
+        update_dict = update_data.model_dump(exclude_unset=True)
+        return grocery_service.update_item(
+            item_id=item_id,
+            current_user=current_user,
+            db=db,
+            **update_dict,
+        )
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -240,8 +254,13 @@ def delete_grocery_item(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or is not owned by current user
     """
-    grocery_service.delete_item(item_id=item_id, current_user=current_user, db=db)
-    return None
+    try:
+        grocery_service.delete_item(item_id=item_id, current_user=current_user, db=db)
+        return None
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.put("/{item_id}/purchase", response_model=GroceryItemResponse)
@@ -269,7 +288,12 @@ def purchase_item(
         HTTPException(404): If item doesn't exist
         HTTPException(500): If database error occurs
     """
-    return grocery_service.mark_purchased(item_id, current_user, db)
+    try:
+        return grocery_service.mark_purchased(item_id, current_user, db)
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.put("/{item_id}/unpurchase", response_model=GroceryItemResponse)
@@ -297,7 +321,12 @@ def unpurchase_item(
         HTTPException(404): If item doesn't exist
         HTTPException(500): If database error occurs
     """
-    return grocery_service.mark_unpurchased(item_id, current_user, db)
+    try:
+        return grocery_service.mark_unpurchased(item_id, current_user, db)
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.post("/bulk-purchase", response_model=BulkPurchaseResponse)
@@ -338,16 +367,21 @@ def bulk_purchase_items(
         HTTPException(422): If create_inventory_item=True but storage_location or category missing
         HTTPException(500): If database error occurs
     """
-    updated_items, inventory_count = grocery_service.bulk_purchase(
-        item_ids=request_data.item_ids,
-        current_user=current_user,
-        db=db,
-        create_inventory_item=request_data.create_inventory_item,
-        storage_location=request_data.storage_location,
-        category=request_data.category,
-    )
+    try:
+        updated_items, inventory_count = grocery_service.bulk_purchase(
+            item_ids=request_data.item_ids,
+            current_user=current_user,
+            db=db,
+            create_inventory_item=request_data.create_inventory_item,
+            storage_location=request_data.storage_location,
+            category=request_data.category,
+        )
 
-    return BulkPurchaseResponse(
-        items=updated_items,
-        inventory_items_created=inventory_count
-    )
+        return BulkPurchaseResponse(
+            items=updated_items,
+            inventory_items_created=inventory_count
+        )
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
