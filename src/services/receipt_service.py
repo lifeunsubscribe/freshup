@@ -9,7 +9,6 @@ import json
 import logging
 from typing import Optional
 from uuid import UUID
-from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
@@ -19,6 +18,7 @@ from src.schemas.receipt import ReceiptInventoryCandidate, ReceiptParseResult, R
 from src.schemas.inventory import InventoryItemCreate
 from src.services.task_service import get_task_by_id
 from src.services.inventory_service import create_inventory_items_bulk
+from src.exceptions import ValidationError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +274,8 @@ def submit_receipt(
         ProcessingTask: Created task with status='pending'
 
     Raises:
-        HTTPException(500): If database error occurs during task creation
+        ValidationError: If database integrity constraint is violated
+        RuntimeError: If database error occurs during task creation
     """
     # Create JSON input_reference matching task worker expectations
     # (see task_worker.py lines 68-83 for JSON format parsing)
@@ -301,18 +302,12 @@ def submit_receipt(
         db.rollback()
         logger.error(f"Integrity error during receipt submission for user {user_id}")
         logger.debug(f"Integrity error occurred during receipt submission: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Receipt submission failed due to data integrity violation"
-        )
+        raise ValidationError("Receipt submission failed due to data integrity violation")
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error during receipt submission for user {user_id}")
         logger.debug(f"Database error occurred during receipt submission: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while submitting the receipt"
-        )
+        raise RuntimeError("An error occurred while submitting the receipt")
 
     # Sanitize store_name for logging to prevent log injection
     safe_store_name = store_name.replace('\n', ' ').replace('\r', ' ') if store_name else None
@@ -349,18 +344,15 @@ def confirm_receipt_items(
         List of created InventoryItem objects
 
     Raises:
-        HTTPException(404): If task doesn't exist or doesn't belong to user
-        HTTPException(400): If task status is not "completed"
+        NotFoundError: If task doesn't exist or doesn't belong to user
+        ValidationError: If task status is not "completed"
     """
     # Retrieve task with multi-tenant isolation (defense-in-depth)
     task = get_task_by_id(task_id, user_id, db)
 
     if not task:
         logger.warning(f"Task {task_id} not found for user {user_id}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Receipt parsing task not found"
-        )
+        raise NotFoundError("Receipt parsing task not found")
 
     # Validate task has completed successfully
     if task.status != TaskStatus.completed.value:
@@ -368,10 +360,7 @@ def confirm_receipt_items(
             f"Attempt to confirm non-completed task {task_id} "
             f"(status: {task.status}) by user {user_id}"
         )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot confirm receipt: task status is '{task.status}', must be 'completed'"
-        )
+        raise ValidationError(f"Cannot confirm receipt: task status is '{task.status}', must be 'completed'")
 
     # Convert candidates to InventoryItemCreate schemas
     items_to_create = [
@@ -420,7 +409,7 @@ def get_receipt_task_status(
         ReceiptTaskStatusResponse with parsed result if completed, None if task not found
 
     Raises:
-        HTTPException(500): If result_reference JSON parsing fails for completed task
+        RuntimeError: If result_reference JSON parsing fails for completed task
     """
     # Retrieve task with multi-tenant isolation
     task = get_task_by_id(task_id, user_id, db)
@@ -441,10 +430,7 @@ def get_receipt_task_status(
                 f"Failed to parse result_reference for task {task_id}: {e}"
             )
             logger.debug(f"Invalid result_reference content: {task.result_reference}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to parse receipt result"
-            )
+            raise RuntimeError("Failed to parse receipt result")
 
     # Build response
     return ReceiptTaskStatusResponse(

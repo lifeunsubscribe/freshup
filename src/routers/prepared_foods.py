@@ -48,6 +48,7 @@ from src.services.prepared_foods_service import (
     freeze_prepared_food,
     thaw_prepared_food,
 )
+from src.exceptions import DomainException
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,12 @@ def create_prepared_food_endpoint(
         HTTPException(400): If data integrity violation occurs
         HTTPException(422): If validation fails (invalid type, storage_location, etc.)
     """
-    return create_prepared_food(item_data, current_user, db)
+    try:
+        return create_prepared_food(item_data, current_user, db)
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.get("", response_model=list[PreparedFoodListResponse])
@@ -447,13 +453,18 @@ def consume_prepared_food_endpoint(
         HTTPException(400): If consumption amount exceeds available servings
         HTTPException(422): If amount is negative or zero
     """
-    message, deleted, item = consume_prepared_food(item_id, consumption_data, current_user, db)
+    try:
+        message, deleted, item = consume_prepared_food(item_id, consumption_data, current_user, db)
 
-    return PreparedFoodConsumptionResponse(
-        message=message,
-        deleted=deleted,
-        item=item
-    )
+        return PreparedFoodConsumptionResponse(
+            message=message,
+            deleted=deleted,
+            item=item
+        )
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.post("/{item_id}/transfer", response_model=PreparedFoodResponse)
@@ -486,10 +497,15 @@ def transfer_prepared_food_endpoint(
         HTTPException(404): If item doesn't exist or is not accessible to current user
         HTTPException(422): If storage_location is invalid
     """
-    # Use helper function for shareability-aware access control
-    item = get_accessible_prepared_food(item_id, current_user, db)
+    try:
+        # Use helper function for shareability-aware access control
+        item = get_accessible_prepared_food(item_id, current_user, db)
 
-    return transfer_prepared_food(item, transfer_data.storage_location, current_user, db)
+        return transfer_prepared_food(item, transfer_data.storage_location, current_user, db)
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.post("/{item_id}/freeze", response_model=PreparedFoodResponse)
@@ -520,10 +536,15 @@ def freeze_prepared_food_endpoint(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or is not accessible to current user
     """
-    # Use helper function for shareability-aware access control
-    item = get_accessible_prepared_food(item_id, current_user, db)
+    try:
+        # Use helper function for shareability-aware access control
+        item = get_accessible_prepared_food(item_id, current_user, db)
 
-    return freeze_prepared_food(item, current_user, db)
+        return freeze_prepared_food(item, current_user, db)
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.post("/{item_id}/thaw", response_model=PreparedFoodResponse)
@@ -554,7 +575,12 @@ def thaw_prepared_food_endpoint(
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(404): If item doesn't exist or is not accessible to current user
     """
-    # Use helper function for shareability-aware access control
-    item = get_accessible_prepared_food(item_id, current_user, db)
+    try:
+        # Use helper function for shareability-aware access control
+        item = get_accessible_prepared_food(item_id, current_user, db)
 
-    return thaw_prepared_food(item, current_user, db)
+        return thaw_prepared_food(item, current_user, db)
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

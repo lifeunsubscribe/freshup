@@ -29,6 +29,7 @@ from src.schemas.receipt import (
 from src.schemas.inventory import InventoryItemResponse
 from src.services.receipt_service import submit_receipt, confirm_receipt_items
 from src.middleware.auth import get_current_user
+from src.exceptions import DomainException, ValidationError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -70,19 +71,27 @@ def submit_receipt_for_processing(
         HTTPException(422): If receipt_text is empty, too short, or too long
         HTTPException(500): If database error occurs during task creation
     """
-    # Submit receipt via service layer
-    task = submit_receipt(
-        receipt_text=request.receipt_text,
-        user_id=current_user.id,
-        db=db,
-        store_name=request.store_name,
-    )
+    try:
+        # Submit receipt via service layer
+        task = submit_receipt(
+            receipt_text=request.receipt_text,
+            user_id=current_user.id,
+            db=db,
+            store_name=request.store_name,
+        )
 
-    return ReceiptSubmitResponse(
-        task_id=task.id,
-        status=task.status,
-        message="Receipt submitted for processing"
-    )
+        return ReceiptSubmitResponse(
+            task_id=task.id,
+            status=task.status,
+            message="Receipt submitted for processing"
+        )
+
+    except DomainException as e:
+        # Convert domain exceptions to HTTPException
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        # Convert runtime errors to 500
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.post(
@@ -146,6 +155,10 @@ def confirm_receipt(
             created_count=len(created_items),
             items=items_response
         )
+
+    except DomainException as e:
+        # Convert domain exceptions to HTTPException
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
 
     except IntegrityError as e:
         logger.error(

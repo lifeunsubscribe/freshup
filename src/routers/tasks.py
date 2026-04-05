@@ -65,15 +65,22 @@ def get_task_status(
 
     # For receipt parsing tasks, return parsed result when completed
     if task.task_type == TaskType.receipt_parse.value:
-        receipt_status = get_receipt_task_status(task_id, current_user.id, db)
-        if receipt_status:
-            return receipt_status
-        # Fallback to generic response if parsing fails (shouldn't happen)
-        logger.warning(
-            f"Receipt task {task_id} returned None from get_receipt_task_status, falling back to generic response. "
-            f"Task status: {task.status}, has result_reference: {task.result_reference is not None}"
-        )
-        return ProcessingTaskResponse.model_validate(task)
+        try:
+            receipt_status = get_receipt_task_status(task_id, current_user.id, db)
+            if receipt_status:
+                return receipt_status
+            # Fallback to generic response if parsing fails (shouldn't happen)
+            logger.warning(
+                f"Receipt task {task_id} returned None from get_receipt_task_status, falling back to generic response. "
+                f"Task status: {task.status}, has result_reference: {task.result_reference is not None}"
+            )
+            return ProcessingTaskResponse.model_validate(task)
+        except RuntimeError as e:
+            # Handle malformed result_reference JSON in completed tasks
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to parse receipt result: {str(e)}"
+            )
 
     # For other task types, return generic response
     return ProcessingTaskResponse.model_validate(task)
