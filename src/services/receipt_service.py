@@ -14,13 +14,240 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.db.models.processing_task import ProcessingTask, TaskStatus, TaskType
-from src.db.models.inventory_item import InventoryItem
-from src.schemas.receipt import ReceiptInventoryCandidate, ReceiptParseResult, ReceiptTaskStatusResponse
+from src.db.models.inventory_item import InventoryItem, Category, UnitType, StorageLocation
+from src.schemas.receipt import ReceiptInventoryCandidate, ReceiptParseResult, ReceiptTaskStatusResponse, ReceiptLineItem
 from src.schemas.inventory import InventoryItemCreate
 from src.services.task_service import get_task_by_id
 from src.services.inventory_service import create_inventory_items_bulk
 
 logger = logging.getLogger(__name__)
+
+
+# Category mapping dictionary: maps LLM category guesses to Category enum values
+# Supports common variations and aliases for fuzzy matching
+CATEGORY_MAPPING = {
+    # Produce variations
+    "produce": Category.produce,
+    "fruit": Category.produce,
+    "fruits": Category.produce,
+    "vegetable": Category.produce,
+    "vegetables": Category.produce,
+    "veggies": Category.produce,
+    "fresh produce": Category.produce,
+
+    # Protein variations
+    "protein": Category.protein,
+    "meat": Category.protein,
+    "meats": Category.protein,
+    "poultry": Category.protein,
+    "seafood": Category.protein,
+    "fish": Category.protein,
+    "chicken": Category.protein,
+    "beef": Category.protein,
+    "pork": Category.protein,
+
+    # Dairy variations
+    "dairy": Category.dairy,
+    "milk": Category.dairy,
+    "cheese": Category.dairy,
+    "yogurt": Category.dairy,
+    "cream": Category.dairy,
+    "butter": Category.dairy,
+
+    # Grain variations
+    "grain": Category.grain,
+    "grains": Category.grain,
+    "bread": Category.grain,
+    "pasta": Category.grain,
+    "rice": Category.grain,
+    "cereal": Category.grain,
+
+    # Pantry staple variations
+    "pantry_staple": Category.pantry_staple,
+    "pantry staple": Category.pantry_staple,
+    "staple": Category.pantry_staple,
+    "staples": Category.pantry_staple,
+
+    # Frozen variations
+    "frozen": Category.frozen,
+    "frozen food": Category.frozen,
+    "frozen foods": Category.frozen,
+
+    # Snack variations
+    "snack": Category.snack,
+    "snacks": Category.snack,
+    "chips": Category.snack,
+
+    # Condiment variations
+    "condiment": Category.condiment,
+    "condiments": Category.condiment,
+    "sauce": Category.condiment,
+    "sauces": Category.condiment,
+    "dressing": Category.condiment,
+
+    # Beverage variations
+    "beverage": Category.beverage,
+    "beverages": Category.beverage,
+    "drink": Category.beverage,
+    "drinks": Category.beverage,
+    "soda": Category.beverage,
+    "juice": Category.beverage,
+    "water": Category.beverage,
+
+    # Spice variations
+    "spice": Category.spice,
+    "spices": Category.spice,
+    "seasoning": Category.spice,
+    "seasonings": Category.spice,
+    "herb": Category.spice,
+    "herbs": Category.spice,
+
+    # Baking variations
+    "baking": Category.baking,
+    "flour": Category.baking,
+    "sugar": Category.baking,
+    "baking supplies": Category.baking,
+
+    # Oil/vinegar variations
+    "oil_vinegar": Category.oil_vinegar,
+    "oil": Category.oil_vinegar,
+    "oils": Category.oil_vinegar,
+    "vinegar": Category.oil_vinegar,
+    "oil & vinegar": Category.oil_vinegar,
+
+    # Canned variations
+    "canned": Category.canned,
+    "canned goods": Category.canned,
+    "canned food": Category.canned,
+
+    # Other
+    "other": Category.other,
+    "misc": Category.other,
+    "miscellaneous": Category.other,
+}
+
+
+def map_category_guess_to_enum(category_guess: str | None) -> Category:
+    """
+    Map LLM category guess string to Category enum value.
+
+    Performs case-insensitive matching against known category variations.
+    Defaults to Category.other if null or unrecognized.
+
+    Args:
+        category_guess: LLM's category guess string (nullable)
+
+    Returns:
+        Matched Category enum value, or Category.other if no match
+    """
+    if not category_guess:
+        return Category.other
+
+    # Normalize: lowercase and strip whitespace
+    normalized = category_guess.lower().strip()
+
+    # Lookup in mapping dictionary
+    return CATEGORY_MAPPING.get(normalized, Category.other)
+
+
+def infer_storage_location(category: Category) -> StorageLocation:
+    """
+    Infer storage location based on item category.
+
+    Mapping rules:
+    - produce, dairy → fridge
+    - frozen → freezer
+    - all others → pantry
+
+    Args:
+        category: Item category enum value
+
+    Returns:
+        Inferred StorageLocation enum value
+    """
+    if category in {Category.produce, Category.dairy}:
+        return StorageLocation.fridge
+    elif category == Category.frozen:
+        return StorageLocation.freezer
+    else:
+        return StorageLocation.pantry
+
+
+def map_receipt_to_inventory(parse_result: ReceiptParseResult) -> list[ReceiptInventoryCandidate]:
+    """
+    Transform receipt parse result into inventory candidate items.
+
+    Maps each receipt line item to a ReceiptInventoryCandidate with:
+    - Normalized category (maps LLM guess to Category enum)
+    - Inferred storage location (based on category)
+    - Default quantity (1.0 if null)
+    - Default unit (count)
+    - Price from total_price (nullable)
+
+    This is a pure transformation function with no database writes.
+    Users will review and confirm candidates before inventory creation.
+
+    Args:
+        parse_result: Parsed receipt data with store name, date, and line items
+
+    Returns:
+        List of inventory candidates ready for user confirmation
+
+    Example:
+        >>> parse_result = ReceiptParseResult(
+        ...     store_name="Costco",
+        ...     receipt_date=date(2026, 4, 4),
+        ...     line_items=[
+        ...         ReceiptLineItem(
+        ...             item_name="Organic Bananas",
+        ...             quantity=3.0,
+        ...             total_price=2.99,
+        ...             category_guess="produce"
+        ...         )
+        ...     ]
+        ... )
+        >>> candidates = map_receipt_to_inventory(parse_result)
+        >>> candidates[0].category
+        'produce'
+        >>> candidates[0].storage_location
+        'fridge'
+    """
+    candidates = []
+
+    for line_item in parse_result.line_items:
+        # Map category guess to enum (defaults to 'other' if null/unrecognized)
+        category = map_category_guess_to_enum(line_item.category_guess)
+
+        # Infer storage location from category
+        storage_location = infer_storage_location(category)
+
+        # Use quantity from line item, default to 1.0 if null
+        quantity = line_item.quantity if line_item.quantity is not None else 1.0
+
+        # Default unit to 'count' (most receipts don't specify units)
+        unit = UnitType.count
+
+        # Use total_price as price (nullable, deferred per scope boundary)
+        price = line_item.total_price
+
+        # Create candidate
+        candidate = ReceiptInventoryCandidate(
+            name=line_item.item_name,
+            quantity=quantity,
+            unit=unit.value,
+            category=category.value,
+            storage_location=storage_location.value,
+            price=price,
+        )
+
+        candidates.append(candidate)
+
+    logger.debug(
+        f"Mapped {len(candidates)} receipt line items to inventory candidates "
+        f"from store '{parse_result.store_name}'"
+    )
+
+    return candidates
 
 
 def submit_receipt(
