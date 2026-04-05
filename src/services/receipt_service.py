@@ -122,7 +122,7 @@ def confirm_receipt_items(
 
     Raises:
         HTTPException(404): If task doesn't exist or doesn't belong to user
-        HTTPException(400): If task status is not "completed"
+        HTTPException(400): If task type is not "receipt_parse" or status is not "completed"
     """
     # Retrieve task with multi-tenant isolation (defense-in-depth)
     task = get_task_by_id(task_id, user_id, db)
@@ -132,6 +132,17 @@ def confirm_receipt_items(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Receipt parsing task not found"
+        )
+
+    # Validate task type (defensive programming: ensure service preconditions)
+    if task.task_type != TaskType.receipt_parse.value:
+        logger.warning(
+            f"Attempt to confirm non-receipt task {task_id} "
+            f"(task_type: {task.task_type}) by user {user_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot confirm receipt: task type is '{task.task_type}', must be 'receipt_parse'"
         )
 
     # Validate task has completed successfully
@@ -192,6 +203,7 @@ def get_receipt_task_status(
         ReceiptTaskStatusResponse with parsed result if completed, None if task not found
 
     Raises:
+        HTTPException(400): If task type is not "receipt_parse"
         HTTPException(500): If result_reference JSON parsing fails for completed task
     """
     # Retrieve task with multi-tenant isolation
@@ -199,6 +211,17 @@ def get_receipt_task_status(
 
     if not task:
         return None
+
+    # Validate task type (defensive programming: ensure service preconditions)
+    if task.task_type != TaskType.receipt_parse.value:
+        logger.warning(
+            f"Attempt to get receipt status for non-receipt task {task_id} "
+            f"(task_type: {task.task_type}) by user {user_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot retrieve receipt status: task type is '{task.task_type}', must be 'receipt_parse'"
+        )
 
     # Parse result_reference into ReceiptParseResult if completed
     parsed_result = None
