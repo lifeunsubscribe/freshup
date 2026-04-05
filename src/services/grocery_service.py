@@ -99,7 +99,7 @@ def create_item(
         db.rollback()
         logger.error(f"Database error during grocery item creation for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item creation: {e}")
-        raise RuntimeError("An error occurred while creating the grocery item")
+        raise RuntimeError("An error occurred while creating the grocery item") from e
 
     logger.info(
         f"Grocery item created: user_id={current_user.id}, "
@@ -250,7 +250,7 @@ def update_item(
         db.rollback()
         logger.error(f"Database error during grocery item update for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item update: {e}")
-        raise RuntimeError("An error occurred while updating the grocery item")
+        raise RuntimeError("An error occurred while updating the grocery item") from e
 
     logger.info(
         f"Grocery item updated: user_id={current_user.id}, "
@@ -293,7 +293,7 @@ def delete_item(
         db.rollback()
         logger.error(f"Database error during grocery item deletion for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item deletion: {e}")
-        raise RuntimeError("An error occurred while deleting the grocery item")
+        raise RuntimeError("An error occurred while deleting the grocery item") from e
 
     logger.info(
         f"Grocery item deleted: user_id={current_user.id}, "
@@ -341,7 +341,7 @@ def mark_purchased(
         db.rollback()
         logger.error(f"Database error during grocery item purchase for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item purchase: {e}")
-        raise RuntimeError("An error occurred while marking the item as purchased")
+        raise RuntimeError("An error occurred while marking the item as purchased") from e
 
     logger.info(
         f"Grocery item purchased: user_id={current_user.id}, "
@@ -391,7 +391,7 @@ def mark_unpurchased(
         db.rollback()
         logger.error(f"Database error during grocery item unpurchase for user {current_user.id}")
         logger.debug(f"Database error occurred during grocery item unpurchase: {e}")
-        raise RuntimeError("An error occurred while marking the item as unpurchased")
+        raise RuntimeError("An error occurred while marking the item as unpurchased") from e
 
     logger.info(
         f"Grocery item unpurchased: user_id={current_user.id}, "
@@ -494,7 +494,7 @@ def bulk_purchase(
         db.rollback()
         logger.error(f"Database error during bulk grocery purchase for user {current_user.id}")
         logger.debug(f"Database error occurred during bulk grocery purchase: {e}")
-        raise RuntimeError("An error occurred while processing the bulk purchase")
+        raise RuntimeError("An error occurred while processing the bulk purchase") from e
 
     logger.info(
         f"Bulk grocery purchase: user_id={current_user.id}, "
