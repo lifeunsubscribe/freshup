@@ -208,7 +208,7 @@ def get_receipt_task_status(
             result_data = json.loads(task.result_reference)
             parsed_result = ReceiptParseResult.model_validate(result_data)
         except (json.JSONDecodeError, ValueError) as e:
-            # Log error but don't fail the request - return task status without parsed result
+            # Log error and fail the request - result_reference should always be valid for completed tasks
             logger.error(
                 f"Failed to parse result_reference for task {task_id}: {e}"
             )

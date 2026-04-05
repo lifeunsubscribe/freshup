@@ -25,7 +25,6 @@ from src.schemas.receipt import (
     ReceiptSubmitResponse,
     ReceiptConfirmRequest,
     ReceiptConfirmResponse,
-    ReceiptTaskStatusResponse,
 )
 from src.schemas.inventory import InventoryItemResponse
 from src.services.receipt_service import submit_receipt, confirm_receipt_items, get_receipt_task_status
