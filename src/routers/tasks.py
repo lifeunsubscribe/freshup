@@ -69,6 +69,10 @@ def get_task_status(
         if receipt_status:
             return receipt_status
         # Fallback to generic response if parsing fails (shouldn't happen)
+        logger.warning(
+            f"Receipt task {task_id} returned None from get_receipt_task_status, falling back to generic response. "
+            f"Task status: {task.status}, has result_reference: {task.result_reference is not None}"
+        )
         return ProcessingTaskResponse.model_validate(task)
 
     # For other task types, return generic response
