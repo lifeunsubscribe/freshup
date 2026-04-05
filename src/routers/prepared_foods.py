@@ -44,6 +44,7 @@ from src.routers.prepared_foods_helpers import (
 from src.services.prepared_foods_service import (
     create_prepared_food,
     consume_prepared_food,
+    get_accessible_prepared_food,
     transfer_prepared_food,
     freeze_prepared_food,
     thaw_prepared_food,
@@ -53,53 +54,6 @@ from src.exceptions import DomainException
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/prepared-foods", tags=["prepared-foods"])
-
-
-def get_accessible_prepared_food(
-    item_id: UUID,
-    current_user: User,
-    db: Session,
-) -> PreparedFood:
-    """
-    Retrieve a prepared food item with shareability-aware access control.
-
-    Implements the authorization pattern where:
-    - Shared items are accessible to all authenticated users
-    - Personal/reserved items are only accessible to their owner
-
-    This helper consolidates the authorization logic used across multiple
-    action endpoints (consume, transfer, freeze, thaw).
-
-    Args:
-        item_id: UUID of the prepared food item to retrieve
-        current_user: Authenticated user attempting to access the item
-        db: Database session
-
-    Returns:
-        PreparedFood: The requested item if accessible
-
-    Raises:
-        HTTPException(404): If item doesn't exist or is not accessible to current user
-    """
-    item = (
-        db.query(PreparedFood)
-        .filter(
-            PreparedFood.id == item_id,
-            or_(
-                PreparedFood.shareability == Shareability.shared.value,
-                PreparedFood.prepared_by == current_user.id
-            )
-        )
-        .first()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Prepared food item not found"
-        )
-
-    return item
 
 
 @router.post("", response_model=PreparedFoodResponse, status_code=status.HTTP_201_CREATED)
@@ -502,9 +456,8 @@ def transfer_prepared_food_endpoint(
         HTTPException(422): If storage_location is invalid
     """
     try:
-        # Use helper function for shareability-aware access control
+        # Use service function for shareability-aware access control
         item = get_accessible_prepared_food(item_id, current_user, db)
-
         return transfer_prepared_food(item, transfer_data.storage_location, current_user, db)
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
@@ -543,9 +496,8 @@ def freeze_prepared_food_endpoint(
         HTTPException(404): If item doesn't exist or is not accessible to current user
     """
     try:
-        # Use helper function for shareability-aware access control
+        # Use service function for shareability-aware access control
         item = get_accessible_prepared_food(item_id, current_user, db)
-
         return freeze_prepared_food(item, current_user, db)
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
@@ -584,9 +536,8 @@ def thaw_prepared_food_endpoint(
         HTTPException(404): If item doesn't exist or is not accessible to current user
     """
     try:
-        # Use helper function for shareability-aware access control
+        # Use service function for shareability-aware access control
         item = get_accessible_prepared_food(item_id, current_user, db)
-
         return thaw_prepared_food(item, current_user, db)
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
