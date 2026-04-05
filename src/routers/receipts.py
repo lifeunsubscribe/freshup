@@ -163,17 +163,6 @@ def confirm_receipt(
         # Convert runtime errors to 500
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
-    except IntegrityError as e:
-        logger.error(
-            f"Integrity error during receipt confirmation for user {current_user.id}, "
-            f"task {task_id}"
-        )
-        logger.debug(f"Integrity error occurred during receipt confirmation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Receipt confirmation failed due to data integrity violation"
-        )
-
     except SQLAlchemyError as e:
         logger.error(
             f"Database error during receipt confirmation for user {current_user.id}, "

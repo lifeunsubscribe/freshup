@@ -307,7 +307,7 @@ def submit_receipt(
         db.rollback()
         logger.error(f"Database error during receipt submission for user {user_id}")
         logger.debug(f"Database error occurred during receipt submission: {e}")
-        raise RuntimeError("An error occurred while submitting the receipt")
+        raise RuntimeError("An error occurred while submitting the receipt") from e
 
     # Sanitize store_name for logging to prevent log injection
     safe_store_name = store_name.replace('\n', ' ').replace('\r', ' ') if store_name else None
