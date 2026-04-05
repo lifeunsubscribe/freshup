@@ -27,7 +27,7 @@ from src.schemas.receipt import (
     ReceiptConfirmResponse,
 )
 from src.schemas.inventory import InventoryItemResponse
-from src.services.receipt_service import submit_receipt, confirm_receipt_items, get_receipt_task_status
+from src.services.receipt_service import submit_receipt, confirm_receipt_items
 from src.middleware.auth import get_current_user
 
 logger = logging.getLogger(__name__)

@@ -1028,3 +1028,29 @@ def test_get_task_status_other_user_task(client, other_user_task, auth_headers):
     # Should return 404 to prevent information leakage
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()
+
+
+def test_get_task_status_invalid_result_json(client, db_session, test_user, auth_headers):
+    """Test retrieving completed task with malformed JSON in result_reference returns 500."""
+    # Create a completed task with invalid JSON in result_reference
+    task = ProcessingTask(
+        id=uuid4(),
+        user_id=test_user.id,
+        task_type=TaskType.receipt_parse.value,
+        status=TaskStatus.completed.value,
+        input_reference='{"receipt_text": "test", "store_name": "Costco"}',
+        result_reference='{"invalid": "json", "missing_closing_brace":',  # Malformed JSON
+        completed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(task)
+    db_session.commit()
+    db_session.refresh(task)
+
+    response = client.get(
+        f"/tasks/{task.id}",
+        headers=auth_headers,
+    )
+
+    # Should return 500 because result_reference should always be valid for completed tasks
+    assert response.status_code == 500
+    assert "failed to parse" in response.json()["detail"].lower()
