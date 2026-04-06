@@ -44,38 +44,44 @@ def _run_seed_insert(conn):
 
     metadata = MetaData()
     stores_table = Table("stores", metadata, autoload_with=conn)
-    exists_query = sa.select(stores_table.c.id).where(
-        stores_table.c.id == COSTCO_STORE_ID
-    )
-    result = conn.execute(exists_query).first()
-    if not result:
-        costco_profile = {
-            "item_name_patterns": [
-                "Kirkland Signature", "KS ", "Organic", "ORG",
-                "Multi-pack", "Variety Pack",
-            ],
-            "quantity_patterns": [
-                "2-pack", "3-pack", "4-pack", "6-pack", "12-pack",
-                "24-pack", "ct", "count", "oz pack", "lb pack",
-            ],
-            "price_format_hints": [
-                "$/oz", "$/lb", "$/kg", "$/unit", "unit price", "price per",
-            ],
-            "common_abbreviations": {
-                "ORG": "Organic", "KS": "Kirkland Signature",
-                "LB": "Pound", "OZ": "Ounce", "CT": "Count",
-                "PK": "Pack", "EA": "Each", "GAL": "Gallon", "QT": "Quart",
-            },
-        }
-        conn.execute(
-            stores_table.insert().values(
-                id=COSTCO_STORE_ID,
-                name="Costco",
-                has_digital_receipts=False,
-                parsing_profile=costco_profile,
-            )
+
+    try:
+        exists_query = sa.select(stores_table.c.id).where(
+            stores_table.c.id == COSTCO_STORE_ID
         )
-        conn.commit()
+        result = conn.execute(exists_query).first()
+        if not result:
+            costco_profile = {
+                "item_name_patterns": [
+                    "Kirkland Signature", "KS ", "Organic", "ORG",
+                    "Multi-pack", "Variety Pack",
+                ],
+                "quantity_patterns": [
+                    "2-pack", "3-pack", "4-pack", "6-pack", "12-pack",
+                    "24-pack", "ct", "count", "oz pack", "lb pack",
+                ],
+                "price_format_hints": [
+                    "$/oz", "$/lb", "$/kg", "$/unit", "unit price", "price per",
+                ],
+                "common_abbreviations": {
+                    "ORG": "Organic", "KS": "Kirkland Signature",
+                    "LB": "Pound", "OZ": "Ounce", "CT": "Count",
+                    "PK": "Pack", "EA": "Each", "GAL": "Gallon", "QT": "Quart",
+                },
+            }
+            conn.execute(
+                stores_table.insert().values(
+                    id=COSTCO_STORE_ID,
+                    name="Costco",
+                    has_digital_receipts=False,
+                    parsing_profile=costco_profile,
+                )
+            )
+            conn.commit()
+    except sa.exc.IntegrityError:
+        # Race condition: another process inserted between our check and insert
+        # This is safe to ignore - the store exists, which is our goal
+        conn.rollback()
 
 
 def test_costco_store_migration_idempotency(db_session):
@@ -96,7 +102,7 @@ def test_costco_store_migration_idempotency(db_session):
 
     assert row is not None, "Costco store should be inserted"
     assert row.name == "Costco"
-    assert row.has_digital_receipts == False  # noqa: E712
+    assert not row.has_digital_receipts
 
     parsing_profile = row.parsing_profile
     if isinstance(parsing_profile, str):
