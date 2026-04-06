@@ -76,20 +76,39 @@ def upgrade() -> None:
     )
 
     # Insert Generic store with parsing profile
-    # Using INSERT OR IGNORE for SQLite compatibility
-    op.execute(
-        sa.text(
-            """
-            INSERT OR IGNORE INTO stores (id, name, has_digital_receipts, parsing_profile)
-            VALUES (:id, :name, :has_digital_receipts, :parsing_profile)
-            """
-        ).bindparams(
-            id=GENERIC_STORE_ID,
-            name="Generic",
-            has_digital_receipts=False,
-            parsing_profile=json.dumps(generic_profile)
+    # Use database-specific syntax for INSERT ... ON CONFLICT (PostgreSQL) / INSERT OR IGNORE (SQLite)
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        # PostgreSQL syntax
+        op.execute(
+            sa.text(
+                """
+                INSERT INTO stores (id, name, has_digital_receipts, parsing_profile)
+                VALUES (:id, :name, :has_digital_receipts, :parsing_profile)
+                ON CONFLICT (id) DO NOTHING
+                """
+            ).bindparams(
+                id=GENERIC_STORE_ID,
+                name="Generic",
+                has_digital_receipts=False,
+                parsing_profile=json.dumps(generic_profile)
+            )
         )
-    )
+    else:
+        # SQLite syntax
+        op.execute(
+            sa.text(
+                """
+                INSERT OR IGNORE INTO stores (id, name, has_digital_receipts, parsing_profile)
+                VALUES (:id, :name, :has_digital_receipts, :parsing_profile)
+                """
+            ).bindparams(
+                id=GENERIC_STORE_ID,
+                name="Generic",
+                has_digital_receipts=False,
+                parsing_profile=json.dumps(generic_profile)
+            )
+        )
 
 
 def downgrade() -> None:
