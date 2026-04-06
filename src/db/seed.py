@@ -15,10 +15,40 @@ from src.services.auth_service import hash_password
 
 
 STORES = [
-    {"name": "Costco", "has_digital_receipts": True},
+    {
+        "name": "Costco",
+        "has_digital_receipts": True,
+        "parsing_profile": {
+            "header_patterns": ["COSTCO WHOLESALE", "WAREHOUSE"],
+            "abbreviations": {
+                "MBR": "Member",
+                "QTY": "Quantity",
+                "WT": "Weight",
+                "EA": "Each",
+                "LB": "Pound"
+            },
+            "date_formats": ["%m/%d/%y", "%m/%d/%Y"],
+            "category_hints": ["GROCERY", "PRODUCE", "MEAT", "BAKERY", "DELI", "FROZEN"]
+        }
+    },
     {"name": "Save-A-Lot", "has_digital_receipts": False},
     {"name": "King Soopers", "has_digital_receipts": False},
     {"name": "Walmart", "has_digital_receipts": False},
+    {
+        "name": "Generic",
+        "has_digital_receipts": False,
+        "parsing_profile": {
+            "header_patterns": [],
+            "abbreviations": {
+                "EA": "Each",
+                "LB": "Pound",
+                "OZ": "Ounce",
+                "QTY": "Quantity"
+            },
+            "date_formats": ["%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d", "%d/%m/%Y"],
+            "category_hints": ["GROCERY", "PRODUCE", "MEAT", "DAIRY", "FROZEN", "BAKERY"]
+        }
+    },
 ]
 
 SEED_USERS = [
@@ -45,7 +75,7 @@ def seed() -> None:
     session_factory = get_session_factory()
 
     with session_factory() as session:
-        # Seed stores
+        # Seed stores - create or update with parsing profiles
         for store_data in STORES:
             exists = session.execute(
                 select(Store).where(Store.name == store_data["name"])
@@ -54,7 +84,12 @@ def seed() -> None:
                 session.add(Store(id=uuid4(), **store_data))
                 print(f"  Added store: {store_data['name']}")
             else:
-                print(f"  Store already exists: {store_data['name']}")
+                # Update existing store with parsing profile if provided
+                if "parsing_profile" in store_data and exists.parsing_profile != store_data["parsing_profile"]:
+                    exists.parsing_profile = store_data["parsing_profile"]
+                    print(f"  Updated parsing profile for: {store_data['name']}")
+                else:
+                    print(f"  Store already exists: {store_data['name']}")
 
         # Seed users
         for user_data in SEED_USERS:
