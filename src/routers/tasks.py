@@ -64,8 +64,10 @@ def get_task_status(
         return receipt_status
 
     except DomainException as e:
-        # Convert domain exceptions (ValidationError, NotFoundError, etc.) to HTTPException
+        # Convert domain exceptions to HTTPException
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
-        # Convert runtime errors (e.g., JSON parsing failures) to 500
+        # Log unexpected runtime errors before converting to HTTP 500
+        logger.error(f"RuntimeError in get_task_status for task_id={task_id}: {str(e)}", exc_info=True)
+        # Convert runtime errors to 500, preserving the error message for debugging
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

@@ -23,6 +23,50 @@ from src.exceptions import ValidationError, NotFoundError
 logger = logging.getLogger(__name__)
 
 
+def get_accessible_prepared_food(
+    item_id: UUID,
+    current_user: User,
+    db: Session,
+) -> PreparedFood:
+    """
+    Retrieve a prepared food item with shareability-aware access control.
+
+    Implements the authorization pattern where:
+    - Shared items are accessible to all authenticated users
+    - Personal/reserved items are only accessible to their owner
+
+    This helper consolidates the authorization logic used across multiple
+    action endpoints (consume, transfer, freeze, thaw).
+
+    Args:
+        item_id: UUID of the prepared food item to retrieve
+        current_user: Authenticated user attempting to access the item
+        db: Database session
+
+    Returns:
+        PreparedFood: The requested item if accessible
+
+    Raises:
+        NotFoundError: If item doesn't exist or is not accessible to current user
+    """
+    item = (
+        db.query(PreparedFood)
+        .filter(
+            PreparedFood.id == item_id,
+            or_(
+                PreparedFood.shareability == Shareability.shared.value,
+                PreparedFood.prepared_by == current_user.id
+            )
+        )
+        .first()
+    )
+
+    if not item:
+        raise NotFoundError("Prepared food item not found")
+
+    return item
+
+
 def create_prepared_food(
     item_data: PreparedFoodCreate,
     current_user: User,

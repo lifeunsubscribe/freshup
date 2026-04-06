@@ -81,6 +81,8 @@ def create_grocery_item(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in create_grocery_item: user_id={current_user.id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -227,6 +229,8 @@ def update_grocery_item(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in update_grocery_item: user_id={current_user.id}, item_id={item_id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -260,6 +264,8 @@ def delete_grocery_item(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in delete_grocery_item: user_id={current_user.id}, item_id={item_id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -293,6 +299,8 @@ def purchase_item(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in purchase_item: user_id={current_user.id}, item_id={item_id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -326,6 +334,8 @@ def unpurchase_item(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in unpurchase_item: user_id={current_user.id}, item_id={item_id}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -384,4 +394,6 @@ def bulk_purchase_items(
     except DomainException as e:
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except RuntimeError as e:
+        logger.error(f"Runtime error in bulk_purchase_items: user_id={current_user.id}, item_ids={request_data.item_ids}")
+        logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
