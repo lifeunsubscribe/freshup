@@ -3,6 +3,7 @@ Integration tests for receipt endpoints.
 
 Tests cover:
 - POST /receipts: submit receipt text for async LLM parsing
+- POST /receipts/upload: upload receipt image for OCR and LLM parsing
 - POST /receipts/{task_id}/confirm: confirm receipt items and create inventory
 - Task validation: existence, status, ownership
 - Multi-tenant isolation: users can only confirm their own tasks
@@ -10,8 +11,10 @@ Tests cover:
 - Input validation: empty items, invalid enums, receipt text length, etc.
 """
 
+import io
 import json
 import pytest
+from unittest.mock import Mock, patch, MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -24,6 +27,7 @@ from src.db.models.user import User, UserRole
 from src.db.models.inventory_item import InventoryItem, Category, UnitType, StorageLocation
 from src.db.models.processing_task import ProcessingTask, TaskStatus, TaskType
 from src.services.auth_service import hash_password, create_access_token
+from src.services.ocr_service import OCRError
 
 from fastapi import FastAPI
 from src.routers import receipts_router, tasks_router
@@ -433,6 +437,298 @@ def test_submit_receipt_whitespace_store_name(client, auth_headers):
     )
 
     assert response.status_code == 422
+
+
+# --- Receipt Image Upload Tests ---
+
+# --- Success Cases ---
+
+
+def test_upload_receipt_image_jpeg_success(client, db_session, test_user, auth_headers):
+    """Test successful JPEG receipt image upload with OCR extraction."""
+    # Create a mock JPEG image file
+    image_content = b"fake-jpeg-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    mock_ocr_text = "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99\nMilk 4.59\nTotal: $8.58"
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage:
+
+        mock_ocr.return_value = mock_ocr_text
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert "task_id" in data
+    assert data["status"] == "pending"
+    assert "image uploaded" in data["message"].lower()
+
+    # Verify task exists in database with metadata
+    task_id = UUID(data["task_id"])
+    task = db_session.query(ProcessingTask).filter(
+        ProcessingTask.id == task_id
+    ).first()
+    assert task is not None
+    assert task.user_id == test_user.id
+    assert task.task_type == TaskType.receipt_parse.value
+    assert task.status == TaskStatus.pending.value
+
+    # Verify input_reference contains OCR text
+    input_data = json.loads(task.input_reference)
+    assert input_data["receipt_text"] == mock_ocr_text
+    assert input_data["store_name"] is None
+
+    # Verify task_metadata contains image source info
+    assert task.task_metadata is not None
+    assert task.task_metadata["source"] == "image"
+    assert "minio_path" in task.task_metadata
+    assert f"receipts/{test_user.id}/" in task.task_metadata["minio_path"]
+    assert task.task_metadata["minio_path"].endswith(".jpg")
+
+    # Verify OCR service was called with image bytes
+    mock_ocr.assert_called_once_with(image_content)
+
+    # Verify MinIO upload was called
+    mock_s3_client.put_object.assert_called_once()
+    call_args = mock_s3_client.put_object.call_args
+    assert call_args.kwargs["Body"] == image_content
+    assert call_args.kwargs["ContentType"] == "image/jpeg"
+
+
+def test_upload_receipt_image_png_success(client, db_session, test_user, auth_headers):
+    """Test successful PNG receipt image upload."""
+    # Create a mock PNG image file
+    image_content = b"fake-png-image-data"
+    image_file = ("receipt.png", io.BytesIO(image_content), "image/png")
+
+    mock_ocr_text = "TARGET\n04/05/2026\nApples 5.99\nBread 2.49\nTotal: $8.48"
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage:
+
+        mock_ocr.return_value = mock_ocr_text
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert "task_id" in data
+
+    # Verify task metadata has .png extension
+    task_id = UUID(data["task_id"])
+    task = db_session.query(ProcessingTask).filter(
+        ProcessingTask.id == task_id
+    ).first()
+    assert task.task_metadata["minio_path"].endswith(".png")
+
+
+def test_upload_receipt_image_with_store_hint(client, db_session, test_user, auth_headers):
+    """Test receipt image upload with store_hint parameter."""
+    image_content = b"fake-jpeg-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    mock_ocr_text = "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99"
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage:
+
+        mock_ocr.return_value = mock_ocr_text
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        response = client.post(
+            "/receipts/upload?store_hint=Costco",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 202
+    data = response.json()
+
+    # Verify store_hint is stored in task metadata
+    task_id = UUID(data["task_id"])
+    task = db_session.query(ProcessingTask).filter(
+        ProcessingTask.id == task_id
+    ).first()
+    input_data = json.loads(task.input_reference)
+    assert input_data["store_name"] == "Costco"
+    assert task.task_metadata["store_hint"] == "Costco"
+
+
+# --- Error Cases: File Type Validation ---
+
+
+def test_upload_receipt_image_invalid_file_type(client, auth_headers):
+    """Test receipt upload rejects non-image file types."""
+    # Create a PDF file (invalid type)
+    pdf_content = b"%PDF-1.4 fake pdf content"
+    pdf_file = ("document.pdf", io.BytesIO(pdf_content), "application/pdf")
+
+    response = client.post(
+        "/receipts/upload",
+        files={"file": pdf_file},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    assert "invalid file type" in response.json()["detail"].lower()
+    assert "jpeg" in response.json()["detail"].lower() or "png" in response.json()["detail"].lower()
+
+
+def test_upload_receipt_image_text_file(client, auth_headers):
+    """Test receipt upload rejects text files."""
+    text_content = b"this is a text file"
+    text_file = ("receipt.txt", io.BytesIO(text_content), "text/plain")
+
+    response = client.post(
+        "/receipts/upload",
+        files={"file": text_file},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    assert "invalid file type" in response.json()["detail"].lower()
+
+
+# --- Error Cases: OCR Failures ---
+
+
+def test_upload_receipt_image_ocr_error(client, auth_headers):
+    """Test receipt upload handles OCR processing errors."""
+    image_content = b"corrupt-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage:
+
+        mock_ocr.side_effect = OCRError("Failed to read image: corrupt data")
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 500
+    assert "failed to process image" in response.json()["detail"].lower()
+
+
+def test_upload_receipt_image_insufficient_ocr_text(client, auth_headers):
+    """Test receipt upload rejects images with insufficient OCR text."""
+    image_content = b"blank-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage:
+
+        # OCR returns very short text (less than 10 chars)
+        mock_ocr.return_value = "ABC"
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 400
+    assert "unable to extract" in response.json()["detail"].lower()
+
+
+def test_upload_receipt_image_empty_ocr_text(client, auth_headers):
+    """Test receipt upload rejects images with empty OCR text."""
+    image_content = b"blank-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage:
+
+        # OCR returns empty text
+        mock_ocr.return_value = ""
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 400
+    assert "unable to extract" in response.json()["detail"].lower()
+
+
+# --- Error Cases: Authentication ---
+
+
+def test_upload_receipt_image_no_auth(client):
+    """Test receipt image upload requires authentication."""
+    image_content = b"fake-jpeg-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    response = client.post(
+        "/receipts/upload",
+        files={"file": image_file},
+    )
+
+    assert response.status_code == 401
+
+
+def test_upload_receipt_image_invalid_token(client):
+    """Test receipt image upload fails with invalid token."""
+    image_content = b"fake-jpeg-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    response = client.post(
+        "/receipts/upload",
+        files={"file": image_file},
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
+
+
+# --- Error Cases: MinIO Storage ---
+
+
+def test_upload_receipt_image_minio_error(client, auth_headers):
+    """Test receipt upload handles MinIO storage errors."""
+    image_content = b"fake-jpeg-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage:
+
+        mock_ocr.return_value = "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99"
+        mock_s3_client = MagicMock()
+        mock_s3_client.put_object.side_effect = Exception("S3 connection failed")
+        mock_storage.return_value = mock_s3_client
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 500
+    assert "error occurred" in response.json()["detail"].lower()
 
 
 # --- Receipt Confirmation Tests ---
