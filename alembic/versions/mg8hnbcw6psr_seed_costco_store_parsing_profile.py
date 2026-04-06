@@ -6,10 +6,10 @@ Create Date: 2026-04-04 17:00:00.000000
 
 """
 from typing import Sequence, Union
-import json
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import Table, MetaData
 
 
 # revision identifiers, used by Alembic.
@@ -32,7 +32,7 @@ def upgrade() -> None:
     - price_format_hints: Price per unit displays (e.g., "$/oz", "$/lb")
     - common_abbreviations: Costco-specific abbreviations (e.g., "ORG", "KS")
 
-    Uses INSERT OR IGNORE for idempotency (safe to run multiple times).
+    Uses database-agnostic check-then-insert pattern for idempotency (safe to run multiple times).
     """
     # Costco parsing profile with store-specific hints
     costco_profile = {
@@ -77,21 +77,35 @@ def upgrade() -> None:
         }
     }
 
-    # Insert Costco store with parsing profile
-    # Using raw SQL with INSERT OR IGNORE for SQLite compatibility
-    op.execute(
-        sa.text(
-            """
-            INSERT OR IGNORE INTO stores (id, name, has_digital_receipts, parsing_profile)
-            VALUES (:id, :name, :has_digital_receipts, :parsing_profile)
-            """
-        ).bindparams(
-            id=COSTCO_STORE_ID,
-            name="Costco",
-            has_digital_receipts=False,
-            parsing_profile=json.dumps(costco_profile)
-        )
-    )
+    # Database-agnostic insert: check if store exists, then insert only if not present
+    # This pattern works across SQLite, PostgreSQL, MySQL, and other databases
+    # Uses check-then-insert pattern instead of database-specific upsert syntax
+    connection = op.get_bind()
+    metadata = MetaData()
+
+    # Reflect the stores table from the current database schema
+    stores_table = Table('stores', metadata, autoload_with=connection)
+
+    # Use try-except to handle race condition: if multiple processes check simultaneously
+    # and both try to insert, the database will reject the duplicate via unique constraint
+    try:
+        # Check if Costco store already exists (idempotency check)
+        exists_query = sa.select(stores_table.c.id).where(stores_table.c.id == COSTCO_STORE_ID)
+        result = connection.execute(exists_query).first()
+
+        # Only insert if the store doesn't already exist (prevents duplicate key errors)
+        if not result:
+            insert_stmt = stores_table.insert().values(
+                id=COSTCO_STORE_ID,
+                name="Costco",
+                has_digital_receipts=False,
+                parsing_profile=costco_profile  # SQLAlchemy handles JSON serialization
+            )
+            connection.execute(insert_stmt)
+    except sa.exc.IntegrityError:
+        # Race condition: another process inserted between our check and insert
+        # This is safe to ignore - the store exists, which is our goal
+        pass
 
 
 def downgrade() -> None:
