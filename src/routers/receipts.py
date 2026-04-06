@@ -12,7 +12,6 @@ Logging Policy:
     user privacy per OWASP recommendations.
 """
 
-import io
 import logging
 from uuid import UUID, uuid4
 from typing import Optional
@@ -20,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
+from src.config import get_settings
 from src.db.database import get_db
 from src.db.models.user import User
 from src.schemas.receipt import (
@@ -135,6 +135,7 @@ def upload_receipt_image(
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
         HTTPException(400): If file is not a valid image type (JPEG/PNG)
+        HTTPException(413): If file size exceeds 10MB limit
         HTTPException(500): If OCR, MinIO storage, or database error occurs
     """
     # Validate file type (accept only JPEG and PNG images)
@@ -152,6 +153,17 @@ def upload_receipt_image(
         # Read image bytes from upload
         image_bytes = file.file.read()
 
+        # Validate file size (max 10MB to prevent memory exhaustion attacks)
+        max_size_bytes = 10 * 1024 * 1024  # 10MB
+        if len(image_bytes) > max_size_bytes:
+            logger.warning(
+                f"Oversized file upload attempt by user {current_user.id}: {len(image_bytes)} bytes"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File size exceeds maximum allowed size of 10MB."
+            )
+
         # Generate unique filename with original extension
         # UUID prevents conflicts and path traversal attacks
         file_ext = "jpg" if file.content_type == "image/jpeg" else "png"
@@ -161,7 +173,6 @@ def upload_receipt_image(
         minio_path = f"receipts/{current_user.id}/{filename}"
 
         # Store image in MinIO before OCR to preserve original for debugging
-        from src.config import get_settings
         settings = get_settings()
         s3_client = get_storage_client()
 

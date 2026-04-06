@@ -604,6 +604,23 @@ def test_upload_receipt_image_text_file(client, auth_headers):
     assert "invalid file type" in response.json()["detail"].lower()
 
 
+def test_upload_receipt_image_exceeds_size_limit(client, auth_headers):
+    """Test receipt upload rejects files exceeding 10MB size limit."""
+    # Create a file larger than 10MB (10 * 1024 * 1024 bytes)
+    oversized_content = b"x" * (10 * 1024 * 1024 + 1)  # 10MB + 1 byte
+    oversized_file = ("receipt.jpg", io.BytesIO(oversized_content), "image/jpeg")
+
+    response = client.post(
+        "/receipts/upload",
+        files={"file": oversized_file},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 413
+    assert "file size" in response.json()["detail"].lower()
+    assert "10mb" in response.json()["detail"].lower()
+
+
 # --- Error Cases: OCR Failures ---
 
 
