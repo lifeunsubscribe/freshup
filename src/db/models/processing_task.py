@@ -10,9 +10,9 @@ from __future__ import annotations
 from enum import Enum as PyEnum
 from uuid import UUID, uuid4
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
-from sqlalchemy import String, Text, DateTime, Integer, func, Index, ForeignKey
+from sqlalchemy import String, Text, DateTime, Integer, JSON, func, Index, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.database import Base
@@ -75,6 +75,9 @@ class ProcessingTask(Base):
     input_reference: Mapped[str] = mapped_column(Text, nullable=False)
     result_reference: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Contextual information for task processing (e.g., store hints for parsing)
+    task_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
     # Retry tracking for stale task recovery
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

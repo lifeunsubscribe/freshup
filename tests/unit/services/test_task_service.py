@@ -143,3 +143,40 @@ class TestGetTaskById:
         # User2 cannot access user1's task
         result4 = get_task_by_id(task1.id, other_user_id, db_session)
         assert result4 is None
+
+    def test_task_metadata_field_is_optional(self, db_session, user_id):
+        """Test that task_metadata field can be None and can store JSON data."""
+        # Create task without metadata
+        task_without_metadata = ProcessingTask(
+            id=uuid4(),
+            user_id=user_id,
+            task_type=TaskType.receipt_parse.value,
+            status=TaskStatus.pending.value,
+            input_reference="s3://bucket/receipts/no-metadata.jpg",
+        )
+        db_session.add(task_without_metadata)
+        db_session.commit()
+        db_session.refresh(task_without_metadata)
+
+        # Verify task_metadata is None by default
+        assert task_without_metadata.task_metadata is None
+
+        # Create task with metadata
+        metadata = {"store_hint": "Costco", "location": "Seattle"}
+        task_with_metadata = ProcessingTask(
+            id=uuid4(),
+            user_id=user_id,
+            task_type=TaskType.receipt_parse.value,
+            status=TaskStatus.pending.value,
+            input_reference="s3://bucket/receipts/with-metadata.jpg",
+            task_metadata=metadata,
+        )
+        db_session.add(task_with_metadata)
+        db_session.commit()
+        db_session.refresh(task_with_metadata)
+
+        # Verify task_metadata is stored correctly
+        assert task_with_metadata.task_metadata is not None
+        assert task_with_metadata.task_metadata == metadata
+        assert task_with_metadata.task_metadata["store_hint"] == "Costco"
+        assert task_with_metadata.task_metadata["location"] == "Seattle"
