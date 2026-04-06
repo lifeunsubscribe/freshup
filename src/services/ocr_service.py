@@ -56,5 +56,9 @@ class OCRService:
             # Tesseract-specific errors during OCR processing
             raise OCRError(f"Tesseract OCR failed: {str(e)}") from e
         except Exception as e:
-            # Catch-all for unexpected errors (e.g., out of memory, etc.)
+            # Catch remaining exceptions at service boundary and wrap in OCRError.
+            # Note: KeyboardInterrupt and SystemExit do NOT inherit from Exception
+            # in Python 3, so they will not be caught here and will propagate normally.
+            # This catch-all handles unexpected errors (e.g., MemoryError) to provide
+            # consistent error handling at the service API boundary.
             raise OCRError(f"Unexpected error during OCR: {str(e)}") from e

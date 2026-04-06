@@ -11,7 +11,7 @@ All tests mock pytesseract and Pillow - no real OCR processing is performed.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, MagicMock
 from io import BytesIO
 from PIL import Image
 import pytesseract
