@@ -446,8 +446,8 @@ def test_submit_receipt_whitespace_store_name(client, auth_headers):
 
 def test_upload_receipt_image_jpeg_success(client, db_session, test_user, auth_headers):
     """Test successful JPEG receipt image upload with OCR extraction."""
-    # Create a mock JPEG image file
-    image_content = b"fake-jpeg-image-data"
+    # Create a mock JPEG image file with valid JPEG magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00fake-jpeg-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
 
     mock_ocr_text = "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99\nMilk 4.59\nTotal: $8.58"
@@ -505,8 +505,8 @@ def test_upload_receipt_image_jpeg_success(client, db_session, test_user, auth_h
 
 def test_upload_receipt_image_png_success(client, db_session, test_user, auth_headers):
     """Test successful PNG receipt image upload."""
-    # Create a mock PNG image file
-    image_content = b"fake-png-image-data"
+    # Create a mock PNG image file with valid PNG magic bytes
+    image_content = b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0afake-png-data"
     image_file = ("receipt.png", io.BytesIO(image_content), "image/png")
 
     mock_ocr_text = "TARGET\n04/05/2026\nApples 5.99\nBread 2.49\nTotal: $8.48"
@@ -538,7 +538,8 @@ def test_upload_receipt_image_png_success(client, db_session, test_user, auth_he
 
 def test_upload_receipt_image_with_store_hint(client, db_session, test_user, auth_headers):
     """Test receipt image upload with store_hint parameter."""
-    image_content = b"fake-jpeg-image-data"
+    # Create a mock JPEG image file with valid JPEG magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00fake-jpeg-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
 
     mock_ocr_text = "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99"
@@ -567,6 +568,58 @@ def test_upload_receipt_image_with_store_hint(client, db_session, test_user, aut
     input_data = json.loads(task.input_reference)
     assert input_data["store_name"] == "Costco"
     assert task.task_metadata["store_hint"] == "Costco"
+
+
+def test_upload_receipt_image_multi_tenant_isolation(client, db_session, test_user, other_user, auth_headers, other_auth_headers):
+    """Test that uploaded images are stored under the correct user's directory.
+
+    Multi-tenant isolation: Verify that when a user uploads a receipt image,
+    the MinIO storage path includes their user_id to prevent cross-user access.
+    Each user's images should be stored in their own isolated directory.
+    """
+    # Create a mock JPEG image file with valid JPEG magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00fake-jpeg-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    mock_ocr_text = "TARGET\n04/01/2026\nApples 5.99\nBread 2.49\nTotal: $8.48"
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage:
+
+        mock_ocr.return_value = mock_ocr_text
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        # Upload as test_user
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 202
+    data = response.json()
+    task_id = UUID(data["task_id"])
+
+    # Verify task exists and belongs to test_user
+    task = db_session.query(ProcessingTask).filter(
+        ProcessingTask.id == task_id
+    ).first()
+    assert task is not None
+    assert task.user_id == test_user.id
+
+    # Verify MinIO path includes test_user's ID for isolation
+    minio_path = task.task_metadata["minio_path"]
+    assert f"receipts/{test_user.id}/" in minio_path
+    assert minio_path.startswith(f"receipts/{test_user.id}/")
+
+    # Verify path does NOT include other_user's ID
+    assert str(other_user.id) not in minio_path
+
+    # Verify the MinIO upload was called with correct path
+    mock_s3_client.put_object.assert_called_once()
+    call_args = mock_s3_client.put_object.call_args
+    assert f"receipts/{test_user.id}/" in call_args.kwargs["Key"]
 
 
 # --- Error Cases: File Type Validation ---
@@ -606,8 +659,8 @@ def test_upload_receipt_image_text_file(client, auth_headers):
 
 def test_upload_receipt_image_exceeds_size_limit(client, auth_headers):
     """Test receipt upload rejects files exceeding 10MB size limit."""
-    # Create a file larger than 10MB (10 * 1024 * 1024 bytes)
-    oversized_content = b"x" * (10 * 1024 * 1024 + 1)  # 10MB + 1 byte
+    # Create a file larger than 10MB (10 * 1024 * 1024 bytes) with valid JPEG magic bytes
+    oversized_content = b"\xff\xd8\xff\xe0" + b"x" * (10 * 1024 * 1024)  # 10MB + magic bytes
     oversized_file = ("receipt.jpg", io.BytesIO(oversized_content), "image/jpeg")
 
     response = client.post(
@@ -626,7 +679,8 @@ def test_upload_receipt_image_exceeds_size_limit(client, auth_headers):
 
 def test_upload_receipt_image_ocr_error(client, auth_headers):
     """Test receipt upload handles OCR processing errors."""
-    image_content = b"corrupt-image-data"
+    # Create a mock JPEG with valid magic bytes but corrupt data for OCR
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01corrupt-image-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
 
     with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
@@ -648,7 +702,8 @@ def test_upload_receipt_image_ocr_error(client, auth_headers):
 
 def test_upload_receipt_image_insufficient_ocr_text(client, auth_headers):
     """Test receipt upload rejects images with insufficient OCR text."""
-    image_content = b"blank-image-data"
+    # Create a mock JPEG with valid magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01blank-image-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
 
     with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
@@ -671,7 +726,8 @@ def test_upload_receipt_image_insufficient_ocr_text(client, auth_headers):
 
 def test_upload_receipt_image_empty_ocr_text(client, auth_headers):
     """Test receipt upload rejects images with empty OCR text."""
-    image_content = b"blank-image-data"
+    # Create a mock JPEG with valid magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01blank-image-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
 
     with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
@@ -697,7 +753,8 @@ def test_upload_receipt_image_empty_ocr_text(client, auth_headers):
 
 def test_upload_receipt_image_no_auth(client):
     """Test receipt image upload requires authentication."""
-    image_content = b"fake-jpeg-image-data"
+    # Create a mock JPEG with valid magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01fake-jpeg-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
 
     response = client.post(
@@ -710,7 +767,8 @@ def test_upload_receipt_image_no_auth(client):
 
 def test_upload_receipt_image_invalid_token(client):
     """Test receipt image upload fails with invalid token."""
-    image_content = b"fake-jpeg-image-data"
+    # Create a mock JPEG with valid magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01fake-jpeg-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
 
     response = client.post(
@@ -727,7 +785,8 @@ def test_upload_receipt_image_invalid_token(client):
 
 def test_upload_receipt_image_minio_error(client, auth_headers):
     """Test receipt upload handles MinIO storage errors."""
-    image_content = b"fake-jpeg-image-data"
+    # Create a mock JPEG with valid magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01fake-jpeg-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
 
     with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \

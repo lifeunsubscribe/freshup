@@ -40,6 +40,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
 
+def _detect_image_type(image_bytes: bytes) -> Optional[str]:
+    """
+    Detect image type from magic bytes.
+
+    Returns 'jpeg' for JPEG images, 'png' for PNG images, or None for other types.
+    This defends against Content-Type header spoofing by validating actual file content.
+    """
+    if not image_bytes:
+        return None
+
+    # JPEG magic bytes: FF D8 FF
+    if image_bytes[:3] == b'\xff\xd8\xff':
+        return 'jpeg'
+
+    # PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+    if image_bytes[:8] == b'\x89\x50\x4e\x47\x0d\x0a\x1a\x0a':
+        return 'png'
+
+    return None
+
+
 @router.post(
     "",
     response_model=ReceiptSubmitResponse,
@@ -154,6 +175,18 @@ def upload_receipt_image(
         image_bytes = file.file.read()
         # Ensure file handle is closed to prevent descriptor exhaustion
         file.file.close()
+
+        # Validate actual file type using magic bytes (defense against Content-Type spoofing)
+        detected_type = _detect_image_type(image_bytes)
+        if detected_type not in {"jpeg", "png"}:
+            logger.warning(
+                f"Magic byte validation failed for user {current_user.id}: "
+                f"Content-Type={file.content_type}, detected={detected_type}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid file type. Only JPEG and PNG images are supported."
+            )
 
         # Validate file size (max 10MB to prevent memory exhaustion attacks)
         max_size_bytes = 10 * 1024 * 1024  # 10MB
