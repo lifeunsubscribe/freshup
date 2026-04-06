@@ -152,6 +152,8 @@ def upload_receipt_image(
     try:
         # Read image bytes from upload
         image_bytes = file.file.read()
+        # Ensure file handle is closed to prevent descriptor exhaustion
+        file.file.close()
 
         # Validate file size (max 10MB to prevent memory exhaustion attacks)
         max_size_bytes = 10 * 1024 * 1024  # 10MB
