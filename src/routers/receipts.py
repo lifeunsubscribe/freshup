@@ -61,6 +61,24 @@ def _detect_image_type(image_bytes: bytes) -> Optional[str]:
     return None
 
 
+def _cleanup_minio_object(s3_client, settings, minio_path: Optional[str], user_id) -> None:
+    """Delete an uploaded MinIO object after a subsequent failure.
+
+    Safe to call when no upload occurred (minio_path is None) — will no-op.
+    Logs but does not raise on cleanup failure to avoid masking the original error.
+    """
+    if not minio_path or not s3_client or not settings:
+        return
+    try:
+        s3_client.delete_object(Bucket=settings.minio_bucket, Key=minio_path)
+        logger.info(f"Cleaned up orphaned MinIO object: user_id={user_id}, path={minio_path}")
+    except Exception as cleanup_err:
+        logger.warning(
+            f"Failed to clean up MinIO object after error: user_id={user_id}, "
+            f"path={minio_path}, cleanup_error={cleanup_err}"
+        )
+
+
 @router.post(
     "",
     response_model=ReceiptSubmitResponse,
@@ -170,6 +188,10 @@ def upload_receipt_image(
             detail=f"Invalid file type. Only JPEG and PNG images are supported."
         )
 
+    minio_path = None
+    s3_client = None
+    settings = None
+
     try:
         # Read image bytes from upload
         image_bytes = file.file.read()
@@ -271,10 +293,12 @@ def upload_receipt_image(
         )
 
     except HTTPException:
-        # Re-raise HTTPExceptions (e.g., validation errors) without modification
+        # Clean up MinIO object if it was uploaded before the error
+        _cleanup_minio_object(s3_client, settings, minio_path, current_user.id)
         raise
     except OCRError as e:
         # OCR processing failed (corrupt image, tesseract error, etc.)
+        _cleanup_minio_object(s3_client, settings, minio_path, current_user.id)
         logger.error(
             f"OCR error during receipt upload: user_id={current_user.id}, "
             f"filename={file.filename}"
@@ -285,9 +309,10 @@ def upload_receipt_image(
             detail="Failed to process image. The image may be corrupt or unreadable."
         )
     except DomainException as e:
-        # Convert domain exceptions to HTTPException
+        _cleanup_minio_object(s3_client, settings, minio_path, current_user.id)
         raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except Exception as e:
+        _cleanup_minio_object(s3_client, settings, minio_path, current_user.id)
         # Catch S3/MinIO errors and other unexpected errors
         logger.error(
             f"Error during receipt image upload: user_id={current_user.id}, "

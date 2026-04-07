@@ -678,7 +678,7 @@ def test_upload_receipt_image_exceeds_size_limit(client, auth_headers):
 
 
 def test_upload_receipt_image_ocr_error(client, auth_headers):
-    """Test receipt upload handles OCR processing errors."""
+    """Test receipt upload handles OCR processing errors and cleans up MinIO."""
     # Create a mock JPEG with valid magic bytes but corrupt data for OCR
     image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01corrupt-image-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
@@ -698,10 +698,12 @@ def test_upload_receipt_image_ocr_error(client, auth_headers):
 
     assert response.status_code == 500
     assert "failed to process image" in response.json()["detail"].lower()
+    # Verify MinIO object was cleaned up after OCR failure
+    mock_s3_client.delete_object.assert_called_once()
 
 
 def test_upload_receipt_image_insufficient_ocr_text(client, auth_headers):
-    """Test receipt upload rejects images with insufficient OCR text."""
+    """Test receipt upload rejects images with insufficient OCR text and cleans up MinIO."""
     # Create a mock JPEG with valid magic bytes
     image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01blank-image-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
@@ -722,10 +724,12 @@ def test_upload_receipt_image_insufficient_ocr_text(client, auth_headers):
 
     assert response.status_code == 400
     assert "unable to extract" in response.json()["detail"].lower()
+    # Verify MinIO object was cleaned up after insufficient OCR text
+    mock_s3_client.delete_object.assert_called_once()
 
 
 def test_upload_receipt_image_empty_ocr_text(client, auth_headers):
-    """Test receipt upload rejects images with empty OCR text."""
+    """Test receipt upload rejects images with empty OCR text and cleans up MinIO."""
     # Create a mock JPEG with valid magic bytes
     image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01blank-image-data"
     image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
@@ -746,6 +750,28 @@ def test_upload_receipt_image_empty_ocr_text(client, auth_headers):
 
     assert response.status_code == 400
     assert "unable to extract" in response.json()["detail"].lower()
+    # Verify MinIO object was cleaned up after empty OCR text
+    mock_s3_client.delete_object.assert_called_once()
+
+
+def test_upload_receipt_image_no_cleanup_before_upload(client, auth_headers):
+    """Test that validation failures before MinIO upload don't attempt cleanup."""
+    # Invalid file type — fails before upload, no cleanup needed
+    image_content = b"not-an-image"
+    image_file = ("receipt.txt", io.BytesIO(image_content), "text/plain")
+
+    with patch("src.routers.receipts.get_storage_client") as mock_storage:
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 400
+    mock_s3_client.delete_object.assert_not_called()
 
 
 # --- Error Cases: Authentication ---
