@@ -13,11 +13,13 @@ Logging Policy:
 """
 
 import logging
-from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from uuid import UUID, uuid4
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
+from src.config import get_settings
 from src.db.database import get_db
 from src.db.models.user import User
 from src.schemas.receipt import (
@@ -28,12 +30,35 @@ from src.schemas.receipt import (
 )
 from src.schemas.inventory import InventoryItemResponse
 from src.services.receipt_service import submit_receipt, confirm_receipt_items
+from src.services.ocr_service import OCRService, OCRError
+from src.services.storage_service import get_storage_client
 from src.middleware.auth import get_current_user
 from src.exceptions import DomainException
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
+
+
+def _detect_image_type(image_bytes: bytes) -> Optional[str]:
+    """
+    Detect image type from magic bytes.
+
+    Returns 'jpeg' for JPEG images, 'png' for PNG images, or None for other types.
+    This defends against Content-Type header spoofing by validating actual file content.
+    """
+    if not image_bytes:
+        return None
+
+    # JPEG magic bytes: FF D8 FF
+    if image_bytes[:3] == b'\xff\xd8\xff':
+        return 'jpeg'
+
+    # PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+    if image_bytes[:8] == b'\x89\x50\x4e\x47\x0d\x0a\x1a\x0a':
+        return 'png'
+
+    return None
 
 
 @router.post(
@@ -94,6 +119,185 @@ def submit_receipt_for_processing(
         logger.error(f"Runtime error in submit_receipt_for_processing: user_id={current_user.id}")
         logger.debug(f"RuntimeError details: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post(
+    "/upload",
+    response_model=ReceiptSubmitResponse,
+    status_code=status.HTTP_202_ACCEPTED
+)
+def upload_receipt_image(
+    file: UploadFile = File(...),
+    store_hint: Optional[str] = Query(None, max_length=255),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload receipt image for OCR extraction and async LLM parsing.
+
+    Accepts a multipart form upload with an image file (JPEG or PNG), stores
+    the image in MinIO, extracts text via Tesseract OCR, creates a ProcessingTask
+    for background LLM parsing, and returns 202 Accepted with task ID for polling.
+
+    This endpoint handles paper receipt photos. For digital receipt text, use
+    POST /receipts instead.
+
+    Multi-tenant isolation: Image stored under user's directory, task owned by user.
+
+    Args:
+        file: Uploaded image file (JPEG or PNG, max 10MB via FastAPI defaults)
+        store_hint: Optional store name hint for parsing (e.g., 'Costco')
+        current_user: Authenticated user (injected by get_current_user dependency)
+        db: Database session
+
+    Returns:
+        ReceiptSubmitResponse with task_id, status='pending', and message
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(400): If file is not a valid image type (JPEG/PNG)
+        HTTPException(413): If file size exceeds 10MB limit
+        HTTPException(500): If OCR, MinIO storage, or database error occurs
+    """
+    # Validate file type (accept only JPEG and PNG images)
+    allowed_types = {"image/jpeg", "image/png"}
+    if file.content_type not in allowed_types:
+        logger.warning(
+            f"Invalid file type upload attempt by user {current_user.id}: {file.content_type}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Only JPEG and PNG images are supported."
+        )
+
+    try:
+        # Read image bytes from upload
+        image_bytes = file.file.read()
+        # Ensure file handle is closed to prevent descriptor exhaustion
+        file.file.close()
+
+        # Validate actual file type using magic bytes (defense against Content-Type spoofing)
+        detected_type = _detect_image_type(image_bytes)
+        if detected_type not in {"jpeg", "png"}:
+            logger.warning(
+                f"Magic byte validation failed for user {current_user.id}: "
+                f"Content-Type={file.content_type}, detected={detected_type}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid file type. Only JPEG and PNG images are supported."
+            )
+
+        # Validate file size (max 10MB to prevent memory exhaustion attacks)
+        max_size_bytes = 10 * 1024 * 1024  # 10MB
+        if len(image_bytes) > max_size_bytes:
+            logger.warning(
+                f"Oversized file upload attempt by user {current_user.id}: {len(image_bytes)} bytes"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File size exceeds maximum allowed size of 10MB."
+            )
+
+        # Generate unique filename with original extension
+        # UUID prevents conflicts and path traversal attacks
+        file_ext = "jpg" if file.content_type == "image/jpeg" else "png"
+        file_uuid = uuid4()
+        filename = f"{file_uuid}.{file_ext}"
+        # Store under user-specific directory for multi-tenant isolation
+        minio_path = f"receipts/{current_user.id}/{filename}"
+
+        # Store image in MinIO before OCR to preserve original for debugging
+        settings = get_settings()
+        s3_client = get_storage_client()
+
+        s3_client.put_object(
+            Bucket=settings.minio_bucket,
+            Key=minio_path,
+            Body=image_bytes,
+            ContentType=file.content_type,
+        )
+
+        logger.info(
+            f"Uploaded receipt image to MinIO: user_id={current_user.id}, "
+            f"path={minio_path}"
+        )
+
+        # Extract text from image using OCR service
+        ocr_text = OCRService.extract_text(image_bytes)
+
+        # Validate OCR extracted at least some text
+        if not ocr_text or len(ocr_text.strip()) < 10:
+            logger.warning(
+                f"OCR extracted insufficient text from image: user_id={current_user.id}, "
+                f"path={minio_path}, text_length={len(ocr_text.strip())}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unable to extract readable text from image. Please ensure the image is clear and readable."
+            )
+
+        logger.debug(
+            f"OCR extracted text from image: user_id={current_user.id}, "
+            f"text_length={len(ocr_text)}"
+        )
+
+        # Submit receipt via service layer (creates ProcessingTask)
+        # OCR text goes into input_reference (same format as text submission)
+        task = submit_receipt(
+            receipt_text=ocr_text,
+            user_id=current_user.id,
+            db=db,
+            store_name=store_hint,
+        )
+
+        # Update task metadata to track image source and MinIO path
+        # This allows:
+        # 1. Future filtering/analytics (e.g., "image vs text receipt success rate")
+        # 2. Linking task back to original image for debugging OCR issues
+        # 3. Potential re-processing with different OCR settings in Phase 4B
+        task.task_metadata = {
+            "source": "image",
+            "minio_path": minio_path,
+            "store_hint": store_hint,
+        }
+        db.commit()
+        db.refresh(task)
+
+        return ReceiptSubmitResponse(
+            task_id=task.id,
+            status=task.status,
+            message="Receipt image uploaded and submitted for processing"
+        )
+
+    except HTTPException:
+        # Re-raise HTTPExceptions (e.g., validation errors) without modification
+        raise
+    except OCRError as e:
+        # OCR processing failed (corrupt image, tesseract error, etc.)
+        logger.error(
+            f"OCR error during receipt upload: user_id={current_user.id}, "
+            f"filename={file.filename}"
+        )
+        logger.debug(f"OCR error details: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process image. The image may be corrupt or unreadable."
+        )
+    except DomainException as e:
+        # Convert domain exceptions to HTTPException
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except Exception as e:
+        # Catch S3/MinIO errors and other unexpected errors
+        logger.error(
+            f"Error during receipt image upload: user_id={current_user.id}, "
+            f"filename={file.filename}"
+        )
+        logger.debug(f"Upload error details: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while uploading the receipt image"
+        )
 
 
 @router.post(
