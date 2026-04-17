@@ -60,6 +60,11 @@ async def process_receipt_task(
         input_reference can be either:
         1. Plain text (legacy format): "Costco\\n2024-03-29\\nBananas $3.99"
         2. JSON (new format): {"receipt_text": "...", "store_name": "Costco"}
+
+        Store hint sources (in priority order):
+        1. task.task_metadata['store_hint'] (preferred, most flexible)
+        2. input_reference JSON 'store_name' field (backward compatible)
+        3. None (falls back to generic parsing prompt)
     """
     # Parse input_reference to extract receipt text and optional store name
     receipt_text = None
@@ -89,6 +94,17 @@ async def process_receipt_task(
             "Task input is plain text (not JSON), using generic prompt",
             extra={"task_id": str(task.id)}
         )
+
+    # Check task metadata for store hint (preferred source, takes precedence)
+    # Metadata approach is newer and more flexible than embedding in input_reference
+    if task.task_metadata and "store_hint" in task.task_metadata:
+        metadata_store_hint = task.task_metadata.get("store_hint")
+        if metadata_store_hint:
+            store_name = metadata_store_hint
+            logger.debug(
+                "Using store hint from task metadata",
+                extra={"task_id": str(task.id), "store_hint": store_name}
+            )
 
     # Look up store parsing profile if store_name provided
     store_hints = None
