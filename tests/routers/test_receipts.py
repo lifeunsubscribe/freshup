@@ -1017,6 +1017,53 @@ def test_upload_receipt_image_cleanup_failure_does_not_block_error(client, auth_
     mock_s3_client.delete_object.assert_called_once()
 
 
+def test_upload_receipt_image_success_does_not_cleanup(client, db_session, test_user, auth_headers):
+    """Test that successful upload does NOT trigger MinIO cleanup.
+
+    This test verifies that cleanup is only called on failure paths, not on success.
+    Guards against regression where cleanup logic might be incorrectly triggered
+    on the happy path.
+    """
+    # Create a mock JPEG image file with valid JPEG magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00fake-jpeg-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    mock_ocr_text = "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99\nMilk 4.59\nTotal: $8.58"
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage:
+
+        mock_ocr.return_value = mock_ocr_text
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    # Verify successful response
+    assert response.status_code == 202
+    data = response.json()
+    assert "task_id" in data
+    assert data["status"] == "pending"
+
+    # Verify task was created successfully
+    task_id = UUID(data["task_id"])
+    task = db_session.query(ProcessingTask).filter(
+        ProcessingTask.id == task_id
+    ).first()
+    assert task is not None
+    assert task.user_id == test_user.id
+
+    # Verify MinIO upload was called
+    mock_s3_client.put_object.assert_called_once()
+
+    # CRITICAL: Verify MinIO cleanup was NOT called on success path
+    mock_s3_client.delete_object.assert_not_called()
+
+
 # --- Receipt Confirmation Tests ---
 
 # --- Success Cases ---
@@ -1164,7 +1211,7 @@ def test_confirm_receipt_task_not_completed(client, pending_task, auth_headers):
         headers=auth_headers,
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert "completed" in response.json()["detail"].lower()
     assert "pending" in response.json()["detail"].lower()
 
@@ -1667,14 +1714,14 @@ def test_get_task_status_wrong_task_type(client, db_session, test_user, auth_hea
         headers=auth_headers,
     )
 
-    # Should return 400 from service layer validation
-    assert response.status_code == 400
+    # Should return 422 from service layer validation
+    assert response.status_code == 422
     assert "task type" in response.json()["detail"].lower()
     assert "receipt_parse" in response.json()["detail"].lower()
 
 
 def test_confirm_receipt_wrong_task_type(client, db_session, test_user, auth_headers):
-    """Test confirming task with non-receipt task type returns 400.
+    """Test confirming task with non-receipt task type returns 422.
 
     Service layer defensive programming: Even though router would typically
     prevent this, service functions should validate their preconditions.
@@ -1711,7 +1758,7 @@ def test_confirm_receipt_wrong_task_type(client, db_session, test_user, auth_hea
         headers=auth_headers,
     )
 
-    # Should return 400 from service layer validation
-    assert response.status_code == 400
+    # Should return 422 from service layer validation
+    assert response.status_code == 422
     assert "task type" in response.json()["detail"].lower()
     assert "receipt_parse" in response.json()["detail"].lower()

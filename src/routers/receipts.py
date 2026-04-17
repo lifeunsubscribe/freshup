@@ -333,9 +333,6 @@ def upload_receipt_image(
             raise
         except Exception as e:
             # Catch other unexpected errors during post-upload operations
-            # Don't re-catch HTTPException here - let it propagate
-            if isinstance(e, HTTPException):
-                raise
             _cleanup_minio_object(s3_client, settings.minio_bucket, minio_path)
             logger.error(
                 f"Error during receipt processing: user_id={current_user.id}, "
