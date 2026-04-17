@@ -1193,3 +1193,50 @@ async def test_process_receipt_task_case_insensitive_store_lookup(
     # Verify prompt includes store-specific hints (case-insensitive match worked)
     call_args = mock_ollama_client.complete.call_args[1]
     assert "Store-specific parsing hints:" in call_args["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_process_receipt_task_with_invalid_store_hint_type(
+    mock_session,
+    mock_ollama_client,
+    sample_receipt_result
+):
+    """Test that non-string store_hint in metadata is ignored with warning."""
+    # Create task with non-string store_hint (e.g., dict instead of string)
+    task = MagicMock(spec=ProcessingTask)
+    task.id = uuid4()
+    task.task_type = TaskType.receipt_parse.value
+    task.status = TaskStatus.pending.value
+    task.input_reference = "Costco\n2024-03-29\nBananas $3.99"  # Plain text
+    task.task_metadata = {"store_hint": {"name": "Costco"}}  # Invalid: dict instead of string
+    task.result_reference = None
+    task.error_message = None
+    task.created_at = datetime.now(timezone.utc)
+    task.completed_at = None
+    task.retry_count = 0
+
+    # Configure mock to return valid result
+    mock_ollama_client.complete.return_value = sample_receipt_result
+    mock_session.commit = MagicMock()
+
+    # Process the task - should log warning and continue without store hints
+    await process_receipt_task(task, mock_session, mock_ollama_client)
+
+    # Verify NO store lookup was attempted (invalid type ignored)
+    mock_session.execute.assert_not_called()
+
+    # Verify OllamaClient was called
+    mock_ollama_client.complete.assert_called_once()
+    call_args = mock_ollama_client.complete.call_args[1]
+
+    # Verify prompt does NOT include store-specific hints (invalid type ignored)
+    assert "Store-specific parsing hints:" not in call_args["prompt"]
+
+    # Verify prompt includes receipt text
+    assert "Costco" in call_args["prompt"]
+    assert "Bananas $3.99" in call_args["prompt"]
+
+    # Verify task completed successfully (invalid type doesn't cause failure)
+    assert task.status == TaskStatus.completed.value
+    assert task.result_reference is not None
+    assert task.completed_at is not None
