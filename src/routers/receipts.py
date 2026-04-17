@@ -61,6 +61,33 @@ def _detect_image_type(image_bytes: bytes) -> Optional[str]:
     return None
 
 
+def _cleanup_minio_object(s3_client, bucket: str, object_path: str) -> None:
+    """
+    Delete a MinIO object, logging any errors without re-raising.
+
+    Used for compensation logic when operations after MinIO upload fail
+    (e.g., OCR extraction, task creation) to prevent orphan objects.
+
+    Args:
+        s3_client: boto3 S3 client
+        bucket: MinIO bucket name
+        object_path: Object key/path to delete
+
+    Note:
+        Does not raise exceptions - cleanup failures are logged but don't
+        block error propagation from the original failure.
+    """
+    try:
+        s3_client.delete_object(Bucket=bucket, Key=object_path)
+        logger.info(f"Cleaned up MinIO object after failure: {object_path}")
+    except Exception as e:
+        # Log cleanup failure but don't raise - original error takes precedence
+        logger.error(
+            f"Failed to cleanup MinIO object {object_path} after operation failure: {e}"
+        )
+        logger.debug(f"MinIO cleanup error details: {e}")
+
+
 @router.post(
     "",
     response_model=ReceiptSubmitResponse,
@@ -223,77 +250,113 @@ def upload_receipt_image(
             f"path={minio_path}"
         )
 
-        # Extract text from image using OCR service
-        ocr_text = OCRService.extract_text(image_bytes)
+        # Wrap post-upload operations in try-except to cleanup MinIO object on failure
+        try:
+            # Extract text from image using OCR service
+            ocr_text = OCRService.extract_text(image_bytes)
 
-        # Validate OCR extracted at least some text
-        if not ocr_text or len(ocr_text.strip()) < 10:
-            logger.warning(
-                f"OCR extracted insufficient text from image: user_id={current_user.id}, "
-                f"path={minio_path}, text_length={len(ocr_text.strip())}"
+            # Validate OCR extracted at least some text
+            if not ocr_text or len(ocr_text.strip()) < 10:
+                logger.warning(
+                    f"OCR extracted insufficient text from image: user_id={current_user.id}, "
+                    f"path={minio_path}, text_length={len(ocr_text.strip())}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Unable to extract readable text from image. Please ensure the image is clear and readable."
+                )
+
+            logger.debug(
+                f"OCR extracted text from image: user_id={current_user.id}, "
+                f"text_length={len(ocr_text)}"
             )
+
+            # Submit receipt via service layer (creates ProcessingTask)
+            # OCR text goes into input_reference (same format as text submission)
+            task = submit_receipt(
+                receipt_text=ocr_text,
+                user_id=current_user.id,
+                db=db,
+                store_name=store_hint,
+            )
+
+            # Update task metadata to track image source and MinIO path
+            # This allows:
+            # 1. Future filtering/analytics (e.g., "image vs text receipt success rate")
+            # 2. Linking task back to original image for debugging OCR issues
+            # 3. Potential re-processing with different OCR settings in Phase 4B
+            task.task_metadata = {
+                "source": "image",
+                "minio_path": minio_path,
+                "store_hint": store_hint,
+            }
+            db.commit()
+            db.refresh(task)
+
+            return ReceiptSubmitResponse(
+                task_id=task.id,
+                status=task.status,
+                message="Receipt image uploaded and submitted for processing"
+            )
+
+        except OCRError as e:
+            # OCR processing failed (corrupt image, tesseract error, etc.)
+            _cleanup_minio_object(s3_client, settings.minio_bucket, minio_path)
+            logger.error(
+                f"OCR error during receipt upload: user_id={current_user.id}, "
+                f"filename={file.filename}"
+            )
+            logger.debug(f"OCR error details: {e}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Unable to extract readable text from image. Please ensure the image is clear and readable."
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to process image. The image may be corrupt or unreadable."
             )
-
-        logger.debug(
-            f"OCR extracted text from image: user_id={current_user.id}, "
-            f"text_length={len(ocr_text)}"
-        )
-
-        # Submit receipt via service layer (creates ProcessingTask)
-        # OCR text goes into input_reference (same format as text submission)
-        task = submit_receipt(
-            receipt_text=ocr_text,
-            user_id=current_user.id,
-            db=db,
-            store_name=store_hint,
-        )
-
-        # Update task metadata to track image source and MinIO path
-        # This allows:
-        # 1. Future filtering/analytics (e.g., "image vs text receipt success rate")
-        # 2. Linking task back to original image for debugging OCR issues
-        # 3. Potential re-processing with different OCR settings in Phase 4B
-        task.task_metadata = {
-            "source": "image",
-            "minio_path": minio_path,
-            "store_hint": store_hint,
-        }
-        db.commit()
-        db.refresh(task)
-
-        return ReceiptSubmitResponse(
-            task_id=task.id,
-            status=task.status,
-            message="Receipt image uploaded and submitted for processing"
-        )
+        except DomainException as e:
+            # Convert domain exceptions to HTTPException after cleanup
+            _cleanup_minio_object(s3_client, settings.minio_bucket, minio_path)
+            raise HTTPException(status_code=e.http_status_code, detail=e.message)
+        except SQLAlchemyError as e:
+            # Database error during task creation or metadata update
+            _cleanup_minio_object(s3_client, settings.minio_bucket, minio_path)
+            logger.error(
+                f"Database error during receipt upload: user_id={current_user.id}, "
+                f"filename={file.filename}"
+            )
+            logger.debug(f"Database error details: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while creating the processing task"
+            )
+        except HTTPException:
+            # Re-raise HTTPExceptions (e.g., validation errors) after cleanup
+            _cleanup_minio_object(s3_client, settings.minio_bucket, minio_path)
+            raise
+        except Exception as e:
+            # Catch other unexpected errors during post-upload operations
+            # Don't re-catch HTTPException here - let it propagate
+            if isinstance(e, HTTPException):
+                raise
+            _cleanup_minio_object(s3_client, settings.minio_bucket, minio_path)
+            logger.error(
+                f"Error during receipt processing: user_id={current_user.id}, "
+                f"filename={file.filename}"
+            )
+            logger.debug(f"Processing error details: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while processing the receipt image"
+            )
 
     except HTTPException:
-        # Re-raise HTTPExceptions (e.g., validation errors) without modification
+        # Re-raise HTTPExceptions from inner block
         raise
-    except OCRError as e:
-        # OCR processing failed (corrupt image, tesseract error, etc.)
-        logger.error(
-            f"OCR error during receipt upload: user_id={current_user.id}, "
-            f"filename={file.filename}"
-        )
-        logger.debug(f"OCR error details: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process image. The image may be corrupt or unreadable."
-        )
-    except DomainException as e:
-        # Convert domain exceptions to HTTPException
-        raise HTTPException(status_code=e.http_status_code, detail=e.message)
     except Exception as e:
-        # Catch S3/MinIO errors and other unexpected errors
+        # Catch S3/MinIO upload errors (no cleanup needed - upload failed)
         logger.error(
-            f"Error during receipt image upload: user_id={current_user.id}, "
+            f"Error during receipt image upload to MinIO: user_id={current_user.id}, "
             f"filename={file.filename}"
         )
-        logger.debug(f"Upload error details: {e}")
+        logger.debug(f"MinIO upload error details: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while uploading the receipt image"

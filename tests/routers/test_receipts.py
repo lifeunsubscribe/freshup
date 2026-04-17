@@ -807,6 +807,216 @@ def test_upload_receipt_image_minio_error(client, auth_headers):
     assert "error occurred" in response.json()["detail"].lower()
 
 
+# --- MinIO Cleanup Tests ---
+
+
+def test_upload_receipt_image_ocr_error_cleans_up_minio(client, auth_headers):
+    """Test receipt upload cleans up MinIO object when OCR fails."""
+    # Create a mock JPEG with valid magic bytes but corrupt data for OCR
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01corrupt-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage, \
+         patch("src.routers.receipts.get_settings") as mock_settings:
+
+        mock_ocr.side_effect = OCRError("Failed to read image: corrupt data")
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        # Mock settings to verify bucket name in cleanup
+        mock_config = MagicMock()
+        mock_config.minio_bucket = "test-bucket"
+        mock_settings.return_value = mock_config
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    # Verify error response
+    assert response.status_code == 500
+    assert "failed to process image" in response.json()["detail"].lower()
+
+    # Verify MinIO object was uploaded
+    mock_s3_client.put_object.assert_called_once()
+
+    # Verify MinIO cleanup was called after OCR failure
+    mock_s3_client.delete_object.assert_called_once()
+    cleanup_call = mock_s3_client.delete_object.call_args
+    assert cleanup_call.kwargs["Bucket"] == "test-bucket"
+    assert "receipts/" in cleanup_call.kwargs["Key"]
+
+
+def test_upload_receipt_image_insufficient_text_cleans_up_minio(client, auth_headers):
+    """Test receipt upload cleans up MinIO object when OCR text is insufficient."""
+    # Create a mock JPEG with valid magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01blank-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage, \
+         patch("src.routers.receipts.get_settings") as mock_settings:
+
+        # OCR returns very short text (less than 10 chars)
+        mock_ocr.return_value = "ABC"
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        # Mock settings to verify bucket name in cleanup
+        mock_config = MagicMock()
+        mock_config.minio_bucket = "test-bucket"
+        mock_settings.return_value = mock_config
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    # Verify error response
+    assert response.status_code == 400
+    assert "unable to extract" in response.json()["detail"].lower()
+
+    # Verify MinIO object was uploaded
+    mock_s3_client.put_object.assert_called_once()
+
+    # Verify MinIO cleanup was called after validation failure
+    mock_s3_client.delete_object.assert_called_once()
+    cleanup_call = mock_s3_client.delete_object.call_args
+    assert cleanup_call.kwargs["Bucket"] == "test-bucket"
+    assert "receipts/" in cleanup_call.kwargs["Key"]
+
+
+def test_upload_receipt_image_submit_failure_cleans_up_minio(client, auth_headers):
+    """Test receipt upload cleans up MinIO object when task creation fails."""
+    # Create a mock JPEG with valid magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01fake-jpeg-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage, \
+         patch("src.routers.receipts.get_settings") as mock_settings, \
+         patch("src.routers.receipts.submit_receipt") as mock_submit:
+
+        mock_ocr.return_value = "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99"
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        # Mock settings to verify bucket name in cleanup
+        mock_config = MagicMock()
+        mock_config.minio_bucket = "test-bucket"
+        mock_settings.return_value = mock_config
+
+        # submit_receipt raises ValidationError (which has http_status_code=422)
+        from src.exceptions import ValidationError
+        mock_submit.side_effect = ValidationError(
+            "Receipt text validation failed"
+        )
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    # Verify error response
+    assert response.status_code == 422
+    assert "validation failed" in response.json()["detail"].lower()
+
+    # Verify MinIO object was uploaded
+    mock_s3_client.put_object.assert_called_once()
+
+    # Verify MinIO cleanup was called after submit_receipt failure
+    mock_s3_client.delete_object.assert_called_once()
+    cleanup_call = mock_s3_client.delete_object.call_args
+    assert cleanup_call.kwargs["Bucket"] == "test-bucket"
+    assert "receipts/" in cleanup_call.kwargs["Key"]
+
+
+def test_upload_receipt_image_database_error_cleans_up_minio(client, db_session, test_user, auth_headers):
+    """Test receipt upload cleans up MinIO object when database commit fails."""
+    # Create a mock JPEG with valid magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01fake-jpeg-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage, \
+         patch("src.routers.receipts.get_settings") as mock_settings:
+
+        mock_ocr.return_value = "COSTCO WHOLESALE\n04/01/2026\nBananas 3.99"
+        mock_s3_client = MagicMock()
+        mock_storage.return_value = mock_s3_client
+
+        # Mock settings to verify bucket name in cleanup
+        mock_config = MagicMock()
+        mock_config.minio_bucket = "test-bucket"
+        mock_settings.return_value = mock_config
+
+        # Simulate database error during commit by patching db.commit()
+        original_commit = db_session.commit
+        def failing_commit():
+            raise SQLAlchemyError("Database connection lost")
+
+        with patch.object(db_session, 'commit', side_effect=failing_commit):
+            response = client.post(
+                "/receipts/upload",
+                files={"file": image_file},
+                headers=auth_headers,
+            )
+
+    # Verify error response
+    assert response.status_code == 500
+    assert "error occurred" in response.json()["detail"].lower()
+
+    # Verify MinIO object was uploaded
+    mock_s3_client.put_object.assert_called_once()
+
+    # Verify MinIO cleanup was called after database error
+    mock_s3_client.delete_object.assert_called_once()
+    cleanup_call = mock_s3_client.delete_object.call_args
+    assert cleanup_call.kwargs["Bucket"] == "test-bucket"
+    assert "receipts/" in cleanup_call.kwargs["Key"]
+
+
+def test_upload_receipt_image_cleanup_failure_does_not_block_error(client, auth_headers):
+    """Test that cleanup failures don't prevent original error from being raised."""
+    # Create a mock JPEG with valid magic bytes
+    image_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01corrupt-image-data"
+    image_file = ("receipt.jpg", io.BytesIO(image_content), "image/jpeg")
+
+    with patch("src.routers.receipts.OCRService.extract_text") as mock_ocr, \
+         patch("src.routers.receipts.get_storage_client") as mock_storage, \
+         patch("src.routers.receipts.get_settings") as mock_settings:
+
+        # OCR fails
+        mock_ocr.side_effect = OCRError("Failed to read image: corrupt data")
+
+        mock_s3_client = MagicMock()
+        # MinIO delete also fails
+        mock_s3_client.delete_object.side_effect = Exception("MinIO connection lost")
+        mock_storage.return_value = mock_s3_client
+
+        # Mock settings
+        mock_config = MagicMock()
+        mock_config.minio_bucket = "test-bucket"
+        mock_settings.return_value = mock_config
+
+        response = client.post(
+            "/receipts/upload",
+            files={"file": image_file},
+            headers=auth_headers,
+        )
+
+    # Verify original OCR error is still returned despite cleanup failure
+    assert response.status_code == 500
+    assert "failed to process image" in response.json()["detail"].lower()
+
+    # Verify cleanup was attempted
+    mock_s3_client.delete_object.assert_called_once()
+
+
 # --- Receipt Confirmation Tests ---
 
 # --- Success Cases ---
