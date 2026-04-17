@@ -891,7 +891,7 @@ class TestConsumePreparedFood:
         assert response.status_code == 404
 
     def test_consume_exceeds_available(self, client, auth_headers, test_user, db_session):
-        """Should return 400 if amount exceeds servings_remaining."""
+        """Should return 422 if amount exceeds servings_remaining."""
         item = PreparedFood(
             id=uuid4(),
             name="Test item",
@@ -907,7 +907,7 @@ class TestConsumePreparedFood:
         payload = {"amount": 3.0}
         response = client.post(f"/prepared-foods/{item.id}/consume", json=payload, headers=auth_headers)
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert "Cannot consume 3.0 servings" in response.json()["detail"]
 
     def test_consume_with_delete_when_empty_true(self, client, auth_headers, test_user, db_session):
@@ -1102,7 +1102,7 @@ class TestConsumePreparedFood:
         # 1.5 + 1e-8 is greater than tolerance (1e-9)
         payload = {"amount": 1.5 + 1e-8, "delete_when_empty": False}
         response = client.post(f"/prepared-foods/{item3.id}/consume", json=payload, headers=auth_headers)
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert "Cannot consume" in response.json()["detail"]
 
         # Test case 4: Result near zero with delete_when_empty=False should keep item

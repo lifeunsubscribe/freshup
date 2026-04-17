@@ -568,7 +568,7 @@ class TestBulkPurchase:
         assert response.status_code == 422
 
     def test_bulk_purchase_with_invalid_unit_for_inventory(self, client, auth_headers, test_user, db_session):
-        """Should return 400 when grocery item has invalid unit during inventory creation."""
+        """Should return 422 when grocery item has invalid unit during inventory creation."""
         # Create a grocery item with an invalid unit using SQLAlchemy Core
         # to bypass Pydantic schema validation. This simulates data corruption
         # or migration scenarios where invalid data might exist in the database.
@@ -599,7 +599,7 @@ class TestBulkPurchase:
 
         response = client.post("/grocery/bulk-purchase", json=payload, headers=auth_headers)
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert "unit 'invalid_unit' is not valid for inventory" in response.json()["detail"]
         assert "Valid units:" in response.json()["detail"]
 
