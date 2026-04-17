@@ -58,10 +58,10 @@ class ValidationError(DomainException):
     Indicates that the request contains invalid data that fails business
     rule validation or data integrity constraints.
 
-    HTTP Status: 400 Bad Request
+    HTTP Status: 422 Unprocessable Entity
     """
 
-    http_status_code = 400
+    http_status_code = 422
 
 
 class NotFoundError(DomainException):
