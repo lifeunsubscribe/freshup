@@ -99,11 +99,21 @@ async def process_receipt_task(
     # Metadata approach is newer and more flexible than embedding in input_reference
     if task.task_metadata and "store_hint" in task.task_metadata:
         metadata_store_hint = task.task_metadata.get("store_hint")
-        if metadata_store_hint:
+        # Validate store_hint is a string before using it
+        if metadata_store_hint and isinstance(metadata_store_hint, str):
             store_name = metadata_store_hint
             logger.debug(
                 "Using store hint from task metadata",
                 extra={"task_id": str(task.id), "store_hint": store_name}
+            )
+        elif metadata_store_hint:
+            # Store hint present but invalid type - log warning and ignore
+            logger.warning(
+                "Task metadata contains store_hint with invalid type (expected string)",
+                extra={
+                    "task_id": str(task.id),
+                    "store_hint_type": type(metadata_store_hint).__name__
+                }
             )
 
     # Look up store parsing profile if store_name provided
