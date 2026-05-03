@@ -62,15 +62,23 @@ def upgrade() -> None:
             'fk_user_recipe_relations_menu_id_menus',
             'menus',
             ['menu_id'],
-            ['id']
+            ['id'],
+            ondelete='SET NULL'
         )
+        # Create index on the new menu_id FK
         batch_op.create_index('ix_user_recipe_relations_menu_id', ['menu_id'])
+        # Create missing indexes on existing FKs (user_id and recipe_id)
+        batch_op.create_index('ix_user_recipe_relations_user_id', ['user_id'])
+        batch_op.create_index('ix_user_recipe_relations_recipe_id', ['recipe_id'])
 
 
 def downgrade() -> None:
     """Drop menu_recipes and menus tables."""
     # Remove menu_id column from user_recipe_relations
     with op.batch_alter_table('user_recipe_relations', schema=None) as batch_op:
+        # Drop indexes created in upgrade (including the FK indexes we added)
+        batch_op.drop_index('ix_user_recipe_relations_recipe_id')
+        batch_op.drop_index('ix_user_recipe_relations_user_id')
         batch_op.drop_index('ix_user_recipe_relations_menu_id')
         batch_op.drop_constraint('fk_user_recipe_relations_menu_id_menus', type_='foreignkey')
         batch_op.drop_column('menu_id')
