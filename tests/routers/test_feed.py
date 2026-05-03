@@ -483,3 +483,608 @@ class TestHomeFeed:
 
         # On Repeat should be empty (no ratings yet)
         assert len(data["on_repeat"]["recipes"]) == 0
+
+    def test_home_feed_includes_new_row_fields(self, client, auth_headers, test_user, db_session):
+        """Test home feed response includes new personalized/source/fallback row fields."""
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have new fields
+        assert "personalized_rows" in data
+        assert "source_rows" in data
+        assert "fallback_rows" in data
+
+        # Fields should be arrays
+        assert isinstance(data["personalized_rows"], list)
+        assert isinstance(data["source_rows"], list)
+        assert isinstance(data["fallback_rows"], list)
+
+
+class TestPersonalizedRows:
+    """Test personalized rows (tag-based patterns)."""
+
+    def test_personalized_rows_detect_tag_patterns(self, client, auth_headers, test_user, db_session):
+        """Test personalized rows detect user's tag patterns from saved recipes."""
+        # Create recipes with tags
+        recipe1 = Recipe(
+            id=uuid4(),
+            name="Indian Curry",
+            source_type="manual",
+            is_persisted=True,
+            tags=["indian", "spicy"],
+            times_cooked=5
+        )
+        recipe2 = Recipe(
+            id=uuid4(),
+            name="Indian Tikka",
+            source_type="manual",
+            is_persisted=True,
+            tags=["indian", "grilled"],
+            times_cooked=3
+        )
+        recipe3 = Recipe(
+            id=uuid4(),
+            name="Indian Biryani",
+            source_type="manual",
+            is_persisted=True,
+            tags=["indian", "rice"],
+            times_cooked=7
+        )
+        # Another recipe with indian tag (not saved)
+        recipe4 = Recipe(
+            id=uuid4(),
+            name="Indian Dal",
+            source_type="manual",
+            is_persisted=True,
+            tags=["indian", "vegetarian"],
+            times_cooked=2
+        )
+        db_session.add_all([recipe1, recipe2, recipe3, recipe4])
+        db_session.commit()
+
+        # User saves 3 recipes with "indian" tag (meets >=3 threshold)
+        rating1 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=recipe1.id,
+            rating=5.0
+        )
+        rating2 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=recipe2.id,
+            rating=4.0
+        )
+        rating3 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=recipe3.id,
+            rating=5.0
+        )
+        db_session.add_all([rating1, rating2, rating3])
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have at least one personalized row for "indian" tag
+        assert len(data["personalized_rows"]) >= 1
+
+        # Check first row is for indian cuisine
+        indian_row = data["personalized_rows"][0]
+        assert "indian" in indian_row["title"].lower()
+        assert indian_row["title"].endswith(".")  # Design system: period at end
+        assert len(indian_row["recipes"]) >= 3  # Should include saved + non-saved
+
+        # Row should include browse_url
+        assert indian_row["browse_url"] is not None
+        assert "tag=indian" in indian_row["browse_url"]
+
+    def test_personalized_rows_mix_saved_and_non_saved(self, client, auth_headers, test_user, db_session):
+        """Test personalized rows include both saved and non-saved recipes."""
+        # Create multiple recipes with same tag
+        recipes = []
+        for i in range(8):
+            recipe = Recipe(
+                id=uuid4(),
+                name=f"Vegan Recipe {i}",
+                source_type="manual",
+                is_persisted=True,
+                tags=["vegan"],
+                times_cooked=i + 1
+            )
+            recipes.append(recipe)
+            db_session.add(recipe)
+        db_session.commit()
+
+        # User saves only first 3 (meets >=3 threshold)
+        for i in range(3):
+            rating = UserRecipeRating(
+                id=uuid4(),
+                user_id=test_user.id,
+                recipe_id=recipes[i].id,
+                rating=5.0
+            )
+            db_session.add(rating)
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have personalized row for vegan tag
+        assert len(data["personalized_rows"]) >= 1
+
+        vegan_row = data["personalized_rows"][0]
+        # Should have more than just saved recipes (includes non-saved for discovery)
+        assert len(vegan_row["recipes"]) > 3
+
+    def test_personalized_rows_respect_min_saves_threshold(self, client, auth_headers, test_user, db_session):
+        """Test personalized rows only include tags with >=3 saved recipes."""
+        # Create recipes with different tags
+        recipe1 = Recipe(
+            id=uuid4(),
+            name="One Off Recipe",
+            source_type="manual",
+            is_persisted=True,
+            tags=["rare_tag"],
+            times_cooked=1
+        )
+        recipe2 = Recipe(
+            id=uuid4(),
+            name="Another One Off",
+            source_type="manual",
+            is_persisted=True,
+            tags=["rare_tag"],
+            times_cooked=1
+        )
+        db_session.add_all([recipe1, recipe2])
+        db_session.commit()
+
+        # User saves only 2 recipes with "rare_tag" (below threshold)
+        rating1 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=recipe1.id,
+            rating=5.0
+        )
+        rating2 = UserRecipeRating(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=recipe2.id,
+            rating=4.0
+        )
+        db_session.add_all([rating1, rating2])
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should NOT have personalized row for "rare_tag" (below threshold)
+        for row in data["personalized_rows"]:
+            assert "rare_tag" not in row["title"].lower()
+
+    def test_personalized_rows_max_limit(self, client, auth_headers, test_user, db_session):
+        """Test personalized rows respect max limit of 4 rows."""
+        # Create recipes with 5 different tags, all meeting threshold
+        tags = ["italian", "mexican", "chinese", "japanese", "thai"]
+        for tag in tags:
+            for i in range(3):  # Create 3 recipes per tag to meet threshold
+                recipe = Recipe(
+                    id=uuid4(),
+                    name=f"{tag.title()} Recipe {i}",
+                    source_type="manual",
+                    is_persisted=True,
+                    tags=[tag],
+                    times_cooked=i + 1
+                )
+                db_session.add(recipe)
+                db_session.commit()
+
+                # User saves all recipes
+                rating = UserRecipeRating(
+                    id=uuid4(),
+                    user_id=test_user.id,
+                    recipe_id=recipe.id,
+                    rating=5.0
+                )
+                db_session.add(rating)
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have at most 4 personalized rows (even though 5 tags qualify)
+        assert len(data["personalized_rows"]) <= 4
+
+
+class TestSourceRows:
+    """Test source-specific rows."""
+
+    def test_source_rows_detect_source_patterns(self, client, auth_headers, test_user, db_session):
+        """Test source rows detect user's source patterns from saved recipes."""
+        # Create 5 HelloFresh recipes (meets >=5 threshold)
+        for i in range(5):
+            recipe = Recipe(
+                id=uuid4(),
+                name=f"HelloFresh Recipe {i}",
+                source_type="hellofresh_web",
+                is_persisted=True,
+                times_cooked=i + 1
+            )
+            db_session.add(recipe)
+            db_session.commit()
+
+            # User saves all
+            rating = UserRecipeRating(
+                id=uuid4(),
+                user_id=test_user.id,
+                recipe_id=recipe.id,
+                rating=5.0
+            )
+            db_session.add(rating)
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have at least one source row
+        assert len(data["source_rows"]) >= 1
+
+        # Check first row is for HelloFresh
+        hf_row = data["source_rows"][0]
+        assert "HelloFresh" in hf_row["title"]
+        assert hf_row["title"].endswith(".")  # Design system
+        assert len(hf_row["recipes"]) >= 5
+
+        # Row should include browse_url
+        assert hf_row["browse_url"] is not None
+        assert "source=hellofresh" in hf_row["browse_url"]
+
+    def test_source_rows_respect_min_saves_threshold(self, client, auth_headers, test_user, db_session):
+        """Test source rows only include sources with >=5 saved recipes."""
+        # Create 4 recipes from manual source (below threshold)
+        for i in range(4):
+            recipe = Recipe(
+                id=uuid4(),
+                name=f"Manual Recipe {i}",
+                source_type="manual",
+                is_persisted=True,
+                times_cooked=i + 1
+            )
+            db_session.add(recipe)
+            db_session.commit()
+
+            rating = UserRecipeRating(
+                id=uuid4(),
+                user_id=test_user.id,
+                recipe_id=recipe.id,
+                rating=5.0
+            )
+            db_session.add(rating)
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should NOT have source row for "manual" (below threshold)
+        for row in data["source_rows"]:
+            assert "manual" not in row["title"].lower()
+
+    def test_source_rows_max_limit(self, client, auth_headers, test_user, db_session):
+        """Test source rows respect max limit of 2 rows."""
+        # Create 3 different sources, all meeting threshold
+        sources = ["hellofresh_web", "kitchen_sanctuary", "url_import"]
+        for source in sources:
+            for i in range(5):  # Create 5 recipes per source
+                recipe = Recipe(
+                    id=uuid4(),
+                    name=f"{source} Recipe {i}",
+                    source_type=source,
+                    is_persisted=True,
+                    times_cooked=i + 1
+                )
+                db_session.add(recipe)
+                db_session.commit()
+
+                rating = UserRecipeRating(
+                    id=uuid4(),
+                    user_id=test_user.id,
+                    recipe_id=recipe.id,
+                    rating=5.0
+                )
+                db_session.add(rating)
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have at most 2 source rows (even though 3 sources qualify)
+        assert len(data["source_rows"]) <= 2
+
+
+class TestFallbackRows:
+    """Test fallback rows (Popular/Quick/New)."""
+
+    def test_fallback_rows_include_popular_quick_new(self, client, auth_headers, test_user, db_session):
+        """Test fallback rows include Popular, Quick, and New sections."""
+        # Create popular recipe (high times_cooked)
+        popular_recipe = Recipe(
+            id=uuid4(),
+            name="Very Popular Recipe",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=50,
+            cook_time_minutes=45
+        )
+        # Create quick recipe (cook_time <= 30)
+        quick_recipe = Recipe(
+            id=uuid4(),
+            name="Quick Recipe",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=5,
+            cook_time_minutes=20
+        )
+        # Create new recipe (recent created_at)
+        new_recipe = Recipe(
+            id=uuid4(),
+            name="Brand New Recipe",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=1,
+            cook_time_minutes=60,
+            created_at=datetime.now() - timedelta(hours=1)
+        )
+        db_session.add_all([popular_recipe, quick_recipe, new_recipe])
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have 3 fallback rows
+        assert len(data["fallback_rows"]) == 3
+
+        # Check row titles
+        titles = [row["title"] for row in data["fallback_rows"]]
+        assert "Popular recipes." in titles
+        assert "Quick meals." in titles
+        assert "New recipes." in titles
+
+        # Each row should have browse_url
+        for row in data["fallback_rows"]:
+            assert row["browse_url"] is not None
+
+    def test_fallback_rows_popular_sorted_by_times_cooked(self, client, auth_headers, test_user, db_session):
+        """Test Popular recipes row sorted by times_cooked descending."""
+        # Create recipes with different times_cooked
+        recipe1 = Recipe(
+            id=uuid4(),
+            name="Most Popular",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=100
+        )
+        recipe2 = Recipe(
+            id=uuid4(),
+            name="Medium Popular",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=50
+        )
+        recipe3 = Recipe(
+            id=uuid4(),
+            name="Less Popular",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=10
+        )
+        db_session.add_all([recipe1, recipe2, recipe3])
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Find Popular recipes row
+        popular_row = next(
+            (row for row in data["fallback_rows"] if "Popular" in row["title"]),
+            None
+        )
+        assert popular_row is not None
+
+        # Should be sorted by times_cooked descending
+        recipes = popular_row["recipes"]
+        assert recipes[0]["name"] == "Most Popular"
+        assert recipes[1]["name"] == "Medium Popular"
+        assert recipes[2]["name"] == "Less Popular"
+
+    def test_fallback_rows_quick_filtered_by_cook_time(self, client, auth_headers, test_user, db_session):
+        """Test Quick meals row only includes recipes with cook_time <= 30."""
+        # Create quick recipe
+        quick_recipe = Recipe(
+            id=uuid4(),
+            name="Quick Recipe",
+            source_type="manual",
+            is_persisted=True,
+            cook_time_minutes=25,
+            times_cooked=5
+        )
+        # Create slow recipe
+        slow_recipe = Recipe(
+            id=uuid4(),
+            name="Slow Recipe",
+            source_type="manual",
+            is_persisted=True,
+            cook_time_minutes=60,
+            times_cooked=10
+        )
+        db_session.add_all([quick_recipe, slow_recipe])
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Find Quick meals row
+        quick_row = next(
+            (row for row in data["fallback_rows"] if "Quick" in row["title"]),
+            None
+        )
+        assert quick_row is not None
+
+        # Should only include quick recipe
+        recipe_names = [r["name"] for r in quick_row["recipes"]]
+        assert "Quick Recipe" in recipe_names
+        assert "Slow Recipe" not in recipe_names
+
+    def test_fallback_rows_new_sorted_by_created_at(self, client, auth_headers, test_user, db_session):
+        """Test New recipes row sorted by created_at descending."""
+        # Create recipes with different created_at times
+        recipe1 = Recipe(
+            id=uuid4(),
+            name="Newest",
+            source_type="manual",
+            is_persisted=True,
+            created_at=datetime.now() - timedelta(hours=1)
+        )
+        recipe2 = Recipe(
+            id=uuid4(),
+            name="Middle",
+            source_type="manual",
+            is_persisted=True,
+            created_at=datetime.now() - timedelta(days=1)
+        )
+        recipe3 = Recipe(
+            id=uuid4(),
+            name="Oldest",
+            source_type="manual",
+            is_persisted=True,
+            created_at=datetime.now() - timedelta(days=7)
+        )
+        db_session.add_all([recipe1, recipe2, recipe3])
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Find New recipes row
+        new_row = next(
+            (row for row in data["fallback_rows"] if "New" in row["title"]),
+            None
+        )
+        assert new_row is not None
+
+        # Should be sorted by created_at descending
+        recipes = new_row["recipes"]
+        assert recipes[0]["name"] == "Newest"
+        assert recipes[1]["name"] == "Middle"
+        assert recipes[2]["name"] == "Oldest"
+
+
+class TestBrowseEndpoint:
+    """Test /feed/browse endpoint."""
+
+    def test_browse_requires_authentication(self, client):
+        """Test browse endpoint requires authentication."""
+        response = client.get("/feed/browse")
+        assert response.status_code == 401
+
+    def test_browse_returns_all_sections(self, client, auth_headers, test_user, db_session):
+        """Test browse endpoint returns all carousel sections."""
+        # Create some recipes for fallback rows
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=10,
+            cook_time_minutes=25
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/browse", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have sections field
+        assert "sections" in data
+        assert isinstance(data["sections"], list)
+
+        # Should have at least fallback rows
+        assert len(data["sections"]) >= 1
+
+    def test_browse_combines_personalized_source_fallback(self, client, auth_headers, test_user, db_session):
+        """Test browse endpoint combines personalized, source, and fallback rows."""
+        # Create recipes with tags (for personalized rows)
+        for i in range(3):
+            recipe = Recipe(
+                id=uuid4(),
+                name=f"Italian Recipe {i}",
+                source_type="manual",
+                is_persisted=True,
+                tags=["italian"],
+                times_cooked=i + 1,  # Needed for "Popular recipes" row
+                cook_time_minutes=25  # Needed for "Quick meals" row
+            )
+            db_session.add(recipe)
+            db_session.commit()
+
+            rating = UserRecipeRating(
+                id=uuid4(),
+                user_id=test_user.id,
+                recipe_id=recipe.id,
+                rating=5.0
+            )
+            db_session.add(rating)
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/browse", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have multiple sections (personalized + fallback)
+        assert len(data["sections"]) >= 4  # At least 1 personalized + 3 fallback
+
+        # Sections should have required fields
+        for section in data["sections"]:
+            assert "title" in section
+            assert "recipes" in section
+            assert section["title"].endswith(".")  # Design system
