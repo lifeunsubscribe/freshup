@@ -2716,3 +2716,282 @@ class TestRecipeIngredientStepIndex:
         detail = response.json()["detail"]
         assert "step_index 5 is out of bounds" in detail
         assert "Recipe has 1 step" in detail
+
+
+class TestPersistenceTrigger:
+    """Test persistence trigger when users bookmark/like recipes."""
+
+    def test_bookmark_non_persisted_recipe_triggers_persistence(self, client, auth_headers, test_user, db_session):
+        """Test that bookmarking a non-persisted recipe sets is_persisted=True."""
+        # Create a non-persisted recipe
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            is_persisted=False,
+            created_by=test_user.id,
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+
+        # Verify recipe starts as non-persisted
+        assert recipe.is_persisted is False
+
+        # Bookmark the recipe (is_favorite=True)
+        rating_data = {
+            "is_favorite": True,
+            "rating": None,  # User can bookmark without rating
+        }
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify recipe is now persisted
+        db_session.refresh(recipe)
+        assert recipe.is_persisted is True
+
+    def test_like_with_rating_triggers_persistence(self, client, auth_headers, test_user, db_session):
+        """Test that liking a recipe with a rating triggers persistence."""
+        # Create a non-persisted recipe
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            is_persisted=False,
+            created_by=test_user.id,
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+
+        # Rate and like the recipe
+        rating_data = {
+            "is_favorite": True,
+            "rating": 4.5,
+        }
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify recipe is now persisted
+        db_session.refresh(recipe)
+        assert recipe.is_persisted is True
+
+    def test_rate_without_favorite_does_not_trigger_persistence(self, client, auth_headers, test_user, db_session):
+        """Test that rating without favoriting does not trigger persistence."""
+        # Create a non-persisted recipe
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            is_persisted=False,
+            created_by=test_user.id,
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+
+        # Rate without favoriting
+        rating_data = {
+            "is_favorite": False,
+            "rating": 3.0,
+        }
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify recipe remains non-persisted
+        db_session.refresh(recipe)
+        assert recipe.is_persisted is False
+
+    def test_bookmark_already_persisted_recipe_is_idempotent(self, client, auth_headers, test_user, db_session):
+        """Test that bookmarking an already-persisted recipe has no side effects."""
+        # Create a pre-persisted recipe
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            is_persisted=True,  # Already persisted
+            created_by=test_user.id,
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+
+        # Bookmark the recipe
+        rating_data = {
+            "is_favorite": True,
+            "rating": None,
+        }
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify recipe remains persisted (idempotent)
+        db_session.refresh(recipe)
+        assert recipe.is_persisted is True
+
+    def test_update_rating_to_favorite_triggers_persistence(self, client, auth_headers, test_user, db_session):
+        """Test that updating an existing rating to is_favorite=True triggers persistence."""
+        from src.db.models.user_recipe import UserRecipeRating
+
+        # Create a non-persisted recipe
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            is_persisted=False,
+            created_by=test_user.id,
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        # Create an initial rating without favoriting
+        initial_rating = UserRecipeRating(
+            user_id=test_user.id,
+            recipe_id=recipe.id,
+            rating=3.0,
+            is_favorite=False,
+        )
+        db_session.add(initial_rating)
+        db_session.commit()
+        db_session.refresh(recipe)
+
+        # Verify recipe is not persisted yet
+        assert recipe.is_persisted is False
+
+        # Update rating to favorite
+        update_data = {
+            "is_favorite": True,
+            "rating": 4.0,
+        }
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify recipe is now persisted
+        db_session.refresh(recipe)
+        assert recipe.is_persisted is True
+
+    def test_update_rating_to_unfavorite_does_not_unpersist(self, client, auth_headers, test_user, db_session):
+        """Test that un-favoriting does not reverse persistence (one-way operation)."""
+        from src.db.models.user_recipe import UserRecipeRating
+
+        # Create a persisted recipe
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            is_persisted=True,
+            created_by=test_user.id,
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        # Create a favorited rating
+        initial_rating = UserRecipeRating(
+            user_id=test_user.id,
+            recipe_id=recipe.id,
+            rating=4.0,
+            is_favorite=True,
+        )
+        db_session.add(initial_rating)
+        db_session.commit()
+        db_session.refresh(recipe)
+
+        # Update rating to un-favorite
+        update_data = {
+            "is_favorite": False,
+            "rating": 4.0,
+        }
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json=update_data,
+            headers=auth_headers
+        )
+
+        assert response.status_code == 200
+
+        # Verify recipe remains persisted (persistence is one-way)
+        db_session.refresh(recipe)
+        assert recipe.is_persisted is True
+
+    def test_rating_succeeds_even_if_persistence_trigger_fails(self, client, auth_headers, test_user, db_session, monkeypatch):
+        """Test that rating operation succeeds even if persistence trigger fails."""
+        from src.db.models.user_recipe import UserRecipeRating
+        from sqlalchemy.exc import SQLAlchemyError
+
+        # Create a non-persisted recipe
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            is_persisted=False,
+            created_by=test_user.id,
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        # Mock trigger_persistence to raise an exception
+        def mock_trigger_persistence(recipe, db):
+            raise SQLAlchemyError("Simulated persistence failure")
+
+        import src.routers.recipes
+        monkeypatch.setattr(src.routers.recipes, "trigger_persistence", mock_trigger_persistence)
+
+        # Create a rating with is_favorite=True
+        rating_data = {
+            "is_favorite": True,
+            "rating": 5.0,
+        }
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        # The rating operation should succeed despite persistence failure
+        assert response.status_code == 200
+        assert response.json()["is_favorite"] is True
+        assert response.json()["rating"] == 5.0
+
+        # Verify the rating was saved to the database
+        saved_rating = db_session.query(UserRecipeRating).filter(
+            UserRecipeRating.user_id == test_user.id,
+            UserRecipeRating.recipe_id == recipe.id,
+        ).first()
+        assert saved_rating is not None
+        assert saved_rating.is_favorite is True
+        assert saved_rating.rating == 5.0
+
+        # Verify recipe was NOT persisted (due to simulated failure)
+        db_session.refresh(recipe)
+        assert recipe.is_persisted is False
