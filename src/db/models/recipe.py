@@ -37,6 +37,7 @@ class Recipe(Base):
     tags: Mapped[list] = mapped_column(JSON, default=list)
     nutritional_info: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     times_cooked: Mapped[int] = mapped_column(Integer, default=0)
+    is_persisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String(10000), nullable=True)
     is_persisted: Mapped[bool] = mapped_column(Boolean, default=True)

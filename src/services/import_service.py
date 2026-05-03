@@ -4,6 +4,11 @@ Recipe import orchestration service for FreshUp.
 Coordinates scraping, parsing, deduplication, and database persistence for
 recipe imports from external URLs. Supports both single URL and batch imports
 with rate limiting.
+
+Browse-then-Persist Flow:
+Newly scraped recipes are created with is_persisted=False, making them eligible
+for cleanup by the browse cache cleanup job. Recipes become persisted (is_persisted=True)
+through user interactions like bookmarking, cooking, rating, or adding to menus.
 """
 
 import logging
@@ -213,6 +218,7 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
             steps=scraped_data.instructions,
             tags=scraped_data.tags,
             nutritional_info=scraped_data.nutrients,
+            is_persisted=False,  # Scraped recipes start as non-persisted (browse cache)
             created_by=None,  # System-imported recipe, no owner
         )
 

@@ -44,6 +44,7 @@ from src.routers.recipe_helpers import (
     verify_recipe_ownership_with_system_check,
     validate_step_index,
 )
+from src.services.recipe_service import trigger_persistence
 
 logger = logging.getLogger(__name__)
 
@@ -843,7 +844,8 @@ def rate_recipe(
             f"Recipe relation updated: user_id={current_user.id}, "
             f"recipe_id={recipe_id}, relation_id={existing_relation.id}"
         )
-        return existing_relation
+
+        rating_result = existing_relation
     else:
         # Create new relation
         new_relation = UserRecipeRelation(
@@ -877,7 +879,16 @@ def rate_recipe(
             f"Recipe relation created: user_id={current_user.id}, "
             f"recipe_id={recipe_id}, relation_id={new_relation.id}"
         )
-        return new_relation
+
+        rating_result = new_relation
+
+    if rating_data.is_bookmarked or rating_data.is_liked:
+        try:
+            trigger_persistence(recipe, db)
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to trigger persistence for recipe {recipe_id}", exc_info=e)
+
+    return rating_result
 
 
 @router.get("/{recipe_id}/my-rating", response_model=UserRecipeRelationResponse)

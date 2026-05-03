@@ -15,6 +15,7 @@ from src.db.database import Base, init_engine, get_engine, get_session_factory
 from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router, tasks_router, receipts_router
 from src.middleware.rate_limit import limiter
 from src.services.task_worker import background_task_worker
+from src.services.cleanup_service import prune_unpersisted_recipes
 from src.services.llm.client import OllamaClient
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     init_engine(settings.database_url)
     _ensure_schema()
     _ensure_seed_data()
+
+    # Run browse cache cleanup on startup (Phase 2.5B)
+    # Prunes non-persisted recipes older than BROWSE_CACHE_TTL_DAYS
+    SessionFactory = get_session_factory()
+    with SessionFactory() as cleanup_session:
+        try:
+            pruned_count = prune_unpersisted_recipes(cleanup_session)
+            logger.info(f"Browse cache cleanup: pruned {pruned_count} recipe(s)")
+        except Exception as e:
+            logger.error(f"Browse cache cleanup failed: {e}", exc_info=True)
+            # Don't block startup if cleanup fails - log and continue
 
     # Start background task worker for processing async LLM tasks (Phase 2A)
     # Worker polls for pending tasks and processes them using OllamaClient
