@@ -240,6 +240,25 @@ def get_user_source_patterns(user_id: UUID, db: Session, min_saves: int = 5) -> 
     return patterns
 
 
+def _get_saved_recipe_ids(user_id: UUID, db: Session) -> set[UUID]:
+    """
+    Get IDs of all recipes the user has saved/rated.
+
+    Args:
+        user_id: User ID to get saved recipes for
+        db: Database session
+
+    Returns:
+        Set of recipe IDs the user has rated/saved
+    """
+    return {
+        rating.recipe_id
+        for rating in db.query(UserRecipeRating.recipe_id)
+        .filter(UserRecipeRating.user_id == user_id)
+        .all()
+    }
+
+
 def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) -> list[Recipe]:
     """
     Get recipes matching a specific tag, mixing saved and non-saved recipes.
@@ -269,12 +288,7 @@ def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) ->
     matching_recipes = [r for r in all_recipes if tag in r.tags]
 
     # Get IDs of recipes user has saved
-    saved_recipe_ids = {
-        rating.recipe_id
-        for rating in db.query(UserRecipeRating.recipe_id)
-        .filter(UserRecipeRating.user_id == user_id)
-        .all()
-    }
+    saved_recipe_ids = _get_saved_recipe_ids(user_id, db)
 
     # Sort: saved recipes first, then by times_cooked
     # This prioritizes recipes the user has already saved while also
@@ -316,12 +330,7 @@ def get_recipes_by_source(user_id: UUID, db: Session, source_type: str, limit: i
     )
 
     # Get IDs of recipes user has saved
-    saved_recipe_ids = {
-        rating.recipe_id
-        for rating in db.query(UserRecipeRating.recipe_id)
-        .filter(UserRecipeRating.user_id == user_id)
-        .all()
-    }
+    saved_recipe_ids = _get_saved_recipe_ids(user_id, db)
 
     # Sort: saved recipes first, then by times_cooked
     def sort_key(recipe):
