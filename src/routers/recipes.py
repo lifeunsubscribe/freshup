@@ -44,6 +44,7 @@ from src.routers.recipe_helpers import (
     verify_recipe_ownership_with_system_check,
     validate_step_index,
 )
+from src.services.recipe_service import trigger_persistence
 
 logger = logging.getLogger(__name__)
 
@@ -843,6 +844,19 @@ def rate_recipe(
             f"Recipe rating updated: user_id={current_user.id}, "
             f"recipe_id={recipe_id}, rating_id={existing_rating.id}"
         )
+
+        # Trigger persistence if user bookmarked/liked the recipe
+        # Phase 2.5B: bookmarking/liking makes recipes permanent
+        # This prevents cleanup of recipes users have shown interest in
+        if rating_data.is_favorite:
+            try:
+                trigger_persistence(recipe, db)
+            except SQLAlchemyError as e:
+                logger.error(f"Failed to trigger persistence for recipe {recipe_id}")
+                logger.debug(f"Persistence trigger error: {e}")
+                # Don't fail the rating operation if persistence fails
+                # The rating was already saved successfully
+
         return existing_rating
     else:
         # Create new rating
@@ -877,6 +891,19 @@ def rate_recipe(
             f"Recipe rating created: user_id={current_user.id}, "
             f"recipe_id={recipe_id}, rating_id={new_rating.id}"
         )
+
+        # Trigger persistence if user bookmarked/liked the recipe
+        # Phase 2.5B: bookmarking/liking makes recipes permanent
+        # This prevents cleanup of recipes users have shown interest in
+        if rating_data.is_favorite:
+            try:
+                trigger_persistence(recipe, db)
+            except SQLAlchemyError as e:
+                logger.error(f"Failed to trigger persistence for recipe {recipe_id}")
+                logger.debug(f"Persistence trigger error: {e}")
+                # Don't fail the rating operation if persistence fails
+                # The rating was already saved successfully
+
         return new_rating
 
 
