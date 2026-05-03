@@ -51,7 +51,7 @@ def upgrade() -> None:
         sa.Column('added_at', sa.DateTime(), server_default=sa.func.now(), nullable=False),
         sa.PrimaryKeyConstraint('menu_id', 'recipe_id'),
         sa.ForeignKeyConstraint(['menu_id'], ['menus.id'], name='fk_menu_recipes_menu_id_menus'),
-        sa.ForeignKeyConstraint(['recipe_id'], ['recipes.id'], name='fk_menu_recipes_recipe_id_recipes'),
+        sa.ForeignKeyConstraint(['recipe_id'], ['recipes.id'], name='fk_menu_recipes_recipe_id_recipes', ondelete='CASCADE'),
         sa.UniqueConstraint('menu_id', 'recipe_id', name='uq_menu_recipe'),
     )
 
@@ -64,12 +64,14 @@ def upgrade() -> None:
             ['menu_id'],
             ['id']
         )
+        batch_op.create_index('ix_user_recipe_relations_menu_id', ['menu_id'])
 
 
 def downgrade() -> None:
     """Drop menu_recipes and menus tables."""
     # Remove menu_id column from user_recipe_relations
     with op.batch_alter_table('user_recipe_relations', schema=None) as batch_op:
+        batch_op.drop_index('ix_user_recipe_relations_menu_id')
         batch_op.drop_constraint('fk_user_recipe_relations_menu_id_menus', type_='foreignkey')
         batch_op.drop_column('menu_id')
 
