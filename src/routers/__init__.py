@@ -6,6 +6,7 @@
 # - grocery.py (1F)
 # - prepared_foods.py (1G)
 # - scraper.py (2C - scraper/import endpoints)
+# - feed.py (2.5C - personalized recipe feed)
 
 from src.routers.auth import router as auth_router
 from src.routers.users import router as users_router
@@ -17,5 +18,6 @@ from src.routers.prepared_foods import router as prepared_foods_router
 from src.routers.scraper import router as scraper_router
 from src.routers.tasks import router as tasks_router
 from src.routers.receipts import router as receipts_router
+from src.routers.feed import router as feed_router
 
-__all__ = ["auth_router", "users_router", "substitutions_router", "inventory_router", "recipes_router", "grocery_router", "prepared_foods_router", "scraper_router", "tasks_router", "receipts_router"]
+__all__ = ["auth_router", "users_router", "substitutions_router", "inventory_router", "recipes_router", "grocery_router", "prepared_foods_router", "scraper_router", "tasks_router", "receipts_router", "feed_router"]
