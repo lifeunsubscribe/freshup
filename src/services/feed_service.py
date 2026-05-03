@@ -168,3 +168,381 @@ def get_on_repeat_recipes(user_id: UUID, db: Session, limit: int = 15) -> list[R
         f"(recently-rated signal only, awaiting #4 and #5 for full scoring)"
     )
     return recipes
+
+
+def get_user_tag_patterns(user_id: UUID, db: Session, min_saves: int = 3) -> list[tuple[str, int]]:
+    """
+    Detect user's tag patterns based on saved recipe count.
+
+    Analyzes recipes the user has rated/saved to find their preferred tags.
+    Returns tags that appear in at least `min_saves` recipes.
+
+    Args:
+        user_id: User ID to analyze patterns for
+        db: Database session
+        min_saves: Minimum number of saved recipes required for a tag to qualify (default 3)
+
+    Returns:
+        List of (tag, count) tuples sorted by count descending
+    """
+    # Get all recipes the user has rated/saved
+    saved_recipes = (
+        db.query(Recipe)
+        .join(UserRecipeRating, Recipe.id == UserRecipeRating.recipe_id)
+        .filter(UserRecipeRating.user_id == user_id)
+        .all()
+    )
+
+    # Count tag occurrences across saved recipes
+    # This finds which tags appear most frequently in user's saved recipes
+    tag_counts = {}
+    for recipe in saved_recipes:
+        for tag in recipe.tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    # Filter by minimum threshold and sort by count descending
+    # Only tags with >= min_saves occurrences qualify as patterns
+    patterns = [(tag, count) for tag, count in tag_counts.items() if count >= min_saves]
+    patterns.sort(key=lambda x: x[1], reverse=True)
+
+    logger.info(f"Found {len(patterns)} tag patterns for user {user_id} (min_saves={min_saves})")
+    return patterns
+
+
+def get_user_source_patterns(user_id: UUID, db: Session, min_saves: int = 5) -> list[tuple[str, int]]:
+    """
+    Detect user's source type patterns based on saved recipe count.
+
+    Analyzes recipes the user has rated/saved to find their preferred sources.
+    Returns source types that appear in at least `min_saves` recipes.
+
+    Args:
+        user_id: User ID to analyze patterns for
+        db: Database session
+        min_saves: Minimum number of saved recipes required for a source to qualify (default 5)
+
+    Returns:
+        List of (source_type, count) tuples sorted by count descending
+    """
+    # Count source types in user's saved recipes
+    source_counts = (
+        db.query(Recipe.source_type, func.count(Recipe.id).label("count"))
+        .join(UserRecipeRating, Recipe.id == UserRecipeRating.recipe_id)
+        .filter(UserRecipeRating.user_id == user_id)
+        .group_by(Recipe.source_type)
+        .having(func.count(Recipe.id) >= min_saves)
+        .order_by(func.count(Recipe.id).desc())
+        .all()
+    )
+
+    patterns = [(source_type, count) for source_type, count in source_counts]
+    logger.info(f"Found {len(patterns)} source patterns for user {user_id} (min_saves={min_saves})")
+    return patterns
+
+
+def _get_saved_recipe_ids(user_id: UUID, db: Session) -> set[UUID]:
+    """
+    Get IDs of all recipes the user has saved/rated.
+
+    Args:
+        user_id: User ID to get saved recipes for
+        db: Database session
+
+    Returns:
+        Set of recipe IDs the user has rated/saved
+    """
+    return {
+        rating.recipe_id
+        for rating in db.query(UserRecipeRating.recipe_id)
+        .filter(UserRecipeRating.user_id == user_id)
+        .all()
+    }
+
+
+def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) -> list[Recipe]:
+    """
+    Get recipes matching a specific tag, mixing saved and non-saved recipes.
+
+    Returns persisted recipes with the given tag, prioritizing:
+    1. Saved recipes (user has rated/saved them)
+    2. Non-saved recipes ordered by times_cooked descending
+
+    Args:
+        user_id: User ID for determining saved status
+        db: Database session
+        tag: Tag to filter recipes by
+        limit: Maximum number of recipes to return (default 10)
+
+    Returns:
+        List of Recipe objects with the specified tag
+    """
+    # Get all persisted recipes and filter by tag in Python
+    # (SQLite JSON querying has limited support in SQLAlchemy)
+    all_recipes = (
+        db.query(Recipe)
+        .filter(Recipe.is_persisted == True)  # noqa: E712
+        .all()
+    )
+
+    # Filter recipes that have the tag
+    matching_recipes = [r for r in all_recipes if tag in r.tags]
+
+    # Get IDs of recipes user has saved
+    saved_recipe_ids = _get_saved_recipe_ids(user_id, db)
+
+    # Sort: saved recipes first, then by times_cooked
+    # This prioritizes recipes the user has already saved while also
+    # showing new recipes they might be interested in based on the tag pattern
+    def sort_key(recipe):
+        is_saved = 1 if recipe.id in saved_recipe_ids else 0
+        return (-is_saved, -recipe.times_cooked)  # Negative for descending order
+
+    matching_recipes.sort(key=sort_key)
+    recipes = matching_recipes[:limit]
+
+    logger.info(f"Found {len(recipes)} recipes for tag '{tag}' for user {user_id}")
+    return recipes
+
+
+def get_recipes_by_source(user_id: UUID, db: Session, source_type: str, limit: int = 10) -> list[Recipe]:
+    """
+    Get recipes from a specific source type, mixing saved and non-saved recipes.
+
+    Returns persisted recipes from the given source, prioritizing:
+    1. Saved recipes (user has rated/saved them)
+    2. Non-saved recipes ordered by times_cooked descending
+
+    Args:
+        user_id: User ID for determining saved status
+        db: Database session
+        source_type: Source type to filter recipes by
+        limit: Maximum number of recipes to return (default 10)
+
+    Returns:
+        List of Recipe objects from the specified source
+    """
+    # Get recipes from this source
+    matching_recipes = (
+        db.query(Recipe)
+        .filter(Recipe.is_persisted == True)  # noqa: E712
+        .filter(Recipe.source_type == source_type)
+        .all()
+    )
+
+    # Get IDs of recipes user has saved
+    saved_recipe_ids = _get_saved_recipe_ids(user_id, db)
+
+    # Sort: saved recipes first, then by times_cooked
+    def sort_key(recipe):
+        is_saved = 1 if recipe.id in saved_recipe_ids else 0
+        return (-is_saved, -recipe.times_cooked)
+
+    matching_recipes.sort(key=sort_key)
+    recipes = matching_recipes[:limit]
+
+    logger.info(f"Found {len(recipes)} recipes from source '{source_type}' for user {user_id}")
+    return recipes
+
+
+def get_popular_recipes(db: Session, limit: int = 10) -> list[Recipe]:
+    """
+    Get popular recipes sorted by times cooked.
+
+    Fallback row for cold start or variety.
+
+    Args:
+        db: Database session
+        limit: Maximum number of recipes to return (default 10)
+
+    Returns:
+        List of Recipe objects sorted by times_cooked descending
+    """
+    query = (
+        db.query(Recipe)
+        .filter(Recipe.is_persisted == True)  # noqa: E712
+        .filter(Recipe.times_cooked > 0)
+        .order_by(Recipe.times_cooked.desc())
+        .limit(limit)
+    )
+
+    recipes = query.all()
+    logger.info(f"Found {len(recipes)} popular recipes")
+    return recipes
+
+
+def get_quick_recipes(db: Session, limit: int = 10) -> list[Recipe]:
+    """
+    Get quick meal recipes (cook time <= 30 minutes).
+
+    Fallback row for cold start or variety.
+
+    Args:
+        db: Database session
+        limit: Maximum number of recipes to return (default 10)
+
+    Returns:
+        List of Recipe objects with cook_time_minutes <= 30
+    """
+    query = (
+        db.query(Recipe)
+        .filter(Recipe.is_persisted == True)  # noqa: E712
+        .filter(Recipe.cook_time_minutes.isnot(None))
+        .filter(Recipe.cook_time_minutes <= 30)
+        .order_by(Recipe.times_cooked.desc())
+        .limit(limit)
+    )
+
+    recipes = query.all()
+    logger.info(f"Found {len(recipes)} quick recipes")
+    return recipes
+
+
+def get_new_recipes(db: Session, limit: int = 10) -> list[Recipe]:
+    """
+    Get recently created recipes.
+
+    Fallback row for cold start or variety.
+
+    Args:
+        db: Database session
+        limit: Maximum number of recipes to return (default 10)
+
+    Returns:
+        List of Recipe objects sorted by created_at descending
+    """
+    query = (
+        db.query(Recipe)
+        .filter(Recipe.is_persisted == True)  # noqa: E712
+        .order_by(Recipe.created_at.desc())
+        .limit(limit)
+    )
+
+    recipes = query.all()
+    logger.info(f"Found {len(recipes)} new recipes")
+    return recipes
+
+
+def build_personalized_rows(user_id: UUID, db: Session, max_rows: int = 4) -> list[dict]:
+    """
+    Build personalized feed rows based on user's tag patterns.
+
+    Detects tags user frequently saves (>=3 saves) and creates rows with
+    recipes matching those tags. Each row includes both saved and non-saved
+    recipes to encourage discovery.
+
+    Args:
+        user_id: User ID to build personalized rows for
+        db: Database session
+        max_rows: Maximum number of rows to generate (default 4)
+
+    Returns:
+        List of row dicts with {title, recipes, browse_url}
+    """
+    tag_patterns = get_user_tag_patterns(user_id, db, min_saves=3)
+    rows = []
+
+    for tag, _count in tag_patterns[:max_rows]:
+        recipes = get_recipes_by_tag(user_id, db, tag, limit=10)
+        if recipes:
+            # Format tag for display: capitalize first letter, add period
+            display_tag = tag.capitalize() if tag else tag
+            rows.append({
+                "title": f"{display_tag}.",
+                "recipes": recipes,
+                "browse_url": f"/feed/browse?tag={tag}"
+            })
+
+    logger.info(f"Built {len(rows)} personalized rows for user {user_id}")
+    return rows
+
+
+def build_source_rows(user_id: UUID, db: Session, max_rows: int = 2) -> list[dict]:
+    """
+    Build source-specific feed rows based on user's source patterns.
+
+    Detects sources user frequently saves from (>=5 saves) and creates rows
+    with recipes from those sources. Each row includes both saved and non-saved
+    recipes to encourage discovery.
+
+    Args:
+        user_id: User ID to build source rows for
+        db: Database session
+        max_rows: Maximum number of rows to generate (default 2)
+
+    Returns:
+        List of row dicts with {title, recipes, browse_url}
+    """
+    source_patterns = get_user_source_patterns(user_id, db, min_saves=5)
+    rows = []
+
+    # Map source_type to display name
+    source_display_names = {
+        "hellofresh_card": "HelloFresh",
+        "hellofresh_web": "HelloFresh",
+        "kitchen_sanctuary": "Kitchen Sanctuary",
+        "url_import": "URL imports",
+        "manual": "Manual entries",
+        "photo_upload": "Photo uploads",
+        "ad_hoc": "Ad-hoc recipes"
+    }
+
+    for source_type, _count in source_patterns[:max_rows]:
+        recipes = get_recipes_by_source(user_id, db, source_type, limit=10)
+        if recipes:
+            display_name = source_display_names.get(source_type, source_type.replace("_", " ").title())
+            rows.append({
+                "title": f"From {display_name}.",
+                "recipes": recipes,
+                "browse_url": f"/feed/browse?source={source_type}"
+            })
+
+    logger.info(f"Built {len(rows)} source rows for user {user_id}")
+    return rows
+
+
+def build_fallback_rows(db: Session) -> list[dict]:
+    """
+    Build fallback feed rows for cold start or variety.
+
+    Returns three standard rows:
+    - Popular recipes (by times_cooked)
+    - Quick meals (cook_time <= 30 minutes)
+    - New recipes (recently created)
+
+    Args:
+        db: Database session
+
+    Returns:
+        List of row dicts with {title, recipes, browse_url}
+    """
+    rows = []
+
+    # Popular recipes
+    popular_recipes = get_popular_recipes(db, limit=10)
+    if popular_recipes:
+        rows.append({
+            "title": "Popular recipes.",
+            "recipes": popular_recipes,
+            "browse_url": "/feed/browse?sort=popular"
+        })
+
+    # Quick meals
+    quick_recipes = get_quick_recipes(db, limit=10)
+    if quick_recipes:
+        rows.append({
+            "title": "Quick meals.",
+            "recipes": quick_recipes,
+            "browse_url": "/feed/browse?quick=true"
+        })
+
+    # New recipes
+    new_recipes = get_new_recipes(db, limit=10)
+    if new_recipes:
+        rows.append({
+            "title": "New recipes.",
+            "recipes": new_recipes,
+            "browse_url": "/feed/browse?sort=newest"
+        })
+
+    logger.info(f"Built {len(rows)} fallback rows")
+    return rows

@@ -32,8 +32,34 @@ class FeedSectionSchema(BaseModel):
     recipes: list[RecipeCardSchema] = Field(..., description="Recipe cards in this section")
 
 
+class FeedRowSchema(BaseModel):
+    """Feed row with title, recipes, and optional browse URL for expansion."""
+
+    title: str = Field(..., description="Row title (ends with period per design system)")
+    recipes: list[RecipeCardSchema] = Field(..., description="Recipe cards in this row")
+    browse_url: Optional[str] = Field(None, description="URL for 'See all' expansion")
+
+
 class HomeFeedResponseSchema(BaseModel):
     """Response schema for GET /feed/home endpoint."""
 
     make_now: FeedSectionSchema = Field(..., description="Make This Right Now section")
     on_repeat: FeedSectionSchema = Field(..., description="On Repeat section")
+    personalized_rows: list[FeedRowSchema] = Field(
+        default_factory=list,
+        description="Personalized rows based on user patterns (3-4 max)"
+    )
+    source_rows: list[FeedRowSchema] = Field(
+        default_factory=list,
+        description="Source-specific rows (2 max, requires >=5 saves)"
+    )
+    fallback_rows: list[FeedRowSchema] = Field(
+        default_factory=list,
+        description="Fallback rows for cold start or variety"
+    )
+
+
+class BrowseFeedResponseSchema(BaseModel):
+    """Response schema for GET /feed/browse endpoint."""
+
+    sections: list[FeedRowSchema] = Field(..., description="All carousel sections for browse page")
