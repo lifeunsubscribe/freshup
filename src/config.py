@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     # Maximum retry count for stale task recovery before marking task as failed
     task_max_retry_count: int = Field(default=3, ge=0)
 
+    # Browse Cache Configuration
+    # TTL for non-persisted recipes (days) - recipes older than this are pruned
+    browse_cache_ttl_days: int = Field(default=7, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:
