@@ -39,7 +39,7 @@ def upgrade() -> None:
     # Backfill existing recipes as persisted
     # (they exist in production, so should be kept)
     op.execute(
-        sa.text("UPDATE recipes SET is_persisted = true WHERE is_persisted = false")
+        sa.text("UPDATE recipes SET is_persisted = true")
     )
 
 
