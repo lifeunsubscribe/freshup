@@ -41,16 +41,6 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column('is_liked', sa.Boolean(), nullable=False, server_default='0'))
         batch_op.add_column(sa.Column('rating_photos', sa.JSON(), nullable=True))
         batch_op.add_column(sa.Column('rating_comment', sa.String(2000), nullable=True))
-        batch_op.add_column(sa.Column('menu_id', sa.UUID(), nullable=True))
-
-        # Add foreign key for menu_id (references future menus table)
-        # Note: This FK will be validated when menus table is created
-        batch_op.create_foreign_key(
-            'fk_user_recipe_relations_menu_id_menus',
-            'menus',
-            ['menu_id'],
-            ['id']
-        )
 
         # Add renamed unique constraint
         batch_op.create_unique_constraint('uq_user_recipe_relation', ['user_id', 'recipe_id'])
@@ -86,9 +76,7 @@ def downgrade() -> None:
 
     # Drop new columns
     with op.batch_alter_table('user_recipe_relations', schema=None) as batch_op:
-        batch_op.drop_constraint('fk_user_recipe_relations_menu_id_menus', type_='foreignkey')
         batch_op.drop_constraint('uq_user_recipe_relation', type_='unique')
-        batch_op.drop_column('menu_id')
         batch_op.drop_column('rating_comment')
         batch_op.drop_column('rating_photos')
         batch_op.drop_column('is_liked')

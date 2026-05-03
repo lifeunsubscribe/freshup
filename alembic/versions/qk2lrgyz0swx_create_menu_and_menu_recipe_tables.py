@@ -37,6 +37,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], name='fk_menus_user_id_users'),
     )
 
+    # Create index on user_id for efficient menu listing queries
+    op.create_index('ix_menus_user_id', 'menus', ['user_id'])
+
     # Create menu_recipes join table
     op.create_table(
         'menu_recipes',
@@ -52,8 +55,25 @@ def upgrade() -> None:
         sa.UniqueConstraint('menu_id', 'recipe_id', name='uq_menu_recipe'),
     )
 
+    # Add menu_id column to user_recipe_relations table (now that menus table exists)
+    with op.batch_alter_table('user_recipe_relations', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('menu_id', sa.UUID(), nullable=True))
+        batch_op.create_foreign_key(
+            'fk_user_recipe_relations_menu_id_menus',
+            'menus',
+            ['menu_id'],
+            ['id']
+        )
+
 
 def downgrade() -> None:
     """Drop menu_recipes and menus tables."""
+    # Remove menu_id column from user_recipe_relations
+    with op.batch_alter_table('user_recipe_relations', schema=None) as batch_op:
+        batch_op.drop_constraint('fk_user_recipe_relations_menu_id_menus', type_='foreignkey')
+        batch_op.drop_column('menu_id')
+
+    # Drop tables
     op.drop_table('menu_recipes')
+    op.drop_index('ix_menus_user_id', table_name='menus')
     op.drop_table('menus')
