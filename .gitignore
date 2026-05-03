@@ -11,7 +11,7 @@ dist/
 build/
 .eggs/
 venv/
-.venv/
+.venv
 
 # Database
 *.db
@@ -40,3 +40,4 @@ backend/node_modules
 .sharkrite-scratchpad.md
 .rite-scratchpad.md
 .scratchpad.md
+backend/.venv

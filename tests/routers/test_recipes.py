@@ -2942,3 +2942,56 @@ class TestPersistenceTrigger:
         # Verify recipe remains persisted (persistence is one-way)
         db_session.refresh(recipe)
         assert recipe.is_persisted is True
+
+    def test_rating_succeeds_even_if_persistence_trigger_fails(self, client, auth_headers, test_user, db_session, monkeypatch):
+        """Test that rating operation succeeds even if persistence trigger fails."""
+        from src.db.models.user_recipe import UserRecipeRating
+        from sqlalchemy.exc import SQLAlchemyError
+
+        # Create a non-persisted recipe
+        recipe = Recipe(
+            id=uuid4(),
+            name="Test Recipe",
+            source_type="manual",
+            is_persisted=False,
+            created_by=test_user.id,
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        # Mock trigger_persistence to raise an exception
+        def mock_trigger_persistence(recipe, db):
+            raise SQLAlchemyError("Simulated persistence failure")
+
+        import src.routers.recipes
+        monkeypatch.setattr(src.routers.recipes, "trigger_persistence", mock_trigger_persistence)
+
+        # Create a rating with is_favorite=True
+        rating_data = {
+            "is_favorite": True,
+            "rating": 5.0,
+        }
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json=rating_data,
+            headers=auth_headers
+        )
+
+        # The rating operation should succeed despite persistence failure
+        assert response.status_code == 200
+        assert response.json()["is_favorite"] is True
+        assert response.json()["rating"] == 5.0
+
+        # Verify the rating was saved to the database
+        saved_rating = db_session.query(UserRecipeRating).filter(
+            UserRecipeRating.user_id == test_user.id,
+            UserRecipeRating.recipe_id == recipe.id,
+        ).first()
+        assert saved_rating is not None
+        assert saved_rating.is_favorite is True
+        assert saved_rating.rating == 5.0
+
+        # Verify recipe was NOT persisted (due to simulated failure)
+        db_session.refresh(recipe)
+        assert recipe.is_persisted is False

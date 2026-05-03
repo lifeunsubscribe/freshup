@@ -845,19 +845,7 @@ def rate_recipe(
             f"recipe_id={recipe_id}, rating_id={existing_rating.id}"
         )
 
-        # Trigger persistence if user bookmarked/liked the recipe
-        # Phase 2.5B: bookmarking/liking makes recipes permanent
-        # This prevents cleanup of recipes users have shown interest in
-        if rating_data.is_favorite:
-            try:
-                trigger_persistence(recipe, db)
-            except SQLAlchemyError as e:
-                logger.error(f"Failed to trigger persistence for recipe {recipe_id}")
-                logger.debug(f"Persistence trigger error: {e}")
-                # Don't fail the rating operation if persistence fails
-                # The rating was already saved successfully
-
-        return existing_rating
+        rating_result = existing_rating
     else:
         # Create new rating
         new_rating = UserRecipeRating(
@@ -892,19 +880,20 @@ def rate_recipe(
             f"recipe_id={recipe_id}, rating_id={new_rating.id}"
         )
 
-        # Trigger persistence if user bookmarked/liked the recipe
-        # Phase 2.5B: bookmarking/liking makes recipes permanent
-        # This prevents cleanup of recipes users have shown interest in
-        if rating_data.is_favorite:
-            try:
-                trigger_persistence(recipe, db)
-            except SQLAlchemyError as e:
-                logger.error(f"Failed to trigger persistence for recipe {recipe_id}")
-                logger.debug(f"Persistence trigger error: {e}")
-                # Don't fail the rating operation if persistence fails
-                # The rating was already saved successfully
+        rating_result = new_rating
 
-        return new_rating
+    # Trigger persistence if user bookmarked/liked the recipe
+    # Phase 2.5B: bookmarking/liking makes recipes permanent
+    # This prevents cleanup of recipes users have shown interest in
+    if rating_data.is_favorite:
+        try:
+            trigger_persistence(recipe, db)
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to trigger persistence for recipe {recipe_id}", exc_info=e)
+            # Don't fail the rating operation if persistence fails
+            # The rating was already saved successfully
+
+    return rating_result
 
 
 @router.get("/{recipe_id}/my-rating", response_model=UserRecipeRatingResponse)
