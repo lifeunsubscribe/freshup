@@ -343,6 +343,105 @@ class TestImportRecipeFromUrl:
         assert created_recipe.created_by is None  # System-imported
 
     @patch('src.services.import_service.scrape_recipe')
+    @patch('src.services.import_service.parse_ingredient')
+    def test_imported_recipe_is_not_persisted(self, mock_parse_ingredient, mock_scrape_recipe):
+        """Test that newly imported recipes have is_persisted=False."""
+        # Mock database session
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+
+        # Mock scraper response
+        mock_scrape_recipe.return_value = ScrapedRecipeData(
+            source_url="https://example.com/recipe",
+            source_type="url_import",
+            title="Test Recipe",
+            servings=4,
+            ingredients=["1 cup flour"],
+            instructions=["Mix it"],
+        )
+
+        # Mock ingredient parser
+        mock_parse_ingredient.return_value = {
+            'quantity': 1.0,
+            'unit': 'cup',
+            'ingredient_name': 'flour',
+            'preparation': '',
+            'is_optional': False,
+            'raw_text': '1 cup flour',
+        }
+
+        # Mock recipe creation
+        created_recipe = None
+        def capture_recipe(obj):
+            nonlocal created_recipe
+            if isinstance(obj, Recipe):
+                created_recipe = obj
+                created_recipe.id = uuid4()
+
+        mock_db.add.side_effect = capture_recipe
+        mock_db.flush = Mock()
+        mock_db.commit = Mock()
+        mock_db.refresh = Mock()
+
+        # Execute import
+        result = import_recipe_from_url("https://example.com/recipe", mock_db)
+
+        # Assertions
+        assert result.status == ImportStatus.success
+        assert created_recipe is not None
+        assert created_recipe.is_persisted is False  # Newly scraped recipes are non-persisted
+
+    @patch('src.services.import_service.scrape_recipe')
+    def test_dedup_against_persisted_recipe(self, mock_scrape_recipe):
+        """Test that deduplication works for persisted recipes."""
+        # Mock database session with existing persisted recipe
+        existing_recipe_id = uuid4()
+        mock_existing = Mock()
+        mock_existing.id = existing_recipe_id
+        mock_existing.is_persisted = True  # Existing recipe is persisted
+
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_existing
+
+        # Execute import
+        result = import_recipe_from_url("https://example.com/recipe", mock_db)
+
+        # Assertions
+        assert result.status == ImportStatus.duplicate
+        assert result.recipe_id == existing_recipe_id
+        assert result.error_message is None
+
+        # Verify scraper was NOT called (dedup happened before scraping)
+        mock_scrape_recipe.assert_not_called()
+
+    @patch('src.services.import_service.scrape_recipe')
+    def test_dedup_against_non_persisted_recipe(self, mock_scrape_recipe):
+        """Test that deduplication works for non-persisted recipes.
+
+        Even if a non-persisted recipe exists, we should NOT re-scrape.
+        This prevents unnecessary load on source websites.
+        """
+        # Mock database session with existing non-persisted recipe
+        existing_recipe_id = uuid4()
+        mock_existing = Mock()
+        mock_existing.id = existing_recipe_id
+        mock_existing.is_persisted = False  # Existing recipe is non-persisted (browse cache)
+
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_existing
+
+        # Execute import
+        result = import_recipe_from_url("https://example.com/recipe", mock_db)
+
+        # Assertions
+        assert result.status == ImportStatus.duplicate
+        assert result.recipe_id == existing_recipe_id
+        assert result.error_message is None
+
+        # Verify scraper was NOT called (dedup happened before scraping)
+        mock_scrape_recipe.assert_not_called()
+
+    @patch('src.services.import_service.scrape_recipe')
     def test_url_normalization_in_deduplication_end_to_end(self, mock_scrape_recipe):
         """Test that URL normalization works end-to-end for deduplication.
 

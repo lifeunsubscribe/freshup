@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, JSON, ForeignKey, DateTime, func
+from sqlalchemy import String, Integer, JSON, ForeignKey, DateTime, Boolean, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -37,6 +37,7 @@ class Recipe(Base):
     tags: Mapped[list] = mapped_column(JSON, default=list)
     nutritional_info: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     times_cooked: Mapped[int] = mapped_column(Integer, default=0)
+    is_persisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String(10000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
