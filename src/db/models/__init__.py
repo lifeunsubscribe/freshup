@@ -25,7 +25,8 @@ from src.db.models.meal_plan import (
 from src.db.models.grocery_list import GroceryListItem, GrocerySource
 from src.db.models.substitution import SubstitutionPreference, SubstitutionContext
 from src.db.models.consumption_pattern import ConsumptionPattern
-from src.db.models.user_recipe import UserRecipeRating
+from src.db.models.user_recipe import UserRecipeRelation
+from src.db.models.menu import Menu, MenuRecipe
 from src.db.models.processing_task import ProcessingTask, TaskType, TaskStatus
 
 __all__ = [
@@ -57,7 +58,9 @@ __all__ = [
     "SubstitutionPreference",
     "SubstitutionContext",
     "ConsumptionPattern",
-    "UserRecipeRating",
+    "UserRecipeRelation",
+    "Menu",
+    "MenuRecipe",
     "ProcessingTask",
     "TaskType",
     "TaskStatus",

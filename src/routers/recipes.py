@@ -23,7 +23,7 @@ from src.db.database import get_db
 from src.db.models.user import User
 from src.db.models.recipe import Recipe, SourceType
 from src.db.models.recipe_ingredient import RecipeIngredient
-from src.db.models.user_recipe import UserRecipeRating
+from src.db.models.user_recipe import UserRecipeRelation
 from src.db.models.inventory_item import InventoryItem
 from src.schemas.recipe import (
     RecipeCreate,
@@ -33,8 +33,8 @@ from src.schemas.recipe import (
     RecipeIngredientCreate,
     RecipeIngredientUpdate,
     RecipeIngredientResponse,
-    UserRecipeRatingCreate,
-    UserRecipeRatingResponse,
+    UserRecipeRelationCreate,
+    UserRecipeRelationResponse,
     RecipeAggregateRatingsResponse,
     AdHocRecipeCreate,
 )
@@ -776,27 +776,27 @@ def delete_recipe_ingredient(
     return None
 
 
-@router.post("/{recipe_id}/rate", response_model=UserRecipeRatingResponse, status_code=status.HTTP_200_OK)
+@router.post("/{recipe_id}/rate", response_model=UserRecipeRelationResponse, status_code=status.HTTP_200_OK)
 def rate_recipe(
     recipe_id: UUID,
-    rating_data: UserRecipeRatingCreate,
+    rating_data: UserRecipeRelationCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Create or update a rating for a recipe (upsert behavior).
+    Create or update a relation for a recipe (upsert behavior).
 
-    Each user can have only one rating per recipe. If a rating already exists,
-    this endpoint will update it. Otherwise, it creates a new rating.
+    Each user can have only one relation per recipe. If a relation already exists,
+    this endpoint will update it. Otherwise, it creates a new relation.
 
     Args:
         recipe_id: UUID of the recipe to rate
-        rating_data: Rating data (rating value, is_favorite, notes)
+        rating_data: Relation data (rating value, is_bookmarked, is_liked, etc.)
         current_user: Authenticated user (injected by get_current_user dependency)
         db: Database session
 
     Returns:
-        UserRecipeRatingResponse: Created or updated rating
+        UserRecipeRelationResponse: Created or updated relation
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
@@ -811,86 +811,86 @@ def rate_recipe(
             detail="Recipe not found"
         )
 
-    # Check if user already has a rating for this recipe
-    existing_rating = (
-        db.query(UserRecipeRating)
+    # Check if user already has a relation for this recipe
+    existing_relation = (
+        db.query(UserRecipeRelation)
         .filter(
-            UserRecipeRating.user_id == current_user.id,
-            UserRecipeRating.recipe_id == recipe_id,
+            UserRecipeRelation.user_id == current_user.id,
+            UserRecipeRelation.recipe_id == recipe_id,
         )
         .first()
     )
 
-    if existing_rating:
-        # Update existing rating
+    if existing_relation:
+        # Update existing relation
         update_dict = rating_data.model_dump()
         for field, value in update_dict.items():
-            setattr(existing_rating, field, value)
+            setattr(existing_relation, field, value)
 
         try:
             db.commit()
-            db.refresh(existing_rating)
+            db.refresh(existing_relation)
         except SQLAlchemyError as e:
             db.rollback()
-            logger.error(f"Database error during rating update for user {current_user.id}")
-            logger.debug(f"Database error occurred during rating update: {e}")
+            logger.error(f"Database error during relation update for user {current_user.id}")
+            logger.debug(f"Database error occurred during relation update: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while updating the rating"
+                detail="An error occurred while updating the relation"
             )
 
         logger.info(
-            f"Recipe rating updated: user_id={current_user.id}, "
-            f"recipe_id={recipe_id}, rating_id={existing_rating.id}"
+            f"Recipe relation updated: user_id={current_user.id}, "
+            f"recipe_id={recipe_id}, relation_id={existing_relation.id}"
         )
-        return existing_rating
+        return existing_relation
     else:
-        # Create new rating
-        new_rating = UserRecipeRating(
+        # Create new relation
+        new_relation = UserRecipeRelation(
             user_id=current_user.id,
             recipe_id=recipe_id,
             **rating_data.model_dump()
         )
-        db.add(new_rating)
+        db.add(new_relation)
 
         try:
             db.commit()
-            db.refresh(new_rating)
+            db.refresh(new_relation)
         except IntegrityError as e:
             db.rollback()
-            logger.error(f"Integrity error during rating creation for user {current_user.id}")
-            logger.debug(f"Integrity error occurred during rating creation: {e}")
+            logger.error(f"Integrity error during relation creation for user {current_user.id}")
+            logger.debug(f"Integrity error occurred during relation creation: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Rating creation failed due to data integrity violation"
+                detail="Relation creation failed due to data integrity violation"
             )
         except SQLAlchemyError as e:
             db.rollback()
-            logger.error(f"Database error during rating creation for user {current_user.id}")
-            logger.debug(f"Database error occurred during rating creation: {e}")
+            logger.error(f"Database error during relation creation for user {current_user.id}")
+            logger.debug(f"Database error occurred during relation creation: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while creating the rating"
+                detail="An error occurred while creating the relation"
             )
 
         logger.info(
-            f"Recipe rating created: user_id={current_user.id}, "
-            f"recipe_id={recipe_id}, rating_id={new_rating.id}"
+            f"Recipe relation created: user_id={current_user.id}, "
+            f"recipe_id={recipe_id}, relation_id={new_relation.id}"
         )
-        return new_rating
+        return new_relation
 
 
-@router.get("/{recipe_id}/my-rating", response_model=UserRecipeRatingResponse)
+@router.get("/{recipe_id}/my-rating", response_model=UserRecipeRelationResponse)
 def get_my_rating(
     recipe_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get the current user's rating for a recipe.
+    Get the current user's relation for a recipe.
 
-    Returns the authenticated user's rating for the specified recipe.
-    Returns 404 if the user hasn't rated this recipe yet.
+    Returns the authenticated user's relation for the specified recipe.
+    Returns 404 if the user hasn't created a relation for this recipe yet.
 
     Args:
         recipe_id: UUID of the recipe
@@ -898,7 +898,7 @@ def get_my_rating(
         db: Database session
 
     Returns:
-        UserRecipeRatingResponse: User's rating for this recipe
+        UserRecipeRelationResponse: User's relation for this recipe
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
@@ -912,23 +912,23 @@ def get_my_rating(
             detail="Recipe not found"
         )
 
-    # Get user's rating
-    rating = (
-        db.query(UserRecipeRating)
+    # Get user's relation
+    relation = (
+        db.query(UserRecipeRelation)
         .filter(
-            UserRecipeRating.user_id == current_user.id,
-            UserRecipeRating.recipe_id == recipe_id,
+            UserRecipeRelation.user_id == current_user.id,
+            UserRecipeRelation.recipe_id == recipe_id,
         )
         .first()
     )
 
-    if not rating:
+    if not relation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Rating not found"
         )
 
-    return rating
+    return relation
 
 
 @router.delete("/{recipe_id}/my-rating", status_code=status.HTTP_204_NO_CONTENT)
@@ -938,10 +938,10 @@ def delete_my_rating(
     db: Session = Depends(get_db),
 ):
     """
-    Delete the current user's rating for a recipe.
+    Delete the current user's relation for a recipe.
 
-    Removes the authenticated user's rating for the specified recipe.
-    Returns 204 even if no rating exists (idempotent behavior).
+    Removes the authenticated user's relation for the specified recipe.
+    Returns 204 even if no relation exists (idempotent behavior).
 
     Args:
         recipe_id: UUID of the recipe
@@ -963,31 +963,31 @@ def delete_my_rating(
             detail="Recipe not found"
         )
 
-    # Get user's rating (if exists)
-    rating = (
-        db.query(UserRecipeRating)
+    # Get user's relation (if exists)
+    relation = (
+        db.query(UserRecipeRelation)
         .filter(
-            UserRecipeRating.user_id == current_user.id,
-            UserRecipeRating.recipe_id == recipe_id,
+            UserRecipeRelation.user_id == current_user.id,
+            UserRecipeRelation.recipe_id == recipe_id,
         )
         .first()
     )
 
-    if rating:
+    if relation:
         try:
-            db.delete(rating)
+            db.delete(relation)
             db.commit()
         except SQLAlchemyError as e:
             db.rollback()
-            logger.error(f"Database error during rating deletion for user {current_user.id}")
-            logger.debug(f"Database error occurred during rating deletion: {e}")
+            logger.error(f"Database error during relation deletion for user {current_user.id}")
+            logger.debug(f"Database error occurred during relation deletion: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An error occurred while deleting the rating"
+                detail="An error occurred while deleting the relation"
             )
 
         logger.info(
-            f"Recipe rating deleted: user_id={current_user.id}, "
+            f"Recipe relation deleted: user_id={current_user.id}, "
             f"recipe_id={recipe_id}"
         )
 
@@ -1004,7 +1004,7 @@ def get_recipe_ratings(
     Get aggregate rating statistics for a recipe.
 
     Returns the average rating, total rating count, and favorite count
-    across all users who have rated this recipe. This is a shared read
+    across all users who have relations with this recipe. This is a shared read
     endpoint - all users can see aggregate stats for any recipe.
 
     Args:
@@ -1030,15 +1030,15 @@ def get_recipe_ratings(
     # Calculate aggregate statistics across all users
     # - average_rating: Average of all non-null rating values (func.avg automatically excludes nulls)
     # - rating_count: Count of rows where rating is not None (users who provided numeric ratings)
-    # - favorite_count: Count of rows where is_favorite is True (users who favorited)
+    # - favorite_count: Count of rows where is_bookmarked is True (users who favorited)
     # Note: Users can favorite without rating (rating=None), so favorite_count may exceed rating_count
     stats = (
         db.query(
-            func.avg(UserRecipeRating.rating).label('average_rating'),
-            func.count(UserRecipeRating.id).filter(UserRecipeRating.rating.isnot(None)).label('rating_count'),
-            func.count(UserRecipeRating.id).filter(UserRecipeRating.is_favorite.is_(True)).label('favorite_count'),
+            func.avg(UserRecipeRelation.rating).label('average_rating'),
+            func.count(UserRecipeRelation.id).filter(UserRecipeRelation.rating.isnot(None)).label('rating_count'),
+            func.count(UserRecipeRelation.id).filter(UserRecipeRelation.is_bookmarked.is_(True)).label('favorite_count'),
         )
-        .filter(UserRecipeRating.recipe_id == recipe_id)
+        .filter(UserRecipeRelation.recipe_id == recipe_id)
         .first()
     )
 

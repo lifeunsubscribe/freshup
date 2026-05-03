@@ -1279,8 +1279,8 @@ class TestRecipeRatings:
         """Test creating a new rating for a recipe."""
         rating_data = {
             "rating": 4.5,
-            "is_favorite": True,
-            "notes": "Delicious recipe!",
+            "is_bookmarked": True,
+            "rating_comment": "Delicious recipe!",
         }
 
         response = client.post(
@@ -1292,16 +1292,16 @@ class TestRecipeRatings:
         assert response.status_code == 200
         data = response.json()
         assert data["rating"] == 4.5
-        assert data["is_favorite"] is True
-        assert data["notes"] == "Delicious recipe!"
+        assert data["is_bookmarked"] is True
+        assert data["rating_comment"] == "Delicious recipe!"
         assert data["user_id"] == str(test_user.id)
         assert data["recipe_id"] == str(test_recipe.id)
         assert "id" in data
 
     def test_create_rating_minimal_fields(self, client, auth_headers, test_recipe, test_user):
-        """Test creating rating with only is_favorite (no rating value or notes)."""
+        """Test creating rating with only is_bookmarked (no rating value or comment)."""
         rating_data = {
-            "is_favorite": True,
+            "is_bookmarked": True,
         }
 
         response = client.post(
@@ -1313,16 +1313,16 @@ class TestRecipeRatings:
         assert response.status_code == 200
         data = response.json()
         assert data["rating"] is None
-        assert data["is_favorite"] is True
-        assert data["notes"] is None
+        assert data["is_bookmarked"] is True
+        assert data["rating_comment"] is None
 
     def test_update_rating_upsert(self, client, auth_headers, test_recipe, test_user, db_session):
         """Test updating an existing rating (upsert behavior)."""
         # Create initial rating
         rating_data = {
             "rating": 3.0,
-            "is_favorite": False,
-            "notes": "Initial note",
+            "is_bookmarked": False,
+            "rating_comment": "Initial note",
         }
 
         response = client.post(
@@ -1336,8 +1336,8 @@ class TestRecipeRatings:
         # Update the rating (same endpoint, different data)
         update_data = {
             "rating": 5.0,
-            "is_favorite": True,
-            "notes": "Updated note - much better!",
+            "is_bookmarked": True,
+            "rating_comment": "Updated note - much better!",
         }
 
         response = client.post(
@@ -1350,14 +1350,14 @@ class TestRecipeRatings:
         data = response.json()
         assert data["id"] == initial_id  # Same ID (updated, not created)
         assert data["rating"] == 5.0
-        assert data["is_favorite"] is True
-        assert data["notes"] == "Updated note - much better!"
+        assert data["is_bookmarked"] is True
+        assert data["rating_comment"] == "Updated note - much better!"
 
         # Verify only one rating exists in database
-        from src.db.models.user_recipe import UserRecipeRating
-        ratings = db_session.query(UserRecipeRating).filter(
-            UserRecipeRating.user_id == test_user.id,
-            UserRecipeRating.recipe_id == test_recipe.id,
+        from src.db.models.user_recipe import UserRecipeRelation
+        ratings = db_session.query(UserRecipeRelation).filter(
+            UserRecipeRelation.user_id == test_user.id,
+            UserRecipeRelation.recipe_id == test_recipe.id,
         ).all()
         assert len(ratings) == 1
 
@@ -1365,7 +1365,7 @@ class TestRecipeRatings:
         """Test creating rating for non-existent recipe returns 404."""
         rating_data = {
             "rating": 4.0,
-            "is_favorite": False,
+            "is_bookmarked": False,
         }
 
         fake_recipe_id = uuid4()
@@ -1382,7 +1382,7 @@ class TestRecipeRatings:
         """Test creating rating without auth returns 401."""
         rating_data = {
             "rating": 4.0,
-            "is_favorite": False,
+            "is_bookmarked": False,
         }
 
         response = client.post(
@@ -1396,7 +1396,7 @@ class TestRecipeRatings:
         """Test creating rating with value > 5.0 fails validation."""
         rating_data = {
             "rating": 5.5,
-            "is_favorite": False,
+            "is_bookmarked": False,
         }
 
         response = client.post(
@@ -1414,7 +1414,7 @@ class TestRecipeRatings:
         """Test creating rating with value < 0.0 fails validation."""
         rating_data = {
             "rating": -1.0,
-            "is_favorite": False,
+            "is_bookmarked": False,
         }
 
         response = client.post(
@@ -1430,7 +1430,7 @@ class TestRecipeRatings:
     def test_create_rating_boundary_values(self, client, auth_headers, test_recipe, db_session):
         """Test creating ratings with boundary values (0.0 and 5.0)."""
         # Test 0.0 (minimum valid)
-        rating_data = {"rating": 0.0, "is_favorite": False}
+        rating_data = {"rating": 0.0, "is_bookmarked": False}
         response = client.post(
             f"/recipes/{test_recipe.id}/rate",
             json=rating_data,
@@ -1440,7 +1440,7 @@ class TestRecipeRatings:
         assert response.json()["rating"] == 0.0
 
         # Test 5.0 (maximum valid) - updates existing rating
-        rating_data = {"rating": 5.0, "is_favorite": True}
+        rating_data = {"rating": 5.0, "is_bookmarked": True}
         response = client.post(
             f"/recipes/{test_recipe.id}/rate",
             json=rating_data,
@@ -1452,14 +1452,14 @@ class TestRecipeRatings:
     def test_get_my_rating_success(self, client, auth_headers, test_recipe, test_user, db_session):
         """Test getting user's own rating for a recipe."""
         # Create a rating first
-        from src.db.models.user_recipe import UserRecipeRating
-        rating = UserRecipeRating(
+        from src.db.models.user_recipe import UserRecipeRelation
+        rating = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=test_recipe.id,
             rating=4.0,
-            is_favorite=True,
-            notes="My rating",
+            is_bookmarked=True,
+            rating_comment="My rating",
         )
         db_session.add(rating)
         db_session.commit()
@@ -1472,8 +1472,8 @@ class TestRecipeRatings:
         assert response.status_code == 200
         data = response.json()
         assert data["rating"] == 4.0
-        assert data["is_favorite"] is True
-        assert data["notes"] == "My rating"
+        assert data["is_bookmarked"] is True
+        assert data["rating_comment"] == "My rating"
         assert data["user_id"] == str(test_user.id)
 
     def test_get_my_rating_not_found(self, client, auth_headers, test_recipe):
@@ -1506,13 +1506,13 @@ class TestRecipeRatings:
     def test_delete_my_rating_success(self, client, auth_headers, test_recipe, test_user, db_session):
         """Test deleting user's rating successfully."""
         # Create a rating first
-        from src.db.models.user_recipe import UserRecipeRating
-        rating = UserRecipeRating(
+        from src.db.models.user_recipe import UserRecipeRelation
+        rating = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=test_recipe.id,
             rating=3.5,
-            is_favorite=False,
+            is_bookmarked=False,
         )
         db_session.add(rating)
         db_session.commit()
@@ -1526,8 +1526,8 @@ class TestRecipeRatings:
         assert response.status_code == 204
 
         # Verify rating is deleted
-        deleted_rating = db_session.query(UserRecipeRating).filter(
-            UserRecipeRating.id == rating_id
+        deleted_rating = db_session.query(UserRecipeRelation).filter(
+            UserRecipeRelation.id == rating_id
         ).first()
         assert deleted_rating is None
 
@@ -1572,13 +1572,13 @@ class TestRecipeRatings:
 
     def test_get_aggregate_ratings_single_rating(self, client, auth_headers, test_recipe, test_user, db_session):
         """Test aggregate ratings with one rating."""
-        from src.db.models.user_recipe import UserRecipeRating
-        rating = UserRecipeRating(
+        from src.db.models.user_recipe import UserRecipeRelation
+        rating = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=test_recipe.id,
             rating=4.0,
-            is_favorite=True,
+            is_bookmarked=True,
         )
         db_session.add(rating)
         db_session.commit()
@@ -1596,24 +1596,24 @@ class TestRecipeRatings:
 
     def test_get_aggregate_ratings_multiple_ratings(self, client, auth_headers, test_recipe, test_user, test_user2, db_session):
         """Test aggregate ratings with multiple users' ratings."""
-        from src.db.models.user_recipe import UserRecipeRating
+        from src.db.models.user_recipe import UserRecipeRelation
 
         # User 1 rating
-        rating1 = UserRecipeRating(
+        rating1 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=test_recipe.id,
             rating=4.0,
-            is_favorite=True,
+            is_bookmarked=True,
         )
 
         # User 2 rating
-        rating2 = UserRecipeRating(
+        rating2 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user2.id,
             recipe_id=test_recipe.id,
             rating=5.0,
-            is_favorite=False,
+            is_bookmarked=False,
         )
 
         db_session.add_all([rating1, rating2])
@@ -1632,13 +1632,13 @@ class TestRecipeRatings:
 
     def test_get_aggregate_ratings_favorite_only(self, client, auth_headers, test_recipe, test_user, db_session):
         """Test aggregate ratings when user only favorited (no rating value)."""
-        from src.db.models.user_recipe import UserRecipeRating
-        rating = UserRecipeRating(
+        from src.db.models.user_recipe import UserRecipeRelation
+        rating = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=test_recipe.id,
             rating=None,  # No rating value
-            is_favorite=True,
+            is_bookmarked=True,
         )
         db_session.add(rating)
         db_session.commit()
@@ -1656,24 +1656,24 @@ class TestRecipeRatings:
 
     def test_get_aggregate_ratings_mixed_null_ratings(self, client, auth_headers, test_recipe, test_user, test_user2, db_session):
         """Test aggregate ratings with mix of null and numeric ratings."""
-        from src.db.models.user_recipe import UserRecipeRating
+        from src.db.models.user_recipe import UserRecipeRelation
 
         # User 1: numeric rating
-        rating1 = UserRecipeRating(
+        rating1 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=test_recipe.id,
             rating=4.0,
-            is_favorite=False,
+            is_bookmarked=False,
         )
 
         # User 2: favorite only (no rating)
-        rating2 = UserRecipeRating(
+        rating2 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user2.id,
             recipe_id=test_recipe.id,
             rating=None,
-            is_favorite=True,
+            is_bookmarked=True,
         )
 
         db_session.add_all([rating1, rating2])
@@ -1709,13 +1709,13 @@ class TestRecipeRatings:
 
     def test_ratings_cross_user_isolation(self, client, auth_headers, auth_headers2, test_recipe, test_user, test_user2, db_session):
         """Test that each user has separate ratings for the same recipe."""
-        from src.db.models.user_recipe import UserRecipeRating
+        from src.db.models.user_recipe import UserRecipeRelation
 
         # User 1 creates rating
         rating_data = {
             "rating": 3.0,
-            "is_favorite": False,
-            "notes": "User 1 note",
+            "is_bookmarked": False,
+            "rating_comment": "User 1 note",
         }
         response = client.post(
             f"/recipes/{test_recipe.id}/rate",
@@ -1727,8 +1727,8 @@ class TestRecipeRatings:
         # User 2 creates different rating
         rating_data2 = {
             "rating": 5.0,
-            "is_favorite": True,
-            "notes": "User 2 note",
+            "is_bookmarked": True,
+            "rating_comment": "User 2 note",
         }
         response = client.post(
             f"/recipes/{test_recipe.id}/rate",
@@ -1745,7 +1745,7 @@ class TestRecipeRatings:
         assert response.status_code == 200
         data = response.json()
         assert data["rating"] == 3.0
-        assert data["notes"] == "User 1 note"
+        assert data["rating_comment"] == "User 1 note"
 
         # User 2 gets their rating
         response = client.get(
@@ -1755,11 +1755,11 @@ class TestRecipeRatings:
         assert response.status_code == 200
         data = response.json()
         assert data["rating"] == 5.0
-        assert data["notes"] == "User 2 note"
+        assert data["rating_comment"] == "User 2 note"
 
         # Verify two separate ratings exist in database
-        ratings = db_session.query(UserRecipeRating).filter(
-            UserRecipeRating.recipe_id == test_recipe.id
+        ratings = db_session.query(UserRecipeRelation).filter(
+            UserRecipeRelation.recipe_id == test_recipe.id
         ).all()
         assert len(ratings) == 2
 
