@@ -37,15 +37,26 @@ def generate_draft_meal_plan(
 
     Args:
         week_start: Start date of the week (should be Monday)
-        user_id: User ID generating the plan
+        user_id: User ID generating the plan (used for recipe personalization)
         db: Database session
 
     Returns:
         List of created MealPlanEntry objects
 
     Raises:
-        ValidationError: If draft generation fails
+        ValidationError: If draft generation fails or user not found
+
+    Note:
+        This system currently operates in single-household mode where all meal plan
+        entries are shared across all household members. The created entries are not
+        associated with a specific user - they belong to the household collectively.
+        Future multi-household support will require adding household_id to both User
+        and MealPlanEntry models.
     """
+    # Verify user exists and is authenticated
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise ValidationError(f"User {user_id} not found")
     # Get recipe recommendations using feed service patterns
     # Priority 1: Recipes user can make now (expiring inventory)
     make_now_recipes = feed_service.get_make_now_recipes(user_id, db, limit=3)
@@ -117,17 +128,30 @@ def get_week_plan(
     """
     Get meal plan entries for a specific week, separated by status.
 
-    Returns both household entries and user's personal entries. Entries
-    include user opt-in information.
+    Returns household meal plan entries with user opt-in information.
 
     Args:
         week_start: Start date of the week
-        user_id: User ID requesting the plan (for opt-in status)
+        user_id: User ID requesting the plan (currently for validation only;
+                 reserved for future household filtering when multi-household
+                 support is added)
         db: Database session
 
     Returns:
         Tuple of (confirmed_entries, draft_entries)
+
+    Raises:
+        ValidationError: If user not found
+
+    Note:
+        This system currently operates in single-household mode. All authenticated
+        users in the household can view all meal plan entries. When multi-household
+        support is added, this function will filter entries by household_id.
     """
+    # Verify user exists and is authenticated
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise ValidationError(f"User {user_id} not found")
     week_end = week_start + timedelta(days=6)
 
     # Query all entries for the week with user opt-ins loaded
@@ -180,7 +204,17 @@ def confirm_entry(
     Raises:
         NotFoundError: If entry doesn't exist
         ValidationError: If entry is not in draft status or has no recipe
+
+    Note:
+        This system currently operates in single-household mode. Any authenticated
+        household member can confirm any meal plan entry, as all entries are shared
+        household resources. When multi-household support is added, this function
+        will verify the entry belongs to the user's household before allowing
+        confirmation.
     """
+    # Verify current_user is valid (basic validation)
+    if not current_user or not current_user.id:
+        raise ValidationError("Invalid user session")
     # Load entry with recipe and ingredients
     entry = (
         db.query(MealPlanEntry)
