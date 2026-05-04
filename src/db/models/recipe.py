@@ -40,7 +40,6 @@ class Recipe(Base):
     is_persisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String(10000), nullable=True)
-    is_persisted: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
