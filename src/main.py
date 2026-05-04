@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 
 from src.config import get_settings
 from src.db.database import Base, init_engine, get_engine, get_session_factory
-from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router, tasks_router, receipts_router, feed_router, menus_router
+from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router, tasks_router, receipts_router, feed_router, menus_router, plan_router
 from src.middleware.rate_limit import limiter
 from src.services.task_worker import background_task_worker
 from src.services.cleanup_service import prune_unpersisted_recipes
@@ -136,6 +136,7 @@ app.include_router(tasks_router)
 app.include_router(receipts_router)
 app.include_router(feed_router)
 app.include_router(menus_router)
+app.include_router(plan_router)
 
 
 @app.get("/health")
