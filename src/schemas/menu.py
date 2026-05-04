@@ -1,0 +1,104 @@
+"""
+Pydantic schemas for Menu and MenuRecipe API requests/responses.
+"""
+
+from uuid import UUID
+from datetime import datetime
+from typing import Optional, Literal
+from pydantic import BaseModel, Field, ConfigDict
+
+
+# Filter rule schemas
+class FilterRule(BaseModel):
+    """Individual filter rule for recipe matching."""
+    field: Literal["tags", "source_type", "cook_time_minutes"] = Field(..., description="Field to filter on: tags, source_type, cook_time_minutes")
+    operator: Literal["contains", "not_contains", "eq", "in", "<=", ">="] = Field(..., description="Operator: contains, not_contains, eq, in, <=, >=")
+    value: str | int | list[str] = Field(..., description="Value to match against")
+
+
+class FilterRules(BaseModel):
+    """Collection of filter rules with match logic."""
+    match_logic: Literal["all", "any"] = Field("all", description="Match logic: 'all' (AND) or 'any' (OR)")
+    rules: list[FilterRule] = Field(default_factory=list)
+
+
+# Menu schemas
+class MenuCreate(BaseModel):
+    """Schema for creating a new menu."""
+    name: str = Field(..., max_length=255)
+    description: Optional[str] = Field(None, max_length=500)
+    filter_rules: Optional[FilterRules] = None
+    is_auto_generated: bool = False
+    cover_image: Optional[str] = Field(None, max_length=2048)
+    sort_order: int = 0
+
+
+class MenuUpdate(BaseModel):
+    """Schema for updating an existing menu."""
+    name: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = Field(None, max_length=500)
+    filter_rules: Optional[FilterRules] = None
+    sort_order: Optional[int] = None
+
+
+class MenuResponse(BaseModel):
+    """Schema for menu response."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    name: str
+    description: Optional[str]
+    filter_rules: Optional[dict]
+    is_auto_generated: bool
+    cover_image: Optional[str]
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class MenuListResponse(BaseModel):
+    """Schema for list of menus."""
+    menus: list[MenuResponse]
+    total: int
+
+
+# MenuRecipe schemas
+class MenuRecipeCreate(BaseModel):
+    """Schema for adding a recipe to a menu."""
+    recipe_id: UUID
+    sort_order: int = 0
+
+
+class MenuRecipeResponse(BaseModel):
+    """Schema for menu recipe response."""
+    model_config = ConfigDict(from_attributes=True)
+
+    menu_id: UUID
+    recipe_id: UUID
+    sort_order: int
+    manually_added: bool
+    manually_removed: bool
+    added_at: datetime
+
+
+# Pagination response for menu recipes
+class MenuRecipesResponse(BaseModel):
+    """Schema for paginated menu recipes response."""
+    model_config = ConfigDict(from_attributes=True)
+
+    recipes: list  # List of Recipe model objects - FastAPI will serialize them
+    total: int
+
+
+# Auto-generation schema
+class MenuGenerateRequest(BaseModel):
+    """Schema for auto-generating menus from user patterns."""
+    min_saves: int = Field(3, description="Minimum number of saves required for pattern detection")
+    max_menus: int = Field(4, description="Maximum number of menus to generate")
+
+
+class MenuGenerateResponse(BaseModel):
+    """Schema for auto-generation response."""
+    generated_menus: list[MenuResponse]
+    total_generated: int

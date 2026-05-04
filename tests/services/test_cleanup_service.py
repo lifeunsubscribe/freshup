@@ -5,7 +5,7 @@ Tests cover:
 - Pruning non-persisted recipes older than TTL
 - Preserving persisted recipes
 - Preserving non-persisted recipes newer than TTL
-- Cascade deletion of UserRecipeRating records
+- Cascade deletion of UserRecipeRelation records
 - Correct count of pruned recipes
 """
 
@@ -20,7 +20,7 @@ from src.db.database import Base
 from src.db import models  # Import all models to ensure Base.metadata has all tables
 from src.db.models.recipe import Recipe
 from src.db.models.user import User, UserRole
-from src.db.models.user_recipe import UserRecipeRating
+from src.db.models.user_recipe import UserRecipeRelation
 from src.services.cleanup_service import prune_unpersisted_recipes
 from src.services.auth_service import hash_password
 
@@ -167,7 +167,7 @@ class TestPruneUnpersistedRecipes:
         assert remaining is not None
 
     def test_deletes_orphaned_user_recipe_ratings(self, db_session, test_user):
-        """Test that UserRecipeRating records for pruned recipes are deleted."""
+        """Test that UserRecipeRelation records for pruned recipes are deleted."""
         # Create an old unpersisted recipe
         old_date = datetime.now(timezone.utc) - timedelta(days=10)
         recipe_id = uuid4()
@@ -184,18 +184,18 @@ class TestPruneUnpersistedRecipes:
 
         # Create a rating for this recipe
         rating_id = uuid4()
-        rating = UserRecipeRating(
+        rating = UserRecipeRelation(
             id=rating_id,
             user_id=test_user.id,
             recipe_id=recipe_id,
             rating=4.5,
-            is_favorite=True,
+            is_bookmarked=True,
         )
         db_session.add(rating)
         db_session.commit()
 
         # Verify rating exists before cleanup
-        rating_before = db_session.query(UserRecipeRating).filter_by(id=rating_id).first()
+        rating_before = db_session.query(UserRecipeRelation).filter_by(id=rating_id).first()
         assert rating_before is not None
 
         # Run cleanup
@@ -204,7 +204,7 @@ class TestPruneUnpersistedRecipes:
         # Verify recipe and rating were both deleted
         assert pruned_count == 1
         recipe_after = db_session.query(Recipe).filter_by(id=recipe_id).first()
-        rating_after = db_session.query(UserRecipeRating).filter_by(id=rating_id).first()
+        rating_after = db_session.query(UserRecipeRelation).filter_by(id=rating_id).first()
         assert recipe_after is None
         assert rating_after is None
 

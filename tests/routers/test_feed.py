@@ -22,7 +22,7 @@ from src.db.models.user import User, UserRole
 from src.db.models.recipe import Recipe
 from src.db.models.recipe_ingredient import RecipeIngredient
 from src.db.models.inventory_item import InventoryItem
-from src.db.models.user_recipe import UserRecipeRating
+from src.db.models.user_recipe import UserRecipeRelation
 from src.services.auth_service import hash_password, create_access_token
 
 from fastapi import FastAPI
@@ -430,7 +430,7 @@ class TestHomeFeed:
         db_session.commit()
 
         # Add ratings with different timestamps
-        rating1 = UserRecipeRating(
+        rating1 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=recipe1.id,
@@ -438,7 +438,7 @@ class TestHomeFeed:
             created_at=datetime.now() - timedelta(days=1),
             updated_at=datetime.now() - timedelta(hours=1)  # Updated recently
         )
-        rating2 = UserRecipeRating(
+        rating2 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=recipe2.id,
@@ -545,19 +545,19 @@ class TestPersonalizedRows:
         db_session.commit()
 
         # User saves 3 recipes with "indian" tag (meets >=3 threshold)
-        rating1 = UserRecipeRating(
+        rating1 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=recipe1.id,
             rating=5.0
         )
-        rating2 = UserRecipeRating(
+        rating2 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=recipe2.id,
             rating=4.0
         )
-        rating3 = UserRecipeRating(
+        rating3 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=recipe3.id,
@@ -604,7 +604,7 @@ class TestPersonalizedRows:
 
         # User saves only first 3 (meets >=3 threshold)
         for i in range(3):
-            rating = UserRecipeRating(
+            rating = UserRecipeRelation(
                 id=uuid4(),
                 user_id=test_user.id,
                 recipe_id=recipes[i].id,
@@ -649,13 +649,13 @@ class TestPersonalizedRows:
         db_session.commit()
 
         # User saves only 2 recipes with "rare_tag" (below threshold)
-        rating1 = UserRecipeRating(
+        rating1 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=recipe1.id,
             rating=5.0
         )
-        rating2 = UserRecipeRating(
+        rating2 = UserRecipeRelation(
             id=uuid4(),
             user_id=test_user.id,
             recipe_id=recipe2.id,
@@ -692,7 +692,7 @@ class TestPersonalizedRows:
                 db_session.commit()
 
                 # User saves all recipes
-                rating = UserRecipeRating(
+                rating = UserRecipeRelation(
                     id=uuid4(),
                     user_id=test_user.id,
                     recipe_id=recipe.id,
@@ -729,7 +729,7 @@ class TestSourceRows:
             db_session.commit()
 
             # User saves all
-            rating = UserRecipeRating(
+            rating = UserRecipeRelation(
                 id=uuid4(),
                 user_id=test_user.id,
                 recipe_id=recipe.id,
@@ -771,7 +771,7 @@ class TestSourceRows:
             db_session.add(recipe)
             db_session.commit()
 
-            rating = UserRecipeRating(
+            rating = UserRecipeRelation(
                 id=uuid4(),
                 user_id=test_user.id,
                 recipe_id=recipe.id,
@@ -806,7 +806,7 @@ class TestSourceRows:
                 db_session.add(recipe)
                 db_session.commit()
 
-                rating = UserRecipeRating(
+                rating = UserRecipeRelation(
                     id=uuid4(),
                     user_id=test_user.id,
                     recipe_id=recipe.id,
@@ -1065,7 +1065,7 @@ class TestBrowseEndpoint:
             db_session.add(recipe)
             db_session.commit()
 
-            rating = UserRecipeRating(
+            rating = UserRecipeRelation(
                 id=uuid4(),
                 user_id=test_user.id,
                 recipe_id=recipe.id,

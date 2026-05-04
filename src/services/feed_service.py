@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from src.db.models.recipe import Recipe
 from src.db.models.recipe_ingredient import RecipeIngredient
 from src.db.models.inventory_item import InventoryItem
-from src.db.models.user_recipe import UserRecipeRating
+from src.db.models.user_recipe import UserRecipeRelation
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ def get_on_repeat_recipes(user_id: UUID, db: Session, limit: int = 15) -> list[R
     Weighted scoring from:
     - Viewed-not-cooked (0.25) - TODO: requires UserRecipeView model from #5
     - High-frequency-cooked (0.30) - TODO: requires UserCookEvent model from #4
-    - Recently-rated (0.25) - IMPLEMENTED: uses UserRecipeRating.updated_at
+    - Recently-rated (0.25) - IMPLEMENTED: uses UserRecipeRelation.updated_at
     - Genre-affinity (0.20) - TODO: requires cook history analysis
 
     Args:
@@ -151,14 +151,14 @@ def get_on_repeat_recipes(user_id: UUID, db: Session, limit: int = 15) -> list[R
     # Requires cook history to analyze preferred tags/genres
 
     # Current implementation: Recently-rated signal only
-    # Uses updated_at from UserRecipeRating as recency indicator
+    # Uses updated_at from UserRecipeRelation as recency indicator
     # Orders by most recent rating first
     query = (
         db.query(Recipe)
-        .join(UserRecipeRating, Recipe.id == UserRecipeRating.recipe_id)
-        .filter(UserRecipeRating.user_id == user_id)
+        .join(UserRecipeRelation, Recipe.id == UserRecipeRelation.recipe_id)
+        .filter(UserRecipeRelation.user_id == user_id)
         .filter(Recipe.is_persisted == True)  # noqa: E712
-        .order_by(UserRecipeRating.updated_at.desc())
+        .order_by(UserRecipeRelation.updated_at.desc())
         .limit(limit)
     )
 
@@ -188,8 +188,8 @@ def get_user_tag_patterns(user_id: UUID, db: Session, min_saves: int = 3) -> lis
     # Get all recipes the user has rated/saved
     saved_recipes = (
         db.query(Recipe)
-        .join(UserRecipeRating, Recipe.id == UserRecipeRating.recipe_id)
-        .filter(UserRecipeRating.user_id == user_id)
+        .join(UserRecipeRelation, Recipe.id == UserRecipeRelation.recipe_id)
+        .filter(UserRecipeRelation.user_id == user_id)
         .all()
     )
 
@@ -227,8 +227,8 @@ def get_user_source_patterns(user_id: UUID, db: Session, min_saves: int = 5) -> 
     # Count source types in user's saved recipes
     source_counts = (
         db.query(Recipe.source_type, func.count(Recipe.id).label("count"))
-        .join(UserRecipeRating, Recipe.id == UserRecipeRating.recipe_id)
-        .filter(UserRecipeRating.user_id == user_id)
+        .join(UserRecipeRelation, Recipe.id == UserRecipeRelation.recipe_id)
+        .filter(UserRecipeRelation.user_id == user_id)
         .group_by(Recipe.source_type)
         .having(func.count(Recipe.id) >= min_saves)
         .order_by(func.count(Recipe.id).desc())
@@ -252,9 +252,9 @@ def _get_saved_recipe_ids(user_id: UUID, db: Session) -> set[UUID]:
         Set of recipe IDs the user has rated/saved
     """
     return {
-        rating.recipe_id
-        for rating in db.query(UserRecipeRating.recipe_id)
-        .filter(UserRecipeRating.user_id == user_id)
+        relation.recipe_id
+        for relation in db.query(UserRecipeRelation.recipe_id)
+        .filter(UserRecipeRelation.user_id == user_id)
         .all()
     }
 
