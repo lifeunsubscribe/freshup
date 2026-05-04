@@ -1,7 +1,7 @@
 """seed costco store parsing profile
 
 Revision ID: mg8hnbcw6psr
-Revises: lf9gmzbv5orr
+Revises: dae9onwpk4jh
 Create Date: 2026-04-04 17:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy import Table, MetaData
 
 # revision identifiers, used by Alembic.
 revision: str = 'mg8hnbcw6psr'
-down_revision: Union[str, None] = 'lf9gmzbv5orr'
+down_revision: Union[str, None] = 'dae9onwpk4jh'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

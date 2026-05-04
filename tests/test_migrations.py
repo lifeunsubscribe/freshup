@@ -166,3 +166,43 @@ def test_migration_uses_database_agnostic_syntax():
     assert "if not result:" in source, (
         "Should use check-then-insert pattern for idempotency"
     )
+
+
+def test_store_name_lower_unique_constraint_case_collision(db_session):
+    """
+    Verify that the stores.name_lower unique constraint prevents insertion
+    of stores with names that differ only in case (e.g., "Costco" vs "COSTCO").
+
+    This test ensures the migration's unique index on name_lower works correctly
+    to enforce case-insensitive uniqueness, as required by issue #488.
+    """
+    from src.db.models.store import Store
+    from sqlalchemy.exc import IntegrityError
+
+    # Insert first store with mixed case name
+    store1 = Store(name="Costco", has_digital_receipts=False)
+    db_session.add(store1)
+    db_session.commit()
+
+    # Attempt to insert second store with different case but same normalized name
+    # This should fail due to the unique constraint on name_lower
+    store2 = Store(name="COSTCO", has_digital_receipts=False)
+    db_session.add(store2)
+
+    with pytest.raises(IntegrityError) as exc_info:
+        db_session.commit()
+
+    # Verify the error is related to the name_lower constraint
+    assert "name_lower" in str(exc_info.value).lower() or "unique" in str(exc_info.value).lower(), (
+        "IntegrityError should be related to name_lower unique constraint"
+    )
+
+    # Clean up the failed transaction
+    db_session.rollback()
+
+    # Verify only one store exists in the database
+    from sqlalchemy import text
+    conn = db_session.get_bind().connect()
+    count = conn.execute(text("SELECT COUNT(*) FROM stores")).scalar()
+    assert count == 1, "Only one store should exist after failed duplicate insert"
+    conn.close()

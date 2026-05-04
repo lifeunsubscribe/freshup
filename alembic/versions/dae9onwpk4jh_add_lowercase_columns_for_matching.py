@@ -1,8 +1,8 @@
 """add lowercase columns for case-insensitive matching
 
 Revision ID: dae9onwpk4jh
-Revises: pi1jpdky8rus
-Create Date: 2026-05-03 23:59:00.000000
+Revises: lf9gmzbv5orr
+Create Date: 2026-04-04 16:30:00.000000
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'dae9onwpk4jh'
-down_revision: Union[str, None] = 'pi1jpdky8rus'
+down_revision: Union[str, None] = 'lf9gmzbv5orr'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
