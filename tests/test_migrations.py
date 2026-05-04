@@ -202,7 +202,5 @@ def test_store_name_lower_unique_constraint_case_collision(db_session):
 
     # Verify only one store exists in the database
     from sqlalchemy import text
-    conn = db_session.get_bind().connect()
-    count = conn.execute(text("SELECT COUNT(*) FROM stores")).scalar()
+    count = db_session.execute(text("SELECT COUNT(*) FROM stores")).scalar()
     assert count == 1, "Only one store should exist after failed duplicate insert"
-    conn.close()
