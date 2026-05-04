@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'pj1kqfxy9rvw'
-down_revision: Union[str, None] = 'oi0jpexw8quw'
+down_revision: Union[str, None] = 'pi1jpdky8rus'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -29,10 +29,10 @@ def upgrade() -> None:
     4. Drop old columns
     5. Rename unique constraint
     """
-    # Step 1: Rename table and update constraint
-    with op.batch_alter_table('user_recipe_ratings', schema=None) as batch_op:
-        batch_op.drop_constraint('uq_user_recipe_rating', type_='unique')
-
+    # Step 1: Rename table.
+    # The original user_recipe_ratings table (eb9402f07ab3) had no named
+    # uniqueness constraint, so there's nothing to drop here — we just add
+    # uq_user_recipe_relation below.
     op.rename_table('user_recipe_ratings', 'user_recipe_relations')
 
     # Step 2: Add new columns
@@ -86,9 +86,6 @@ def downgrade() -> None:
         batch_op.drop_column('is_liked')
         batch_op.drop_column('is_bookmarked')
 
-    # Rename table back
+    # Rename table back. Original schema had no named uniqueness constraint,
+    # so nothing to restore.
     op.rename_table('user_recipe_relations', 'user_recipe_ratings')
-
-    # Restore original constraint
-    with op.batch_alter_table('user_recipe_ratings', schema=None) as batch_op:
-        batch_op.create_unique_constraint('uq_user_recipe_rating', ['user_id', 'recipe_id'])
