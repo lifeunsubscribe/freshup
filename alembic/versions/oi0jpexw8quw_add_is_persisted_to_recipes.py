@@ -22,9 +22,11 @@ def upgrade() -> None:
     """Add is_persisted column to recipes table with default true."""
     with op.batch_alter_table('recipes', schema=None) as batch_op:
         batch_op.add_column(sa.Column('is_persisted', sa.Boolean(), nullable=False, server_default='1'))
+        batch_op.create_index('ix_recipes_is_persisted', ['is_persisted'])
 
 
 def downgrade() -> None:
     """Remove is_persisted column from recipes table."""
     with op.batch_alter_table('recipes', schema=None) as batch_op:
+        batch_op.drop_index('ix_recipes_is_persisted')
         batch_op.drop_column('is_persisted')
