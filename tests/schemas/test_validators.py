@@ -388,7 +388,7 @@ class TestValidateUrlList:
 
     def test_127_x_x_x_rejected(self):
         """Test that 127.x.x.x addresses are rejected."""
-        with pytest.raises(ValueError, match="cannot contain URLs targeting localhost \\(127\\.x\\.x\\.x\\)"):
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
             validate_url_list("Field", ["http://127.1.2.3/image.jpg"])
 
     def test_0_0_0_0_rejected(self):
@@ -405,6 +405,58 @@ class TestValidateUrlList:
         """Test that localhost with port is rejected."""
         with pytest.raises(ValueError, match="cannot contain URLs targeting localhost"):
             validate_url_list("Field", ["http://localhost:8080/image.jpg"])
+
+    def test_private_ipv4_10_x_x_x_rejected(self):
+        """Test that private IPv4 10.x.x.x range is rejected (SSRF protection)."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://10.0.0.1/image.jpg"])
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://10.255.255.255/image.jpg"])
+
+    def test_private_ipv4_192_168_x_x_rejected(self):
+        """Test that private IPv4 192.168.x.x range is rejected (SSRF protection)."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://192.168.1.1/image.jpg"])
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://192.168.0.254/image.jpg"])
+
+    def test_private_ipv4_172_16_x_x_rejected(self):
+        """Test that private IPv4 172.16-31.x.x range is rejected (SSRF protection)."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://172.16.0.1/image.jpg"])
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://172.31.255.254/image.jpg"])
+        # Edge case: 172.15.x.x should be allowed (not in private range)
+        result = validate_url_list("Field", ["http://172.15.0.1/image.jpg"])
+        assert result == ["http://172.15.0.1/image.jpg"]
+
+    def test_link_local_ipv4_169_254_x_x_rejected(self):
+        """Test that link-local IPv4 169.254.x.x range is rejected (cloud metadata SSRF)."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://169.254.169.254/image.jpg"])
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://169.254.1.1/image.jpg"])
+
+    def test_ipv6_unique_local_fc00_rejected(self):
+        """Test that IPv6 unique local addresses (fc00::/7) are rejected (SSRF protection)."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://[fc00::1]/image.jpg"])
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://[fd00::1]/image.jpg"])
+
+    def test_ipv6_link_local_fe80_rejected(self):
+        """Test that IPv6 link-local addresses (fe80::/10) are rejected (SSRF protection)."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://[fe80::1]/image.jpg"])
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://[fe80::dead:beef]/image.jpg"])
+
+    def test_private_ip_with_port_rejected(self):
+        """Test that private IPs with ports are rejected."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://192.168.1.1:8080/image.jpg"])
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://10.0.0.1:3000/image.jpg"])
 
     # Length validation tests
 

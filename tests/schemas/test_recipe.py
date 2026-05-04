@@ -640,7 +640,7 @@ class TestUserRecipeRelationCreateRatingPhotosValidation:
         errors = exc_info.value.errors()
         assert len(errors) == 1
         assert errors[0]["loc"] == ("rating_photos",)
-        assert "127.x.x.x" in str(errors[0]["msg"])
+        assert "private or internal IP addresses" in str(errors[0]["msg"])
 
     # Length validation tests
 

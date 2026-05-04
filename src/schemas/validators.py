@@ -10,6 +10,7 @@ from typing import Optional
 from enum import Enum
 import unicodedata
 from urllib.parse import urlparse
+import ipaddress
 
 
 
@@ -40,6 +41,37 @@ BLOCKED_HOSTNAMES = {
     '::1',
     '[::1]',
 }
+
+
+def is_private_ip(hostname: str) -> bool:
+    """
+    Check if hostname is a private/internal IP address.
+
+    Uses Python's ipaddress module to detect:
+    - Private IPv4 ranges (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
+    - Loopback addresses (127.x.x.x, ::1)
+    - Link-local addresses (169.254.x.x, fe80::/10)
+    - IPv6 unique local addresses (fc00::/7)
+    - Special addresses (0.0.0.0, etc.)
+
+    Args:
+        hostname: The hostname/IP address to check (without port)
+
+    Returns:
+        True if the hostname is a private/internal IP, False otherwise
+    """
+    # Remove brackets from IPv6 addresses like [::1]
+    cleaned_hostname = hostname.strip('[]')
+
+    try:
+        ip_obj = ipaddress.ip_address(cleaned_hostname)
+        # is_private covers: 10.x.x.x, 172.16-31.x.x, 192.168.x.x, fc00::/7
+        # is_loopback covers: 127.x.x.x, ::1
+        # is_link_local covers: 169.254.x.x, fe80::/10
+        return ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
+    except ValueError:
+        # Not a valid IP address (likely a hostname)
+        return False
 
 
 def contains_blocked_characters(text: str) -> bool:
@@ -343,7 +375,9 @@ def validate_url_list(
     Security checks:
     - Protocol whitelist: only http/https allowed
     - Length limits: per-URL and total array size
-    - SSRF protection: blocks localhost, 127.0.0.1, ::1, etc.
+    - SSRF protection: blocks all private/internal IP ranges (10.x, 172.16-31.x, 192.168.x,
+      127.x, 169.254.x), localhost, IPv6 loopback (::1), IPv6 link-local (fe80::/10),
+      and IPv6 unique local (fc00::/7)
     - Blocks dangerous protocols: javascript:, file:, data:, etc.
 
     Args:
@@ -397,21 +431,24 @@ def validate_url_list(
         if not parsed.netloc:
             raise ValueError(f'{field_name} URL must include a hostname: "{url[:50]}..."')
 
-        # SSRF protection: block localhost and loopback addresses
+        # SSRF protection: block localhost and private/internal IP addresses
         # Extract hostname without port (handle both IPv4/hostname:port and [IPv6]:port)
         hostname_lower = parsed.netloc.lower()
         if ':' in hostname_lower and not hostname_lower.startswith('['):
             hostname_lower = hostname_lower.split(':')[0]  # Remove port for IPv4/hostname
-        # For IPv6 like [::1]:port, netloc includes brackets, check with and without
+
+        # Check against blocked hostname list (localhost, etc.)
         if hostname_lower in BLOCKED_HOSTNAMES or hostname_lower.strip('[]') in {'::1'}:
             raise ValueError(
                 f'{field_name} cannot contain URLs targeting localhost or internal addresses: "{url[:50]}..."'
             )
 
-        # Additional SSRF check: block IP addresses starting with 127.
-        if hostname_lower.startswith('127.'):
+        # Check if hostname is a private/internal IP address
+        # This covers: 10.x.x.x, 172.16-31.x.x, 192.168.x.x, 127.x.x.x, 169.254.x.x,
+        # IPv6 loopback (::1), IPv6 unique local (fc00::/7), IPv6 link-local (fe80::/10)
+        if is_private_ip(hostname_lower):
             raise ValueError(
-                f'{field_name} cannot contain URLs targeting localhost (127.x.x.x): "{url[:50]}..."'
+                f'{field_name} cannot contain URLs targeting private or internal IP addresses: "{url[:50]}..."'
             )
 
         validated.append(url)
