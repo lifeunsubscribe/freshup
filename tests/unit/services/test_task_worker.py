@@ -1164,7 +1164,13 @@ async def test_process_receipt_task_case_insensitive_store_lookup(
     mock_store,
     sample_receipt_result
 ):
-    """Test that store lookup is case-insensitive."""
+    """
+    Test that store lookup is case-insensitive.
+
+    This tests the fix for issue #477 - store lookup should work efficiently
+    using the indexed name_lower column instead of func.lower() which prevents
+    index usage.
+    """
     from sqlalchemy.sql import func
 
     # Create task with lowercase store name

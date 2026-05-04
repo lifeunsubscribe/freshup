@@ -37,8 +37,9 @@ def get_make_now_recipes(user_id: UUID, db: Session, limit: int = 10) -> list[Re
 
     Note:
         - Only checks required ingredients (is_optional=False)
-        - Uses case-insensitive ingredient name matching
+        - Uses case-insensitive ingredient name matching via indexed normalized columns
         - Freshness priority based on earliest expiration_date in recipe's ingredients
+        - Performance: Uses name_lower and ingredient_name_lower indexes (issue #477)
         - TODO: Add fuzzy matching for ingredient names
         - TODO: Add unit conversion between recipe and inventory units
     """
@@ -54,7 +55,8 @@ def get_make_now_recipes(user_id: UUID, db: Session, limit: int = 10) -> list[Re
     )
 
     # Subquery: For each recipe, count matched ingredients in user's inventory
-    # Match by case-insensitive ingredient name
+    # Match by case-insensitive ingredient name using normalized columns (issue #477)
+    # Uses indexed name_lower and ingredient_name_lower for efficient matching
     matched_ingredients_subq = (
         db.query(
             RecipeIngredient.recipe_id,
@@ -62,7 +64,7 @@ def get_make_now_recipes(user_id: UUID, db: Session, limit: int = 10) -> list[Re
         )
         .join(
             InventoryItem,
-            func.lower(RecipeIngredient.ingredient_name) == func.lower(InventoryItem.name)
+            RecipeIngredient.ingredient_name_lower == InventoryItem.name_lower
         )
         .filter(RecipeIngredient.is_optional == False)  # noqa: E712
         .filter(InventoryItem.added_by == user_id)
@@ -73,6 +75,7 @@ def get_make_now_recipes(user_id: UUID, db: Session, limit: int = 10) -> list[Re
 
     # Subquery: For each recipe, get earliest expiration date of its ingredients
     # This drives freshness priority sorting
+    # Uses indexed name_lower and ingredient_name_lower for efficient matching (issue #477)
     freshness_subq = (
         db.query(
             RecipeIngredient.recipe_id,
@@ -80,7 +83,7 @@ def get_make_now_recipes(user_id: UUID, db: Session, limit: int = 10) -> list[Re
         )
         .join(
             InventoryItem,
-            func.lower(RecipeIngredient.ingredient_name) == func.lower(InventoryItem.name)
+            RecipeIngredient.ingredient_name_lower == InventoryItem.name_lower
         )
         .filter(InventoryItem.added_by == user_id)
         .filter(InventoryItem.expiration_date.isnot(None))

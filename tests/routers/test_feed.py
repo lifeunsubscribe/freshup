@@ -483,3 +483,75 @@ class TestHomeFeed:
 
         # On Repeat should be empty (no ratings yet)
         assert len(data["on_repeat"]["recipes"]) == 0
+
+    def test_make_now_case_insensitive_ingredient_matching(self, client, auth_headers, test_user, db_session):
+        """
+        Test Make This Right Now matches ingredients case-insensitively.
+
+        This tests the fix for issue #477 - case-insensitive matching should work
+        efficiently using normalized lowercase columns (name_lower, ingredient_name_lower)
+        instead of func.lower() which prevents index usage.
+        """
+        # Create a persisted recipe with mixed-case ingredient names
+        recipe = Recipe(
+            id=uuid4(),
+            name="Case Insensitive Test Recipe",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=1,
+            created_by=test_user.id
+        )
+        db_session.add(recipe)
+        db_session.commit()
+
+        # Add ingredients with specific casing
+        ingredient1 = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=recipe.id,
+            ingredient_name="UPPERCASE INGREDIENT",  # All caps
+            quantity=100,
+            unit="g",
+            is_optional=False
+        )
+        ingredient2 = RecipeIngredient(
+            id=uuid4(),
+            recipe_id=recipe.id,
+            ingredient_name="MixedCase Ingredient",  # Mixed case
+            quantity=50,
+            unit="g",
+            is_optional=False
+        )
+        db_session.add_all([ingredient1, ingredient2])
+        db_session.commit()
+
+        # Add inventory with different casing but same logical name
+        inventory1 = InventoryItem(
+            id=uuid4(),
+            name="uppercase ingredient",  # All lowercase
+            quantity=200,
+            unit="g",
+            category="pantry_staple",
+            storage_location="pantry",
+            added_by=test_user.id
+        )
+        inventory2 = InventoryItem(
+            id=uuid4(),
+            name="MIXEDCASE INGREDIENT",  # All caps, different from recipe
+            quantity=100,
+            unit="g",
+            category="pantry_staple",
+            storage_location="pantry",
+            added_by=test_user.id
+        )
+        db_session.add_all([inventory1, inventory2])
+        db_session.commit()
+
+        # Call endpoint
+        response = client.get("/feed/home", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Recipe SHOULD appear despite case mismatch (case-insensitive matching)
+        assert len(data["make_now"]["recipes"]) == 1
+        assert data["make_now"]["recipes"][0]["name"] == "Case Insensitive Test Recipe"

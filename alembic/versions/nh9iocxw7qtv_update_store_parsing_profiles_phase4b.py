@@ -83,13 +83,14 @@ def upgrade() -> None:
         op.execute(
             sa.text(
                 """
-                INSERT INTO stores (id, name, has_digital_receipts, parsing_profile)
-                VALUES (:id, :name, :has_digital_receipts, :parsing_profile)
+                INSERT INTO stores (id, name, name_lower, has_digital_receipts, parsing_profile)
+                VALUES (:id, :name, :name_lower, :has_digital_receipts, :parsing_profile)
                 ON CONFLICT (id) DO NOTHING
                 """
             ).bindparams(
                 id=GENERIC_STORE_ID,
                 name="Generic",
+                name_lower="generic",
                 has_digital_receipts=False,
                 parsing_profile=json.dumps(generic_profile)
             )
@@ -99,12 +100,13 @@ def upgrade() -> None:
         op.execute(
             sa.text(
                 """
-                INSERT OR IGNORE INTO stores (id, name, has_digital_receipts, parsing_profile)
-                VALUES (:id, :name, :has_digital_receipts, :parsing_profile)
+                INSERT OR IGNORE INTO stores (id, name, name_lower, has_digital_receipts, parsing_profile)
+                VALUES (:id, :name, :name_lower, :has_digital_receipts, :parsing_profile)
                 """
             ).bindparams(
                 id=GENERIC_STORE_ID,
                 name="Generic",
+                name_lower="generic",
                 has_digital_receipts=False,
                 parsing_profile=json.dumps(generic_profile)
             )

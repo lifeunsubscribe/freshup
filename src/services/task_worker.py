@@ -120,7 +120,8 @@ async def process_receipt_task(
     store_hints = None
     if store_name:
         # Query Store table for matching store (case-insensitive)
-        stmt = select(Store).where(func.lower(Store.name) == func.lower(store_name))
+        # Uses indexed name_lower column for efficient lookup (issue #477)
+        stmt = select(Store).where(Store.name_lower == store_name.lower())
         result = session.execute(stmt)
         store = result.scalar_one_or_none()
 

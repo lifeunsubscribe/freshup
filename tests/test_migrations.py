@@ -73,6 +73,7 @@ def _run_seed_insert(conn):
                 stores_table.insert().values(
                     id=COSTCO_STORE_ID,
                     name="Costco",
+                    name_lower="costco",
                     has_digital_receipts=False,
                     parsing_profile=costco_profile,
                 )

@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Float, Boolean, Integer, ForeignKey, DateTime, func
+from sqlalchemy import String, Float, Boolean, Integer, ForeignKey, DateTime, func, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -16,6 +16,9 @@ class RecipeIngredient(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     recipe_id: Mapped[UUID] = mapped_column(ForeignKey("recipes.id"))
     ingredient_name: Mapped[str] = mapped_column(String(255))
+    # Normalized lowercase column for efficient case-insensitive matching (issue #477)
+    # Automatically maintained via SQLAlchemy event listeners below
+    ingredient_name_lower: Mapped[str] = mapped_column(String(255), index=True)
     quantity: Mapped[float] = mapped_column(Float)
     unit: Mapped[str] = mapped_column(String(50))
     variation_group: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -26,3 +29,13 @@ class RecipeIngredient(Base):
 
     # Relationships
     recipe_rel: Mapped["Recipe"] = relationship(back_populates="ingredients")
+
+
+# SQLAlchemy event listeners to automatically maintain ingredient_name_lower
+# This ensures the normalized column stays in sync with ingredient_name changes
+@event.listens_for(RecipeIngredient, 'before_insert')
+@event.listens_for(RecipeIngredient, 'before_update')
+def normalize_ingredient_name(mapper, connection, target):
+    """Automatically set ingredient_name_lower from ingredient_name before insert/update."""
+    if target.ingredient_name is not None:
+        target.ingredient_name_lower = target.ingredient_name.lower()

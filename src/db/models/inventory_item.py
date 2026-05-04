@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Float, Boolean, DateTime, ForeignKey, Table, Column, func
+from sqlalchemy import String, Float, Boolean, DateTime, ForeignKey, Table, Column, func, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -77,6 +77,9 @@ class InventoryItem(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(255))
+    # Normalized lowercase column for efficient case-insensitive matching (issue #477)
+    # Automatically maintained via SQLAlchemy event listeners below
+    name_lower: Mapped[str] = mapped_column(String(255), index=True)
     quantity: Mapped[float] = mapped_column(Float, default=0.0)
     unit: Mapped[str] = mapped_column(String(50))
     category: Mapped[str] = mapped_column(String(50))
@@ -104,3 +107,13 @@ class InventoryItem(Base):
     available_at_stores: Mapped[list["Store"]] = relationship(
         secondary=inventory_store_association
     )
+
+
+# SQLAlchemy event listeners to automatically maintain name_lower
+# This ensures the normalized column stays in sync with name changes
+@event.listens_for(InventoryItem, 'before_insert')
+@event.listens_for(InventoryItem, 'before_update')
+def normalize_inventory_name(mapper, connection, target):
+    """Automatically set name_lower from name before insert/update."""
+    if target.name is not None:
+        target.name_lower = target.name.lower()
