@@ -327,20 +327,15 @@ def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) ->
     # Early termination: stop when we have enough in each bucket
     saved_matches = []
     non_saved_matches = []
-    needed_saved = limit  # Want up to `limit` saved
-    needed_non_saved = limit  # Want up to `limit` non-saved as backup
 
     for recipe in all_recipes:
         if tag in recipe.tags:
             if recipe.id in saved_recipe_ids:
-                saved_matches.append(recipe)
-                if len(saved_matches) >= needed_saved:
-                    # Have enough saved, only need non-saved now
-                    needed_saved = float('inf')  # No more saved needed
+                if len(saved_matches) < limit:
+                    saved_matches.append(recipe)
             else:
-                non_saved_matches.append(recipe)
-                if len(non_saved_matches) >= needed_non_saved:
-                    needed_non_saved = float('inf')
+                if len(non_saved_matches) < limit:
+                    non_saved_matches.append(recipe)
 
             # Early exit: if we have enough in both buckets, stop scanning
             if len(saved_matches) >= limit and len(non_saved_matches) >= limit:
