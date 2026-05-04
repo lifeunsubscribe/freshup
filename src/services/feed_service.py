@@ -324,7 +324,7 @@ def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) ->
     saved_recipe_ids = _get_saved_recipe_ids(user_id, db)
 
     # Separate matching recipes into saved and non-saved buckets
-    # Early termination: stop when we have enough in each bucket
+    # Early termination: stop when we have enough total recipes to satisfy the limit
     saved_matches = []
     non_saved_matches = []
 
@@ -337,8 +337,9 @@ def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) ->
                 if len(non_saved_matches) < limit:
                     non_saved_matches.append(recipe)
 
-            # Early exit: if we have enough in both buckets, stop scanning
-            if len(saved_matches) >= limit and len(non_saved_matches) >= limit:
+            # Early exit: stop when we have enough recipes to fill the final result
+            # Since we return (saved + non_saved)[:limit], we can stop when total >= limit
+            if len(saved_matches) + len(non_saved_matches) >= limit:
                 break
 
     # Combine: saved first, then non-saved, up to limit
