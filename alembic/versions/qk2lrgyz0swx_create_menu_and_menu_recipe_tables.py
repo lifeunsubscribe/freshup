@@ -55,6 +55,10 @@ def upgrade() -> None:
         sa.UniqueConstraint('menu_id', 'recipe_id', name='uq_menu_recipe'),
     )
 
+    # The composite PK indexes (menu_id, recipe_id) — leftmost-prefix only —
+    # so recipe_id-only lookups would full-scan without this.
+    op.create_index('ix_menu_recipes_recipe_id', 'menu_recipes', ['recipe_id'])
+
     # Add menu_id column to user_recipe_relations table (now that menus table exists)
     with op.batch_alter_table('user_recipe_relations', schema=None) as batch_op:
         batch_op.add_column(sa.Column('menu_id', sa.UUID(), nullable=True))
@@ -84,6 +88,7 @@ def downgrade() -> None:
         batch_op.drop_column('menu_id')
 
     # Drop tables
+    op.drop_index('ix_menu_recipes_recipe_id', table_name='menu_recipes')
     op.drop_table('menu_recipes')
     op.drop_index('ix_menus_user_id', table_name='menus')
     op.drop_table('menus')

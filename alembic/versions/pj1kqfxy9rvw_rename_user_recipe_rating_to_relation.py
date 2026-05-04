@@ -70,6 +70,10 @@ def downgrade() -> None:
     op.execute(
         'UPDATE user_recipe_relations SET is_favorite = is_bookmarked WHERE is_bookmarked = 1'
     )
+    # WARNING: notes is varchar(1000) but rating_comment is varchar(2000).
+    # SUBSTR silently truncates anything over 1000 chars on downgrade.
+    # Acceptable because downgrades are rare and only run intentionally,
+    # but be aware data loss is possible if users wrote long comments.
     op.execute(
         'UPDATE user_recipe_relations SET notes = SUBSTR(rating_comment, 1, 1000) WHERE rating_comment IS NOT NULL'
     )
