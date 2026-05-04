@@ -163,10 +163,8 @@ def recipes_pool(db_session, test_user):
 
 def test_generate_draft_creates_seven_entries(client, db_session, auth_headers, recipes_pool):
     """Test that draft generation creates 7 dinner entries."""
-    week_start = date.today()
-    # Adjust to next Monday if not already Monday
-    while week_start.weekday() != 0:
-        week_start += timedelta(days=1)
+    # Use fixed Monday date to avoid flakiness around week boundaries
+    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
 
     response = client.post(
         "/plan/draft/generate",
@@ -189,10 +187,8 @@ def test_generate_draft_creates_seven_entries(client, db_session, auth_headers, 
 
 def test_generate_draft_requires_monday(client, auth_headers, recipes_pool):
     """Test that draft generation requires week_start to be a Monday."""
-    # Use a Tuesday
-    week_start = date.today()
-    while week_start.weekday() != 1:  # Tuesday
-        week_start += timedelta(days=1)
+    # Use fixed Tuesday date to avoid flakiness
+    week_start = date(2025, 6, 3)  # Tuesday, June 3, 2025
 
     response = client.post(
         "/plan/draft/generate",
@@ -218,9 +214,8 @@ def test_generate_draft_fails_without_enough_recipes(client, db_session, auth_he
         db_session.add(recipe)
     db_session.commit()
 
-    week_start = date.today()
-    while week_start.weekday() != 0:
-        week_start += timedelta(days=1)
+    # Use fixed Monday date to avoid flakiness
+    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
 
     response = client.post(
         "/plan/draft/generate",
@@ -234,9 +229,8 @@ def test_generate_draft_fails_without_enough_recipes(client, db_session, auth_he
 
 def test_get_week_returns_empty_for_new_week(client, auth_headers):
     """Test that getting a week with no entries returns empty lists."""
-    week_start = date.today()
-    while week_start.weekday() != 0:
-        week_start += timedelta(days=1)
+    # Use fixed Monday date to avoid flakiness
+    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
 
     response = client.get(
         f"/plan/week?week_start={week_start.isoformat()}",
@@ -253,9 +247,8 @@ def test_get_week_returns_empty_for_new_week(client, auth_headers):
 
 def test_get_week_separates_by_status(client, db_session, auth_headers, recipes_pool):
     """Test that week view separates entries by status."""
-    week_start = date.today()
-    while week_start.weekday() != 0:
-        week_start += timedelta(days=1)
+    # Use fixed Monday date to avoid flakiness
+    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
 
     # Create draft entry
     draft_entry = MealPlanEntry(
@@ -299,7 +292,7 @@ def test_confirm_entry_transitions_to_approved(client, db_session, auth_headers,
     # Create a draft entry with a recipe that has ingredients
     entry = MealPlanEntry(
         id=uuid4(),
-        date=date.today(),
+        date=date(2025, 6, 2),  # Fixed date to avoid flakiness
         meal_type=MealType.dinner.value,
         recipe_id=recipes_pool[0].id,  # Has ingredient from fixture
         planned_servings=4,
@@ -325,7 +318,7 @@ def test_confirm_entry_adds_ingredients_to_grocery_list(client, db_session, auth
     # Create a draft entry
     entry = MealPlanEntry(
         id=uuid4(),
-        date=date.today(),
+        date=date(2025, 6, 2),  # Fixed date to avoid flakiness
         meal_type=MealType.dinner.value,
         recipe_id=recipes_pool[0].id,
         planned_servings=4,
@@ -367,7 +360,7 @@ def test_confirm_entry_fails_for_already_confirmed(client, db_session, auth_head
     # Create an already-confirmed entry
     entry = MealPlanEntry(
         id=uuid4(),
-        date=date.today(),
+        date=date(2025, 6, 2),  # Fixed date to avoid flakiness
         meal_type=MealType.dinner.value,
         recipe_id=recipes_pool[0].id,
         planned_servings=4,
@@ -387,9 +380,8 @@ def test_confirm_entry_fails_for_already_confirmed(client, db_session, auth_head
 
 def test_endpoints_require_authentication(client):
     """Test that all endpoints require authentication."""
-    week_start = date.today()
-    while week_start.weekday() != 0:
-        week_start += timedelta(days=1)
+    # Use fixed Monday date to avoid flakiness
+    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
 
     # Test draft generation
     response = client.post(

@@ -57,6 +57,22 @@ def generate_draft_meal_plan(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise ValidationError(f"User {user_id} not found")
+
+    # Check for existing draft entries in this week to prevent duplicates
+    week_end = week_start + timedelta(days=6)
+    existing_drafts = (
+        db.query(MealPlanEntry)
+        .filter(MealPlanEntry.date >= week_start)
+        .filter(MealPlanEntry.date <= week_end)
+        .filter(MealPlanEntry.status == MealPlanStatus.draft.value)
+        .count()
+    )
+    if existing_drafts > 0:
+        raise ValidationError(
+            f"Draft entries already exist for week starting {week_start}. "
+            f"Delete or confirm existing drafts before generating new ones."
+        )
+
     # Get recipe recommendations using feed service patterns
     # Priority 1: Recipes user can make now (expiring inventory)
     make_now_recipes = feed_service.get_make_now_recipes(user_id, db, limit=3)
@@ -215,6 +231,13 @@ def confirm_entry(
     # Verify current_user is valid (basic validation)
     if not current_user or not current_user.id:
         raise ValidationError("Invalid user session")
+
+    # TODO(multi-household): Add household authorization check here
+    # When household_id is added to User and MealPlanEntry models, verify that:
+    # 1. entry.household_id == current_user.household_id
+    # 2. Raise NotFoundError (not 403) if household mismatch to prevent info leakage
+    # This prevents users from confirming meal plan entries belonging to other households.
+
     # Load entry with recipe and ingredients
     entry = (
         db.query(MealPlanEntry)
