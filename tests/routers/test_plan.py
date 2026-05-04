@@ -227,6 +227,33 @@ def test_generate_draft_fails_without_enough_recipes(client, db_session, auth_he
     assert "Insufficient recipes" in response.json()["detail"]
 
 
+def test_generate_draft_prevents_duplicates(client, db_session, auth_headers, recipes_pool):
+    """Test that draft generation fails if draft entries already exist for the week."""
+    # Use fixed Monday date to avoid flakiness
+    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
+
+    # Generate initial draft plan
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": week_start.isoformat()},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["entries_created"] == 7
+
+    # Attempt to generate draft plan again for the same week
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": week_start.isoformat()},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "Draft entries already exist" in detail
+    assert "Delete or confirm existing drafts" in detail
+
+
 def test_get_week_returns_empty_for_new_week(client, auth_headers):
     """Test that getting a week with no entries returns empty lists."""
     # Use fixed Monday date to avoid flakiness
