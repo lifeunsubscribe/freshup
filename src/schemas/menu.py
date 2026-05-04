@@ -4,21 +4,21 @@ Pydantic schemas for Menu and MenuRecipe API requests/responses.
 
 from uuid import UUID
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 
 # Filter rule schemas
 class FilterRule(BaseModel):
     """Individual filter rule for recipe matching."""
-    field: str = Field(..., description="Field to filter on: tags, source_type, cook_time_minutes")
-    operator: str = Field(..., description="Operator: contains, not_contains, eq, in, <=, >=")
+    field: Literal["tags", "source_type", "cook_time_minutes"] = Field(..., description="Field to filter on: tags, source_type, cook_time_minutes")
+    operator: Literal["contains", "not_contains", "eq", "in", "<=", ">="] = Field(..., description="Operator: contains, not_contains, eq, in, <=, >=")
     value: str | int | list[str] = Field(..., description="Value to match against")
 
 
 class FilterRules(BaseModel):
     """Collection of filter rules with match logic."""
-    match_logic: str = Field("all", description="Match logic: 'all' (AND) or 'any' (OR)")
+    match_logic: Literal["all", "any"] = Field("all", description="Match logic: 'all' (AND) or 'any' (OR)")
     rules: list[FilterRule] = Field(default_factory=list)
 
 

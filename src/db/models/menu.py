@@ -50,7 +50,7 @@ class MenuRecipe(Base):
     )
 
     menu_id: Mapped[UUID] = mapped_column(ForeignKey("menus.id"), primary_key=True)
-    recipe_id: Mapped[UUID] = mapped_column(ForeignKey("recipes.id"), primary_key=True)
+    recipe_id: Mapped[UUID] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), primary_key=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     manually_added: Mapped[bool] = mapped_column(Boolean, default=False)
     manually_removed: Mapped[bool] = mapped_column(Boolean, default=False)

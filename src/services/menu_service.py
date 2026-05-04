@@ -445,6 +445,11 @@ def generate_menus_from_patterns(
     generated_menus = []
 
     for tag, count in tag_patterns[:max_menus]:
+        # Skip empty tags to prevent creating menus named "."
+        if not tag or not tag.strip():
+            logger.warning(f"Skipping empty tag pattern for user {user_id}")
+            continue
+
         # Create filter rules for this tag
         filter_rules = {
             "match_logic": "all",
