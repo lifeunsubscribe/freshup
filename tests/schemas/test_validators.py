@@ -17,6 +17,7 @@ from src.schemas.validators import (
     validate_non_negative,
     normalize_email,
     validate_dietary_profile,
+    validate_url_list,
 )
 
 
@@ -278,6 +279,202 @@ class TestValidateDietaryProfile:
         assert "vegan" in str(exc_info.value)
         assert "gluten-free" in str(exc_info.value)
         assert "dairy-free" in str(exc_info.value)
+
+
+class TestValidateUrlList:
+    """Tests for validate_url_list function."""
+
+    def test_valid_single_url_https(self):
+        """Test that a single valid HTTPS URL is accepted."""
+        result = validate_url_list("Field", ["https://example.com/image.jpg"])
+        assert result == ["https://example.com/image.jpg"]
+
+    def test_valid_single_url_http(self):
+        """Test that HTTP URLs are accepted (may redirect to HTTPS)."""
+        result = validate_url_list("Field", ["http://example.com/image.jpg"])
+        assert result == ["http://example.com/image.jpg"]
+
+    def test_valid_multiple_urls(self):
+        """Test that multiple valid URLs are accepted."""
+        urls = [
+            "https://example.com/photo1.jpg",
+            "https://example.com/photo2.png",
+            "http://test.com/photo3.jpg"
+        ]
+        result = validate_url_list("Field", urls)
+        assert result == urls
+
+    def test_none_value_returns_none(self):
+        """Test that None input returns None."""
+        result = validate_url_list("Field", None)
+        assert result is None
+
+    def test_empty_list_returns_empty_list(self):
+        """Test that empty list returns empty list."""
+        result = validate_url_list("Field", [])
+        assert result == []
+
+    def test_whitespace_stripping(self):
+        """Test that whitespace is stripped from URLs."""
+        result = validate_url_list("Field", ["  https://example.com/image.jpg  "])
+        assert result == ["https://example.com/image.jpg"]
+
+    def test_empty_strings_filtered_out(self):
+        """Test that empty strings are filtered out."""
+        result = validate_url_list("Field", ["https://example.com/1.jpg", "", "  ", "https://example.com/2.jpg"])
+        assert result == ["https://example.com/1.jpg", "https://example.com/2.jpg"]
+
+    def test_url_with_path_and_query(self):
+        """Test that URLs with paths and query parameters are accepted."""
+        url = "https://example.com/path/to/image.jpg?size=large&format=png"
+        result = validate_url_list("Field", [url])
+        assert result == [url]
+
+    def test_url_with_port(self):
+        """Test that URLs with port numbers are accepted."""
+        url = "https://example.com:8080/image.jpg"
+        result = validate_url_list("Field", [url])
+        assert result == [url]
+
+    def test_url_with_fragment(self):
+        """Test that URLs with fragments are accepted."""
+        url = "https://example.com/image.jpg#section"
+        result = validate_url_list("Field", [url])
+        assert result == [url]
+
+    # Security tests - Invalid protocols
+
+    def test_javascript_protocol_rejected(self):
+        """Test that javascript: protocol is rejected."""
+        with pytest.raises(ValueError, match="must use http:// or https:// protocol"):
+            validate_url_list("Field", ["javascript:alert('xss')"])
+
+    def test_file_protocol_rejected(self):
+        """Test that file: protocol is rejected."""
+        with pytest.raises(ValueError, match="must use http:// or https:// protocol"):
+            validate_url_list("Field", ["file:///etc/passwd"])
+
+    def test_data_protocol_rejected(self):
+        """Test that data: protocol is rejected."""
+        with pytest.raises(ValueError, match="must use http:// or https:// protocol"):
+            validate_url_list("Field", ["data:text/html,<script>alert('xss')</script>"])
+
+    def test_ftp_protocol_rejected(self):
+        """Test that ftp: protocol is rejected."""
+        with pytest.raises(ValueError, match="must use http:// or https:// protocol"):
+            validate_url_list("Field", ["ftp://example.com/file.jpg"])
+
+    def test_missing_protocol_rejected(self):
+        """Test that URLs without protocol are rejected."""
+        with pytest.raises(ValueError, match="must include protocol"):
+            validate_url_list("Field", ["example.com/image.jpg"])
+
+    # Security tests - SSRF protection
+
+    def test_localhost_hostname_rejected(self):
+        """Test that localhost is rejected (SSRF protection)."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting localhost"):
+            validate_url_list("Field", ["http://localhost/image.jpg"])
+
+    def test_localhost_uppercase_rejected(self):
+        """Test that LOCALHOST (uppercase) is rejected."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting localhost"):
+            validate_url_list("Field", ["http://LOCALHOST/image.jpg"])
+
+    def test_127_0_0_1_rejected(self):
+        """Test that 127.0.0.1 is rejected (SSRF protection)."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting localhost"):
+            validate_url_list("Field", ["http://127.0.0.1/image.jpg"])
+
+    def test_127_x_x_x_rejected(self):
+        """Test that 127.x.x.x addresses are rejected."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting localhost \\(127\\.x\\.x\\.x\\)"):
+            validate_url_list("Field", ["http://127.1.2.3/image.jpg"])
+
+    def test_0_0_0_0_rejected(self):
+        """Test that 0.0.0.0 is rejected."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting localhost"):
+            validate_url_list("Field", ["http://0.0.0.0/image.jpg"])
+
+    def test_ipv6_loopback_rejected(self):
+        """Test that IPv6 loopback (::1) is rejected."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting localhost"):
+            validate_url_list("Field", ["http://[::1]/image.jpg"])
+
+    def test_localhost_with_port_rejected(self):
+        """Test that localhost with port is rejected."""
+        with pytest.raises(ValueError, match="cannot contain URLs targeting localhost"):
+            validate_url_list("Field", ["http://localhost:8080/image.jpg"])
+
+    # Length validation tests
+
+    def test_url_exceeds_max_length(self):
+        """Test that URLs exceeding max length are rejected."""
+        long_url = "https://example.com/" + "a" * 2100  # Exceeds 2048
+        with pytest.raises(ValueError, match="cannot exceed 2048 characters"):
+            validate_url_list("Field", [long_url])
+
+    def test_url_at_max_length_accepted(self):
+        """Test that URLs at exactly max length are accepted."""
+        # Create URL exactly at 2048 chars
+        base = "https://example.com/"
+        path = "a" * (2048 - len(base))
+        url = base + path
+        result = validate_url_list("Field", [url])
+        assert result == [url]
+
+    def test_list_exceeds_max_size(self):
+        """Test that URL lists exceeding max size are rejected."""
+        urls = [f"https://example.com/photo{i}.jpg" for i in range(15)]  # Exceeds 10
+        with pytest.raises(ValueError, match="cannot contain more than 10 URLs"):
+            validate_url_list("Field", urls)
+
+    def test_list_at_max_size_accepted(self):
+        """Test that URL lists at exactly max size are accepted."""
+        urls = [f"https://example.com/photo{i}.jpg" for i in range(10)]  # Exactly 10
+        result = validate_url_list("Field", urls)
+        assert result == urls
+
+    # Format validation tests
+
+    def test_missing_hostname_rejected(self):
+        """Test that URLs without hostname are rejected."""
+        with pytest.raises(ValueError, match="must include a hostname"):
+            validate_url_list("Field", ["https:///path/to/file.jpg"])
+
+    def test_malformed_url_rejected(self):
+        """Test that malformed URLs are handled gracefully."""
+        # Most malformed URLs will be caught by missing protocol or hostname checks
+        with pytest.raises(ValueError, match="must include protocol"):
+            validate_url_list("Field", ["not a url at all"])
+
+    # Edge cases
+
+    def test_url_with_username_password(self):
+        """Test that URLs with credentials are accepted (though not recommended)."""
+        url = "https://user:pass@example.com/image.jpg"
+        result = validate_url_list("Field", [url])
+        assert result == [url]
+
+    def test_url_with_international_domain(self):
+        """Test that international domain names work."""
+        # Using punycode representation
+        url = "https://xn--e1afmkfd.xn--p1ai/image.jpg"
+        result = validate_url_list("Field", [url])
+        assert result == [url]
+
+    def test_error_message_includes_field_name(self):
+        """Test that error messages include the field name."""
+        with pytest.raises(ValueError, match="rating_photos"):
+            validate_url_list("rating_photos", ["javascript:alert()"])
+
+    def test_error_message_truncates_long_urls(self):
+        """Test that error messages truncate long URLs for readability."""
+        long_url = "https://example.com/" + "a" * 2100
+        with pytest.raises(ValueError) as exc_info:
+            validate_url_list("Field", [long_url])
+        # Should show truncated URL (first 50 chars + ...)
+        assert "..." in str(exc_info.value)
 
 
 # Integration tests for auth schemas using consolidated validators

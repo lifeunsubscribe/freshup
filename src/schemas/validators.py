@@ -9,6 +9,7 @@ validation logic diverging over time.
 from typing import Optional
 from enum import Enum
 import unicodedata
+from urllib.parse import urlparse
 
 
 
@@ -24,6 +25,21 @@ BLOCKED_UNICODE_CATEGORIES = {'Cc', 'Cf', 'Co', 'Cn', 'Cs'}
 # Common punctuation and symbols used in food names
 ALLOWED_PUNCTUATION = set(" -'(),./")
 
+# Validation constants for URL lists
+MAX_URL_LENGTH = 2048  # Match other URL fields in schemas
+MAX_URL_LIST_SIZE = 10  # Reasonable limit for photo uploads
+
+# Allowed URL schemes for user-submitted content
+ALLOWED_URL_SCHEMES = {'http', 'https'}
+
+# Blocked hostnames for SSRF protection
+BLOCKED_HOSTNAMES = {
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    '::1',
+    '[::1]',
+}
 
 
 def contains_blocked_characters(text: str) -> bool:
@@ -310,3 +326,94 @@ def validate_dietary_profile(values: Optional[list[str]], valid_profiles: list[s
             raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
 
     return cleaned
+
+
+def validate_url_list(
+    field_name: str,
+    values: Optional[list[str]],
+    max_url_length: int = MAX_URL_LENGTH,
+    max_list_size: int = MAX_URL_LIST_SIZE,
+) -> Optional[list[str]]:
+    """
+    Validate a list of URLs with security checks.
+
+    Ensures URLs are properly formatted, use allowed protocols, don't exceed
+    length limits, and aren't targeting internal/localhost addresses (SSRF protection).
+
+    Security checks:
+    - Protocol whitelist: only http/https allowed
+    - Length limits: per-URL and total array size
+    - SSRF protection: blocks localhost, 127.0.0.1, ::1, etc.
+    - Blocks dangerous protocols: javascript:, file:, data:, etc.
+
+    Args:
+        field_name: Name of the field being validated (for error messages)
+        values: List of URL strings to validate
+        max_url_length: Maximum allowed length per URL (default: 2048)
+        max_list_size: Maximum number of URLs in the list (default: 10)
+
+    Returns:
+        Validated and stripped list of URLs, or None if input was None
+
+    Raises:
+        ValueError: If validation fails (invalid URL, blocked protocol, SSRF attempt, etc.)
+    """
+    if values is None:
+        return None
+
+    # Strip whitespace and filter empty strings
+    cleaned = [url.strip() for url in values if url and url.strip()]
+
+    # Check list size
+    if len(cleaned) > max_list_size:
+        raise ValueError(f'{field_name} cannot contain more than {max_list_size} URLs')
+
+    validated = []
+    for url in cleaned:
+        # Check URL length
+        if len(url) > max_url_length:
+            raise ValueError(
+                f'{field_name} URLs cannot exceed {max_url_length} characters. '
+                f'URL "{url[:50]}..." is {len(url)} characters long'
+            )
+
+        # Parse URL to validate format and extract components
+        try:
+            parsed = urlparse(url)
+        except Exception as e:
+            raise ValueError(f'{field_name} contains invalid URL "{url[:50]}...": {str(e)}')
+
+        # Validate scheme exists and is allowed
+        if not parsed.scheme:
+            raise ValueError(f'{field_name} URL must include protocol (http:// or https://): "{url[:50]}..."')
+
+        if parsed.scheme.lower() not in ALLOWED_URL_SCHEMES:
+            raise ValueError(
+                f'{field_name} URL must use http:// or https:// protocol. '
+                f'Got "{parsed.scheme}://" in "{url[:50]}..."'
+            )
+
+        # Validate hostname exists (SSRF protection - block missing/suspicious hosts)
+        if not parsed.netloc:
+            raise ValueError(f'{field_name} URL must include a hostname: "{url[:50]}..."')
+
+        # SSRF protection: block localhost and loopback addresses
+        # Extract hostname without port (handle both IPv4/hostname:port and [IPv6]:port)
+        hostname_lower = parsed.netloc.lower()
+        if ':' in hostname_lower and not hostname_lower.startswith('['):
+            hostname_lower = hostname_lower.split(':')[0]  # Remove port for IPv4/hostname
+        # For IPv6 like [::1]:port, netloc includes brackets, check with and without
+        if hostname_lower in BLOCKED_HOSTNAMES or hostname_lower.strip('[]') in {'::1'}:
+            raise ValueError(
+                f'{field_name} cannot contain URLs targeting localhost or internal addresses: "{url[:50]}..."'
+            )
+
+        # Additional SSRF check: block IP addresses starting with 127.
+        if hostname_lower.startswith('127.'):
+            raise ValueError(
+                f'{field_name} cannot contain URLs targeting localhost (127.x.x.x): "{url[:50]}..."'
+            )
+
+        validated.append(url)
+
+    return validated
