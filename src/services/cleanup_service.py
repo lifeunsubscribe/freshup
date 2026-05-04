@@ -2,13 +2,13 @@
 Browse cache cleanup service.
 
 Prunes non-persisted recipes older than the configured TTL and their
-associated UserRecipeRating records. This keeps the browse cache from
+associated UserRecipeRelation records. This keeps the browse cache from
 growing indefinitely while preserving user-persisted recipes.
 
 Per ADR Section 2.5B: Browse-Then-Persist Flow
 - Only non-persisted recipes are pruned (is_persisted=False)
 - TTL is configurable via BROWSE_CACHE_TTL_DAYS env var (default 7 days)
-- Orphaned UserRecipeRating records are cascade deleted
+- Orphaned UserRecipeRelation records are cascade deleted
 - Cleanup runs on application startup (MVP - no real-time scheduling)
 """
 
@@ -20,20 +20,20 @@ from sqlalchemy.orm import Session
 
 from src.config import get_settings
 from src.db.models.recipe import Recipe
-from src.db.models.user_recipe import UserRecipeRating
+from src.db.models.user_recipe import UserRecipeRelation
 
 logger = logging.getLogger(__name__)
 
 
 def prune_unpersisted_recipes(db: Session) -> int:
     """
-    Delete non-persisted recipes older than TTL and their orphaned UserRecipeRating records.
+    Delete non-persisted recipes older than TTL and their orphaned UserRecipeRelation records.
 
     Queries for recipes where:
     - is_persisted = False
     - created_at < now() - BROWSE_CACHE_TTL_DAYS
 
-    First deletes associated UserRecipeRating records to avoid FK constraint violations,
+    First deletes associated UserRecipeRelation records to avoid FK constraint violations,
     then deletes the recipes themselves. All operations are performed in a single
     transaction.
 
@@ -81,16 +81,16 @@ def prune_unpersisted_recipes(db: Session) -> int:
         }
     )
 
-    # Delete associated UserRecipeRating records first (avoid FK constraint violations)
+    # Delete associated UserRecipeRelation records first (avoid FK constraint violations)
     rating_delete_stmt = (
-        delete(UserRecipeRating)
-        .where(UserRecipeRating.recipe_id.in_(recipe_ids_to_prune))
+        delete(UserRecipeRelation)
+        .where(UserRecipeRelation.recipe_id.in_(recipe_ids_to_prune))
     )
     rating_result = db.execute(rating_delete_stmt)
     deleted_ratings = rating_result.rowcount
 
     logger.debug(
-        f"Deleted {deleted_ratings} orphaned UserRecipeRating record(s)",
+        f"Deleted {deleted_ratings} orphaned UserRecipeRelation record(s)",
         extra={"deleted_count": deleted_ratings}
     )
 

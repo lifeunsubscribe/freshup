@@ -167,6 +167,7 @@ class RecipeResponse(BaseModel):
     times_cooked: int
     created_by: Optional[UUID]
     notes: Optional[str]
+    is_persisted: bool
 
 
 class RecipeListResponse(BaseModel):
@@ -264,12 +265,15 @@ class RecipeIngredientResponse(BaseModel):
     step_index: Optional[int]
 
 
-class UserRecipeRatingCreate(BaseModel):
-    """Request schema for creating or updating a recipe rating."""
+class UserRecipeRelationCreate(BaseModel):
+    """Request schema for creating or updating a recipe relation."""
 
     rating: Optional[float] = Field(default=None, description="Rating value (0.0-5.0)")
-    is_favorite: bool = Field(default=False, description="Whether recipe is favorited")
-    notes: Optional[str] = Field(default=None, max_length=1000, description="Personal notes about the recipe")
+    is_bookmarked: bool = Field(default=False, description="Whether recipe is bookmarked")
+    is_liked: bool = Field(default=False, description="Whether recipe is liked")
+    rating_photos: Optional[list[str]] = Field(default=None, description="URLs of rating photos")
+    rating_comment: Optional[str] = Field(default=None, max_length=2000, description="Personal comment about the recipe")
+    menu_id: Optional[UUID] = Field(default=None, description="Associated menu ID")
 
     @field_validator('rating')
     @classmethod
@@ -281,8 +285,8 @@ class UserRecipeRatingCreate(BaseModel):
         return v
 
 
-class UserRecipeRatingResponse(BaseModel):
-    """Response schema for user recipe rating data."""
+class UserRecipeRelationResponse(BaseModel):
+    """Response schema for user recipe relation data."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -290,8 +294,11 @@ class UserRecipeRatingResponse(BaseModel):
     user_id: UUID
     recipe_id: UUID
     rating: Optional[float]
-    is_favorite: bool
-    notes: Optional[str]
+    is_bookmarked: bool
+    is_liked: bool
+    rating_photos: Optional[list]
+    rating_comment: Optional[str]
+    menu_id: Optional[UUID]
 
 
 class RecipeAggregateRatingsResponse(BaseModel):

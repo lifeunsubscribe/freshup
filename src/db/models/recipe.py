@@ -40,11 +40,13 @@ class Recipe(Base):
     is_persisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String(10000), nullable=True)
+    is_persisted: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
     created_by_user: Mapped[Optional["User"]] = relationship(back_populates="recipes_created")
     ingredients: Mapped[list["RecipeIngredient"]] = relationship(back_populates="recipe_rel")
-    user_ratings: Mapped[list["UserRecipeRating"]] = relationship(back_populates="recipe_rel")
+    user_relations: Mapped[list["UserRecipeRelation"]] = relationship(back_populates="recipe_rel")
+    menu_recipes: Mapped[list["MenuRecipe"]] = relationship(back_populates="recipe_rel")
     prepared_foods: Mapped[list["PreparedFood"]] = relationship(back_populates="source_recipe_rel")

@@ -57,5 +57,6 @@ class User(Base):
         back_populates="added_by_user", foreign_keys="GroceryListItem.added_by"
     )
     substitution_preferences: Mapped[list["SubstitutionPreference"]] = relationship(back_populates="user_rel")
-    recipe_ratings: Mapped[list["UserRecipeRating"]] = relationship(back_populates="user_rel")
+    recipe_relations: Mapped[list["UserRecipeRelation"]] = relationship(back_populates="user_rel")
+    menus: Mapped[list["Menu"]] = relationship(back_populates="user_rel")
     audit_logs: Mapped[list["AuthAuditLog"]] = relationship(back_populates="user")
