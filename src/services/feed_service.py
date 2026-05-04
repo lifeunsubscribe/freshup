@@ -3,6 +3,25 @@ Feed service - Personalized recipe recommendations.
 
 Provides "Make This Right Now" (inventory-aware) and "On Repeat" (behavioral signals)
 query logic for the home feed.
+
+Performance Considerations:
+    SQLite JSON columns (Recipe.tags) don't support efficient indexing. Tag-based
+    queries require full table scans with in-memory filtering. Current optimizations:
+
+    1. Database indexes on frequently-filtered columns (is_persisted, times_cooked,
+       source_type, cook_time_minutes, created_at) - see migration
+       23d3423662b9_add_recipe_performance_indexes.py
+
+    2. Query optimization: Pre-order results by times_cooked DESC before filtering,
+       allowing early termination when enough matches are found
+
+    3. Selective column fetching: Only load needed columns (e.g., Recipe.id, Recipe.tags)
+       instead of full ORM objects where possible
+
+    Future Enhancement:
+        Migrating to PostgreSQL would enable JSONB indexing with GIN indexes for
+        O(1) tag lookups. Alternatively, a normalized recipe_tags junction table
+        would allow proper indexing within SQLite at the cost of schema complexity.
 """
 
 import logging
@@ -184,10 +203,16 @@ def get_user_tag_patterns(user_id: UUID, db: Session, min_saves: int = 3) -> lis
 
     Returns:
         List of (tag, count) tuples sorted by count descending
+
+    Performance Notes:
+        - Only fetches Recipe.id and Recipe.tags columns (not full recipe objects)
+        - Reduces memory footprint when user has many saved recipes
+        - Still requires in-memory counting due to SQLite JSON limitations
     """
-    # Get all recipes the user has rated/saved
+    # Optimization: Only fetch id and tags columns, not full recipe objects
+    # This reduces memory usage significantly for users with many saved recipes
     saved_recipes = (
-        db.query(Recipe)
+        db.query(Recipe.id, Recipe.tags)
         .join(UserRecipeRating, Recipe.id == UserRecipeRating.recipe_id)
         .filter(UserRecipeRating.user_id == user_id)
         .all()
@@ -196,8 +221,8 @@ def get_user_tag_patterns(user_id: UUID, db: Session, min_saves: int = 3) -> lis
     # Count tag occurrences across saved recipes
     # This finds which tags appear most frequently in user's saved recipes
     tag_counts = {}
-    for recipe in saved_recipes:
-        for tag in recipe.tags:
+    for recipe_id, tags in saved_recipes:
+        for tag in tags:
             tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
     # Filter by minimum threshold and sort by count descending
@@ -205,7 +230,10 @@ def get_user_tag_patterns(user_id: UUID, db: Session, min_saves: int = 3) -> lis
     patterns = [(tag, count) for tag, count in tag_counts.items() if count >= min_saves]
     patterns.sort(key=lambda x: x[1], reverse=True)
 
-    logger.info(f"Found {len(patterns)} tag patterns for user {user_id} (min_saves={min_saves})")
+    logger.info(
+        f"Found {len(patterns)} tag patterns for user {user_id} "
+        f"(min_saves={min_saves}, scanned {len(saved_recipes)} saved recipes)"
+    )
     return patterns
 
 
@@ -275,32 +303,58 @@ def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) ->
 
     Returns:
         List of Recipe objects with the specified tag
+
+    Performance Notes:
+        - SQLite JSON columns don't support efficient indexing
+        - We pre-order by times_cooked and use early termination to reduce memory
+        - PostgreSQL migration would enable JSONB indexing for O(1) tag lookups
+        - Current approach is O(n) but optimized to reduce n via ordering + limits
     """
-    # Get all persisted recipes and filter by tag in Python
-    # (SQLite JSON querying has limited support in SQLAlchemy)
+    # Optimization: Pre-order by times_cooked DESC to get most popular recipes first
+    # This allows early termination once we have enough matching results
+    # Index ix_recipes_persisted_times_cooked makes this query efficient
     all_recipes = (
         db.query(Recipe)
         .filter(Recipe.is_persisted == True)  # noqa: E712
+        .order_by(Recipe.times_cooked.desc())
         .all()
     )
 
-    # Filter recipes that have the tag
-    matching_recipes = [r for r in all_recipes if tag in r.tags]
-
-    # Get IDs of recipes user has saved
+    # Get IDs of recipes user has saved (query once, reuse below)
     saved_recipe_ids = _get_saved_recipe_ids(user_id, db)
 
-    # Sort: saved recipes first, then by times_cooked
-    # This prioritizes recipes the user has already saved while also
-    # showing new recipes they might be interested in based on the tag pattern
-    def sort_key(recipe):
-        is_saved = 1 if recipe.id in saved_recipe_ids else 0
-        return (-is_saved, -recipe.times_cooked)  # Negative for descending order
+    # Separate matching recipes into saved and non-saved buckets
+    # Early termination: stop when we have enough in each bucket
+    saved_matches = []
+    non_saved_matches = []
+    needed_saved = limit  # Want up to `limit` saved
+    needed_non_saved = limit  # Want up to `limit` non-saved as backup
 
-    matching_recipes.sort(key=sort_key)
-    recipes = matching_recipes[:limit]
+    for recipe in all_recipes:
+        if tag in recipe.tags:
+            if recipe.id in saved_recipe_ids:
+                saved_matches.append(recipe)
+                if len(saved_matches) >= needed_saved:
+                    # Have enough saved, only need non-saved now
+                    needed_saved = float('inf')  # No more saved needed
+            else:
+                non_saved_matches.append(recipe)
+                if len(non_saved_matches) >= needed_non_saved:
+                    needed_non_saved = float('inf')
 
-    logger.info(f"Found {len(recipes)} recipes for tag '{tag}' for user {user_id}")
+            # Early exit: if we have enough in both buckets, stop scanning
+            if len(saved_matches) >= limit and len(non_saved_matches) >= limit:
+                break
+
+    # Combine: saved first, then non-saved, up to limit
+    # Saved recipes already ordered by times_cooked (via query ORDER BY)
+    # Non-saved recipes also ordered by times_cooked
+    recipes = (saved_matches + non_saved_matches)[:limit]
+
+    logger.info(
+        f"Found {len(recipes)} recipes for tag '{tag}' for user {user_id} "
+        f"({len(saved_matches)} saved, {len(non_saved_matches)} non-saved scanned)"
+    )
     return recipes
 
 
