@@ -19,5 +19,6 @@ from src.routers.scraper import router as scraper_router
 from src.routers.tasks import router as tasks_router
 from src.routers.receipts import router as receipts_router
 from src.routers.feed import router as feed_router
+from src.routers.menus import router as menus_router
 
-__all__ = ["auth_router", "users_router", "substitutions_router", "inventory_router", "recipes_router", "grocery_router", "prepared_foods_router", "scraper_router", "tasks_router", "receipts_router", "feed_router"]
+__all__ = ["auth_router", "users_router", "substitutions_router", "inventory_router", "recipes_router", "grocery_router", "prepared_foods_router", "scraper_router", "tasks_router", "receipts_router", "feed_router", "menus_router"]

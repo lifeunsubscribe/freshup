@@ -188,8 +188,8 @@ def get_user_tag_patterns(user_id: UUID, db: Session, min_saves: int = 3) -> lis
     # Get all recipes the user has rated/saved
     saved_recipes = (
         db.query(Recipe)
-        .join(UserRecipeRating, Recipe.id == UserRecipeRating.recipe_id)
-        .filter(UserRecipeRating.user_id == user_id)
+        .join(UserRecipeRelation, Recipe.id == UserRecipeRelation.recipe_id)
+        .filter(UserRecipeRelation.user_id == user_id)
         .all()
     )
 
@@ -227,8 +227,8 @@ def get_user_source_patterns(user_id: UUID, db: Session, min_saves: int = 5) -> 
     # Count source types in user's saved recipes
     source_counts = (
         db.query(Recipe.source_type, func.count(Recipe.id).label("count"))
-        .join(UserRecipeRating, Recipe.id == UserRecipeRating.recipe_id)
-        .filter(UserRecipeRating.user_id == user_id)
+        .join(UserRecipeRelation, Recipe.id == UserRecipeRelation.recipe_id)
+        .filter(UserRecipeRelation.user_id == user_id)
         .group_by(Recipe.source_type)
         .having(func.count(Recipe.id) >= min_saves)
         .order_by(func.count(Recipe.id).desc())
@@ -252,9 +252,9 @@ def _get_saved_recipe_ids(user_id: UUID, db: Session) -> set[UUID]:
         Set of recipe IDs the user has rated/saved
     """
     return {
-        rating.recipe_id
-        for rating in db.query(UserRecipeRating.recipe_id)
-        .filter(UserRecipeRating.user_id == user_id)
+        relation.recipe_id
+        for relation in db.query(UserRecipeRelation.recipe_id)
+        .filter(UserRecipeRelation.user_id == user_id)
         .all()
     }
 
