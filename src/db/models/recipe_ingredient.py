@@ -36,6 +36,12 @@ class RecipeIngredient(Base):
 @event.listens_for(RecipeIngredient, 'before_insert')
 @event.listens_for(RecipeIngredient, 'before_update')
 def normalize_ingredient_name(mapper, connection, target):
-    """Automatically set ingredient_name_lower from ingredient_name before insert/update."""
+    """Automatically set ingredient_name_lower from ingredient_name before insert/update.
+
+    Note: This event listener operates on ORM-level operations and will NOT fire
+    for bulk operations executed via connection.execute() or session.execute() with
+    bulk_insert_mappings(), bulk_update_mappings(), or raw SQL UPDATE statements.
+    For bulk operations, ensure ingredient_name_lower is set explicitly or use database triggers.
+    """
     if target.ingredient_name is not None:
         target.ingredient_name_lower = target.ingredient_name.lower()

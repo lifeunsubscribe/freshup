@@ -33,6 +33,12 @@ class Store(Base):
 @event.listens_for(Store, 'before_insert')
 @event.listens_for(Store, 'before_update')
 def normalize_store_name(mapper, connection, target):
-    """Automatically set name_lower from name before insert/update."""
+    """Automatically set name_lower from name before insert/update.
+
+    Note: This event listener operates on ORM-level operations and will NOT fire
+    for bulk operations executed via connection.execute() or session.execute() with
+    bulk_insert_mappings(), bulk_update_mappings(), or raw SQL UPDATE statements.
+    For bulk operations, ensure name_lower is set explicitly or use database triggers.
+    """
     if target.name is not None:
         target.name_lower = target.name.lower()
