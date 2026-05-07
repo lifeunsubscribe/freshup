@@ -477,8 +477,15 @@ def validate_url_list(
         # SSRF protection: block localhost and private/internal IP addresses
         # Extract hostname without port (handle both IPv4/hostname:port and [IPv6]:port)
         hostname_lower = parsed.netloc.lower()
-        if ':' in hostname_lower and not hostname_lower.startswith('['):
-            hostname_lower = hostname_lower.split(':')[0]  # Remove port for IPv4/hostname
+        if ':' in hostname_lower:
+            if hostname_lower.startswith('['):
+                # IPv6 with port: [::1]:8080 -> extract up to ']'
+                bracket_end = hostname_lower.find(']')
+                if bracket_end != -1:
+                    hostname_lower = hostname_lower[:bracket_end + 1]
+            else:
+                # IPv4/hostname with port: example.com:8080 -> remove port
+                hostname_lower = hostname_lower.split(':')[0]
 
         # Check for IP obfuscation techniques (decimal, octal, hex notation)
         # These may bypass ipaddress validation but can be interpreted by HTTP clients
