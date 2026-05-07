@@ -401,6 +401,22 @@ class TestValidateUrlList:
         with pytest.raises(ValueError, match="cannot contain URLs targeting localhost"):
             validate_url_list("Field", ["http://[::1]/image.jpg"])
 
+    def test_ipv4_mapped_ipv6_loopback_rejected(self):
+        """Test that IPv4-mapped IPv6 addresses for loopback are rejected (SSRF bypass protection)."""
+        # IPv4-mapped IPv6 addresses like ::ffff:127.0.0.1 are a known SSRF bypass vector
+        with pytest.raises(ValueError, match="cannot contain URLs targeting"):
+            validate_url_list("Field", ["http://[::ffff:127.0.0.1]/image.jpg"])
+
+        # Also test without the explicit IPv4 mapping notation
+        with pytest.raises(ValueError, match="cannot contain URLs targeting"):
+            validate_url_list("Field", ["http://[::ffff:7f00:1]/image.jpg"])
+
+        # Test private IPs via IPv4-mapped IPv6 notation
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://[::ffff:192.168.1.1]/image.jpg"])
+        with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
+            validate_url_list("Field", ["http://[::ffff:10.0.0.1]/image.jpg"])
+
     def test_localhost_with_port_rejected(self):
         """Test that localhost with port is rejected."""
         with pytest.raises(ValueError, match="cannot contain URLs targeting localhost"):
