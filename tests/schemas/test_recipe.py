@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 from uuid import uuid4
 
-from src.schemas.recipe import RecipeCreate, RecipeUpdate, AdHocRecipeCreate, InventoryItemUsage
+from src.schemas.recipe import RecipeCreate, RecipeUpdate, AdHocRecipeCreate, InventoryItemUsage, UserRecipeRelationCreate
 
 
 class TestRecipeCreateNotesValidation:
@@ -484,3 +484,210 @@ class TestAdHocRecipeCreateTagsAndStepsValidation:
         assert len(errors) == 1
         assert errors[0]["loc"] == ("steps",)
         assert "can only contain letters, numbers, spaces, and common punctuation" in str(errors[0]["msg"])
+
+
+class TestUserRecipeRelationCreateRatingPhotosValidation:
+    """Test rating_photos field URL validation for UserRecipeRelationCreate schema."""
+
+    def test_create_relation_with_valid_single_photo_url(self):
+        """Test creating relation with a single valid photo URL."""
+        valid_data = {
+            "rating_photos": ["https://example.com/photo1.jpg"]
+        }
+        relation = UserRecipeRelationCreate(**valid_data)
+        assert relation.rating_photos == ["https://example.com/photo1.jpg"]
+
+    def test_create_relation_with_multiple_valid_photo_urls(self):
+        """Test creating relation with multiple valid photo URLs."""
+        valid_data = {
+            "rating_photos": [
+                "https://example.com/photo1.jpg",
+                "https://example.com/photo2.png",
+                "http://test.com/photo3.jpg"
+            ]
+        }
+        relation = UserRecipeRelationCreate(**valid_data)
+        assert len(relation.rating_photos) == 3
+
+    def test_create_relation_with_none_rating_photos(self):
+        """Test creating relation with None rating_photos (should be valid)."""
+        valid_data = {
+            "rating_photos": None
+        }
+        relation = UserRecipeRelationCreate(**valid_data)
+        assert relation.rating_photos is None
+
+    def test_create_relation_without_rating_photos_field(self):
+        """Test creating relation without rating_photos field (should default to None)."""
+        valid_data = {}
+        relation = UserRecipeRelationCreate(**valid_data)
+        assert relation.rating_photos is None
+
+    def test_create_relation_with_empty_rating_photos_list(self):
+        """Test creating relation with empty rating_photos list."""
+        valid_data = {
+            "rating_photos": []
+        }
+        relation = UserRecipeRelationCreate(**valid_data)
+        assert relation.rating_photos == []
+
+    def test_create_relation_rating_photos_strips_whitespace(self):
+        """Test that whitespace is stripped from photo URLs."""
+        valid_data = {
+            "rating_photos": ["  https://example.com/photo.jpg  "]
+        }
+        relation = UserRecipeRelationCreate(**valid_data)
+        assert relation.rating_photos == ["https://example.com/photo.jpg"]
+
+    def test_create_relation_rating_photos_filters_empty_strings(self):
+        """Test that empty strings are filtered from photo URLs."""
+        valid_data = {
+            "rating_photos": ["https://example.com/1.jpg", "", "  ", "https://example.com/2.jpg"]
+        }
+        relation = UserRecipeRelationCreate(**valid_data)
+        assert relation.rating_photos == ["https://example.com/1.jpg", "https://example.com/2.jpg"]
+
+    # Security tests - Invalid protocols
+
+    def test_create_relation_rating_photos_rejects_javascript_protocol(self):
+        """Test that javascript: protocol is rejected in rating_photos."""
+        invalid_data = {
+            "rating_photos": ["javascript:alert('xss')"]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserRecipeRelationCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("rating_photos",)
+        assert "must use http:// or https:// protocol" in str(errors[0]["msg"])
+
+    def test_create_relation_rating_photos_rejects_file_protocol(self):
+        """Test that file: protocol is rejected in rating_photos."""
+        invalid_data = {
+            "rating_photos": ["file:///etc/passwd"]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserRecipeRelationCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("rating_photos",)
+        assert "must use http:// or https:// protocol" in str(errors[0]["msg"])
+
+    def test_create_relation_rating_photos_rejects_data_protocol(self):
+        """Test that data: protocol is rejected in rating_photos."""
+        invalid_data = {
+            "rating_photos": ["data:text/html,<script>alert('xss')</script>"]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserRecipeRelationCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("rating_photos",)
+        assert "must use http:// or https:// protocol" in str(errors[0]["msg"])
+
+    def test_create_relation_rating_photos_rejects_missing_protocol(self):
+        """Test that URLs without protocol are rejected in rating_photos."""
+        invalid_data = {
+            "rating_photos": ["example.com/photo.jpg"]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserRecipeRelationCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("rating_photos",)
+        assert "must include protocol" in str(errors[0]["msg"])
+
+    # Security tests - SSRF protection
+
+    def test_create_relation_rating_photos_rejects_localhost(self):
+        """Test that localhost is rejected in rating_photos (SSRF protection)."""
+        invalid_data = {
+            "rating_photos": ["http://localhost/photo.jpg"]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserRecipeRelationCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("rating_photos",)
+        assert "cannot contain URLs targeting localhost" in str(errors[0]["msg"])
+
+    def test_create_relation_rating_photos_rejects_127_0_0_1(self):
+        """Test that 127.0.0.1 is rejected in rating_photos (SSRF protection)."""
+        invalid_data = {
+            "rating_photos": ["http://127.0.0.1/photo.jpg"]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserRecipeRelationCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("rating_photos",)
+        assert "cannot contain URLs targeting localhost" in str(errors[0]["msg"])
+
+    def test_create_relation_rating_photos_rejects_127_x_x_x(self):
+        """Test that 127.x.x.x addresses are rejected in rating_photos."""
+        invalid_data = {
+            "rating_photos": ["http://127.1.2.3/photo.jpg"]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserRecipeRelationCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("rating_photos",)
+        assert "private or internal IP addresses" in str(errors[0]["msg"])
+
+    # Length validation tests
+
+    def test_create_relation_rating_photos_rejects_url_exceeding_max_length(self):
+        """Test that URLs exceeding 2048 characters are rejected in rating_photos."""
+        long_url = "https://example.com/" + "a" * 2100
+        invalid_data = {
+            "rating_photos": [long_url]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserRecipeRelationCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("rating_photos",)
+        assert "cannot exceed 2048 characters" in str(errors[0]["msg"])
+
+    def test_create_relation_rating_photos_accepts_url_at_max_length(self):
+        """Test that URLs at exactly 2048 characters are accepted in rating_photos."""
+        base = "https://example.com/"
+        path = "a" * (2048 - len(base))
+        url = base + path
+        valid_data = {
+            "rating_photos": [url]
+        }
+        relation = UserRecipeRelationCreate(**valid_data)
+        assert len(relation.rating_photos[0]) == 2048
+
+    def test_create_relation_rating_photos_rejects_list_exceeding_max_size(self):
+        """Test that rating_photos lists exceeding 10 URLs are rejected."""
+        urls = [f"https://example.com/photo{i}.jpg" for i in range(15)]
+        invalid_data = {
+            "rating_photos": urls
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            UserRecipeRelationCreate(**invalid_data)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("rating_photos",)
+        assert "cannot contain more than 10 URLs" in str(errors[0]["msg"])
+
+    def test_create_relation_rating_photos_accepts_list_at_max_size(self):
+        """Test that rating_photos lists at exactly 10 URLs are accepted."""
+        urls = [f"https://example.com/photo{i}.jpg" for i in range(10)]
+        valid_data = {
+            "rating_photos": urls
+        }
+        relation = UserRecipeRelationCreate(**valid_data)
+        assert len(relation.rating_photos) == 10

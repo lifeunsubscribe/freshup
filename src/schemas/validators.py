@@ -9,6 +9,8 @@ validation logic diverging over time.
 from typing import Optional
 from enum import Enum
 import unicodedata
+from urllib.parse import urlparse
+import ipaddress
 
 
 
@@ -24,6 +26,95 @@ BLOCKED_UNICODE_CATEGORIES = {'Cc', 'Cf', 'Co', 'Cn', 'Cs'}
 # Common punctuation and symbols used in food names
 ALLOWED_PUNCTUATION = set(" -'(),./")
 
+# Validation constants for URL lists
+MAX_URL_LENGTH = 2048  # Match other URL fields in schemas
+MAX_URL_LIST_SIZE = 10  # Reasonable limit for photo uploads
+
+# Allowed URL schemes for user-submitted content
+ALLOWED_URL_SCHEMES = {'http', 'https'}
+
+# Blocked hostnames for SSRF protection
+BLOCKED_HOSTNAMES = {
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    '::1',
+    '[::1]',
+}
+
+
+def is_obfuscated_ip(hostname: str) -> bool:
+    """
+    Check if hostname appears to be an obfuscated IP address.
+
+    Detects IP obfuscation techniques like:
+    - Decimal notation: 2130706433 (represents 127.0.0.1)
+    - Octal notation: 0177.0.0.1 (represents 127.0.0.1)
+    - Hexadecimal notation: 0x7f000001 (represents 127.0.0.1)
+
+    These formats are not parsed by Python's ipaddress module but may be
+    interpreted by some HTTP clients, creating SSRF bypass opportunities.
+
+    Args:
+        hostname: The hostname to check (without port, without brackets)
+
+    Returns:
+        True if the hostname appears to use IP obfuscation, False otherwise
+    """
+    # Check for pure decimal IP (e.g., 2130706433)
+    # Valid range is 0 to 4294967295 (2^32 - 1)
+    if hostname.isdigit() and 0 <= int(hostname) <= 4294967295:
+        return True
+
+    # Check for hexadecimal IP (e.g., 0x7f000001)
+    if hostname.startswith('0x') or hostname.startswith('0X'):
+        try:
+            int(hostname, 16)
+            return True
+        except ValueError:
+            pass
+
+    # Check for octal notation in any octet (e.g., 0177.0.0.1 or 127.0.0.01)
+    # Split by '.' and check if any octet starts with '0' and has more digits
+    if '.' in hostname:
+        octets = hostname.split('.')
+        for octet in octets:
+            # Octal octets start with '0' and have more than one digit
+            if len(octet) > 1 and octet.startswith('0') and octet.isdigit():
+                return True
+
+    return False
+
+
+def is_private_ip(hostname: str) -> bool:
+    """
+    Check if hostname is a private/internal IP address.
+
+    Uses Python's ipaddress module to detect:
+    - Private IPv4 ranges (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
+    - Loopback addresses (127.x.x.x, ::1)
+    - Link-local addresses (169.254.x.x, fe80::/10)
+    - IPv6 unique local addresses (fc00::/7)
+    - Special addresses (0.0.0.0, etc.)
+
+    Args:
+        hostname: The hostname/IP address to check (without port)
+
+    Returns:
+        True if the hostname is a private/internal IP, False otherwise
+    """
+    # Remove brackets from IPv6 addresses like [::1]
+    cleaned_hostname = hostname.strip('[]')
+
+    try:
+        ip_obj = ipaddress.ip_address(cleaned_hostname)
+        # is_private covers: 10.x.x.x, 172.16-31.x.x, 192.168.x.x, fc00::/7
+        # is_loopback covers: 127.x.x.x, ::1
+        # is_link_local covers: 169.254.x.x, fe80::/10
+        return ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
+    except ValueError:
+        # Not a valid IP address (likely a hostname)
+        return False
 
 
 def contains_blocked_characters(text: str) -> bool:
@@ -310,3 +401,113 @@ def validate_dietary_profile(values: Optional[list[str]], valid_profiles: list[s
             raise ValueError(f'Invalid dietary profile: {profile}. Must be one of: {", ".join(valid_profiles)}')
 
     return cleaned
+
+
+def validate_url_list(
+    field_name: str,
+    values: Optional[list[str]],
+    max_url_length: int = MAX_URL_LENGTH,
+    max_list_size: int = MAX_URL_LIST_SIZE,
+) -> Optional[list[str]]:
+    """
+    Validate a list of URLs with security checks.
+
+    Ensures URLs are properly formatted, use allowed protocols, don't exceed
+    length limits, and aren't targeting internal/localhost addresses (SSRF protection).
+
+    Security checks:
+    - Protocol whitelist: only http/https allowed
+    - Length limits: per-URL and total array size
+    - SSRF protection: blocks all private/internal IP ranges (10.x, 172.16-31.x, 192.168.x,
+      127.x, 169.254.x), localhost, IPv6 loopback (::1), IPv6 link-local (fe80::/10),
+      and IPv6 unique local (fc00::/7)
+    - Blocks dangerous protocols: javascript:, file:, data:, etc.
+
+    Args:
+        field_name: Name of the field being validated (for error messages)
+        values: List of URL strings to validate
+        max_url_length: Maximum allowed length per URL (default: 2048)
+        max_list_size: Maximum number of URLs in the list (default: 10)
+
+    Returns:
+        Validated and stripped list of URLs, or None if input was None
+
+    Raises:
+        ValueError: If validation fails (invalid URL, blocked protocol, SSRF attempt, etc.)
+    """
+    if values is None:
+        return None
+
+    # Strip whitespace and filter empty strings
+    cleaned = [url.strip() for url in values if url and url.strip()]
+
+    # Check list size
+    if len(cleaned) > max_list_size:
+        raise ValueError(f'{field_name} cannot contain more than {max_list_size} URLs')
+
+    validated = []
+    for url in cleaned:
+        # Check URL length
+        if len(url) > max_url_length:
+            raise ValueError(
+                f'{field_name} URLs cannot exceed {max_url_length} characters. '
+                f'URL "{url[:50]}..." is {len(url)} characters long'
+            )
+
+        # Parse URL to validate format and extract components
+        try:
+            parsed = urlparse(url)
+        except Exception as e:
+            raise ValueError(f'{field_name} contains invalid URL "{url[:50]}...": {str(e)}')
+
+        # Validate scheme exists and is allowed
+        if not parsed.scheme:
+            raise ValueError(f'{field_name} URL must include protocol (http:// or https://): "{url[:50]}..."')
+
+        if parsed.scheme.lower() not in ALLOWED_URL_SCHEMES:
+            raise ValueError(
+                f'{field_name} URL must use http:// or https:// protocol. '
+                f'Got "{parsed.scheme}://" in "{url[:50]}..."'
+            )
+
+        # Validate hostname exists (SSRF protection - block missing/suspicious hosts)
+        if not parsed.netloc:
+            raise ValueError(f'{field_name} URL must include a hostname: "{url[:50]}..."')
+
+        # SSRF protection: block localhost and private/internal IP addresses
+        # Extract hostname without port (handle both IPv4/hostname:port and [IPv6]:port)
+        hostname_lower = parsed.netloc.lower()
+        if ':' in hostname_lower:
+            if hostname_lower.startswith('['):
+                # IPv6 with port: [::1]:8080 -> extract up to ']'
+                bracket_end = hostname_lower.find(']')
+                if bracket_end != -1:
+                    hostname_lower = hostname_lower[:bracket_end + 1]
+            else:
+                # IPv4/hostname with port: example.com:8080 -> remove port
+                hostname_lower = hostname_lower.split(':')[0]
+
+        # Check for IP obfuscation techniques (decimal, octal, hex notation)
+        # These may bypass ipaddress validation but can be interpreted by HTTP clients
+        if is_obfuscated_ip(hostname_lower.strip('[]')):
+            raise ValueError(
+                f'{field_name} cannot contain obfuscated IP addresses (decimal, octal, or hex notation): "{url[:50]}..."'
+            )
+
+        # Check against blocked hostname list (localhost, etc.)
+        if hostname_lower in BLOCKED_HOSTNAMES or hostname_lower.strip('[]') in {'::1'}:
+            raise ValueError(
+                f'{field_name} cannot contain URLs targeting localhost or internal addresses: "{url[:50]}..."'
+            )
+
+        # Check if hostname is a private/internal IP address
+        # This covers: 10.x.x.x, 172.16-31.x.x, 192.168.x.x, 127.x.x.x, 169.254.x.x,
+        # IPv6 loopback (::1), IPv6 unique local (fc00::/7), IPv6 link-local (fe80::/10)
+        if is_private_ip(hostname_lower):
+            raise ValueError(
+                f'{field_name} cannot contain URLs targeting private or internal IP addresses: "{url[:50]}..."'
+            )
+
+        validated.append(url)
+
+    return validated

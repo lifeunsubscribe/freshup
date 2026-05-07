@@ -9,7 +9,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from src.db.models.recipe import SourceType
-from src.schemas.validators import validate_enum_value, validate_non_negative, validate_name_not_empty, validate_string_list
+from src.schemas.validators import validate_enum_value, validate_non_negative, validate_name_not_empty, validate_string_list, validate_url_list
 
 
 class RecipeCreate(BaseModel):
@@ -283,6 +283,20 @@ class UserRecipeRelationCreate(BaseModel):
             if v < 0.0 or v > 5.0:
                 raise ValueError("Rating must be between 0.0 and 5.0")
         return v
+
+    @field_validator('rating_photos')
+    @classmethod
+    def validate_rating_photos_urls(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        """
+        Validate rating_photos URLs for format and security.
+
+        Ensures URLs:
+        - Use http:// or https:// protocols only
+        - Don't exceed 2048 characters per URL
+        - Array doesn't exceed 10 URLs
+        - Don't target localhost/internal addresses (SSRF protection)
+        """
+        return validate_url_list('rating_photos', v)
 
 
 class UserRecipeRelationResponse(BaseModel):
