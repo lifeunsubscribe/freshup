@@ -474,6 +474,61 @@ class TestValidateUrlList:
         with pytest.raises(ValueError, match="cannot contain URLs targeting private or internal IP addresses"):
             validate_url_list("Field", ["http://10.0.0.1:3000/image.jpg"])
 
+    # IP obfuscation tests
+
+    def test_decimal_ip_notation_localhost_rejected(self):
+        """Test that decimal IP notation for localhost is rejected (SSRF bypass protection).
+
+        2130706433 is the decimal representation of 127.0.0.1.
+        Some HTTP clients may interpret this format even though Python's ipaddress module doesn't.
+        """
+        with pytest.raises(ValueError, match="cannot contain obfuscated IP addresses"):
+            validate_url_list("Field", ["http://2130706433/image.jpg"])
+
+    def test_decimal_ip_notation_private_rejected(self):
+        """Test that decimal IP notation for private addresses is rejected.
+
+        3232235777 is the decimal representation of 192.168.1.1 (private network).
+        """
+        with pytest.raises(ValueError, match="cannot contain obfuscated IP addresses"):
+            validate_url_list("Field", ["http://3232235777/image.jpg"])
+
+    def test_octal_ip_notation_localhost_rejected(self):
+        """Test that octal IP notation for localhost is rejected (SSRF bypass protection).
+
+        0177.0.0.1 is the octal representation of 127.0.0.1.
+        Some HTTP clients may interpret octal notation even though Python's ipaddress module doesn't.
+        """
+        # Octal notation: 0177 = 127 in decimal
+        with pytest.raises(ValueError, match="cannot contain obfuscated IP addresses"):
+            validate_url_list("Field", ["http://0177.0.0.1/image.jpg"])
+
+    def test_octal_ip_notation_private_rejected(self):
+        """Test that octal IP notation for private addresses is rejected.
+
+        0300.0250.0.1 is the octal representation of 192.168.0.1 (private network).
+        """
+        with pytest.raises(ValueError, match="cannot contain obfuscated IP addresses"):
+            validate_url_list("Field", ["http://0300.0250.0.1/image.jpg"])
+
+    def test_hexadecimal_ip_notation_rejected(self):
+        """Test that hexadecimal IP notation is rejected (SSRF bypass protection).
+
+        0x7f000001 is the hexadecimal representation of 127.0.0.1.
+        Some HTTP clients may interpret this format.
+        """
+        with pytest.raises(ValueError, match="cannot contain obfuscated IP addresses"):
+            validate_url_list("Field", ["http://0x7f000001/image.jpg"])
+
+    def test_normal_port_not_flagged_as_octal(self):
+        """Test that normal URLs with ports starting with 0 are not flagged as octal IPs.
+
+        Ports like 8080, 3000, etc. should not trigger false positives.
+        """
+        # Public IP with port should work fine
+        result = validate_url_list("Field", ["http://93.184.216.34:8080/image.jpg"])
+        assert result == ["http://93.184.216.34:8080/image.jpg"]
+
     # Length validation tests
 
     def test_url_exceeds_max_length(self):

@@ -43,6 +43,49 @@ BLOCKED_HOSTNAMES = {
 }
 
 
+def is_obfuscated_ip(hostname: str) -> bool:
+    """
+    Check if hostname appears to be an obfuscated IP address.
+
+    Detects IP obfuscation techniques like:
+    - Decimal notation: 2130706433 (represents 127.0.0.1)
+    - Octal notation: 0177.0.0.1 (represents 127.0.0.1)
+    - Hexadecimal notation: 0x7f000001 (represents 127.0.0.1)
+
+    These formats are not parsed by Python's ipaddress module but may be
+    interpreted by some HTTP clients, creating SSRF bypass opportunities.
+
+    Args:
+        hostname: The hostname to check (without port, without brackets)
+
+    Returns:
+        True if the hostname appears to use IP obfuscation, False otherwise
+    """
+    # Check for pure decimal IP (e.g., 2130706433)
+    # Valid range is 0 to 4294967295 (2^32 - 1)
+    if hostname.isdigit() and 0 <= int(hostname) <= 4294967295:
+        return True
+
+    # Check for hexadecimal IP (e.g., 0x7f000001)
+    if hostname.startswith('0x') or hostname.startswith('0X'):
+        try:
+            int(hostname, 16)
+            return True
+        except ValueError:
+            pass
+
+    # Check for octal notation in any octet (e.g., 0177.0.0.1 or 127.0.0.01)
+    # Split by '.' and check if any octet starts with '0' and has more digits
+    if '.' in hostname:
+        octets = hostname.split('.')
+        for octet in octets:
+            # Octal octets start with '0' and have more than one digit
+            if len(octet) > 1 and octet.startswith('0') and octet.isdigit():
+                return True
+
+    return False
+
+
 def is_private_ip(hostname: str) -> bool:
     """
     Check if hostname is a private/internal IP address.
@@ -436,6 +479,13 @@ def validate_url_list(
         hostname_lower = parsed.netloc.lower()
         if ':' in hostname_lower and not hostname_lower.startswith('['):
             hostname_lower = hostname_lower.split(':')[0]  # Remove port for IPv4/hostname
+
+        # Check for IP obfuscation techniques (decimal, octal, hex notation)
+        # These may bypass ipaddress validation but can be interpreted by HTTP clients
+        if is_obfuscated_ip(hostname_lower.strip('[]')):
+            raise ValueError(
+                f'{field_name} cannot contain obfuscated IP addresses (decimal, octal, or hex notation): "{url[:50]}..."'
+            )
 
         # Check against blocked hostname list (localhost, etc.)
         if hostname_lower in BLOCKED_HOSTNAMES or hostname_lower.strip('[]') in {'::1'}:
