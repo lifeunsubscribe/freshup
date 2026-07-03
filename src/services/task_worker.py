@@ -119,8 +119,8 @@ async def process_receipt_task(
     # Look up store parsing profile if store_name provided
     store_hints = None
     if store_name:
-        # Query Store table for matching store (case-insensitive)
-        stmt = select(Store).where(func.lower(Store.name) == func.lower(store_name))
+        # Query Store table for matching store (case-insensitive) using COLLATE NOCASE for index usage
+        stmt = select(Store).where(Store.name.collate('NOCASE') == store_name)
         result = session.execute(stmt)
         store = result.scalar_one_or_none()
 
