@@ -48,3 +48,8 @@ class Recipe(Base):
     ingredients: Mapped[list["RecipeIngredient"]] = relationship(back_populates="recipe_rel")
     user_ratings: Mapped[list["UserRecipeRating"]] = relationship(back_populates="recipe_rel")
     prepared_foods: Mapped[list["PreparedFood"]] = relationship(back_populates="source_recipe_rel")
+    tag_associations: Mapped[list["RecipeTag"]] = relationship(
+        "RecipeTag",
+        back_populates="recipe_rel",
+        cascade="all, delete-orphan"
+    )

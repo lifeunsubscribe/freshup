@@ -15,6 +15,8 @@ from src.db.models.recipe import Recipe
 from src.db.models.recipe_ingredient import RecipeIngredient
 from src.db.models.inventory_item import InventoryItem
 from src.db.models.user_recipe import UserRecipeRating
+from src.db.models.tag import Tag
+from src.db.models.recipe_tag import RecipeTag
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +269,9 @@ def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) ->
     1. Saved recipes (user has rated/saved them)
     2. Non-saved recipes ordered by times_cooked descending
 
+    PERFORMANCE: Uses indexed junction table (recipe_tags) for O(log n) lookups
+    instead of scanning all recipes and filtering in Python (O(n)).
+
     Args:
         user_id: User ID for determining saved status
         db: Database session
@@ -276,31 +281,31 @@ def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) ->
     Returns:
         List of Recipe objects with the specified tag
     """
-    # Get all persisted recipes and filter by tag in Python
-    # (SQLite JSON querying has limited support in SQLAlchemy)
-    all_recipes = (
-        db.query(Recipe)
-        .filter(Recipe.is_persisted == True)  # noqa: E712
-        .all()
-    )
-
-    # Filter recipes that have the tag
-    matching_recipes = [r for r in all_recipes if tag in r.tags]
-
-    # Get IDs of recipes user has saved
+    # Get IDs of recipes user has saved (used for sorting)
     saved_recipe_ids = _get_saved_recipe_ids(user_id, db)
 
-    # Sort: saved recipes first, then by times_cooked
-    # This prioritizes recipes the user has already saved while also
-    # showing new recipes they might be interested in based on the tag pattern
-    def sort_key(recipe):
-        is_saved = 1 if recipe.id in saved_recipe_ids else 0
-        return (-is_saved, -recipe.times_cooked)  # Negative for descending order
+    # Optimized query using indexed joins on recipe_tags junction table
+    # This replaces the old approach of loading all recipes and filtering in Python
+    query = (
+        db.query(Recipe)
+        .join(RecipeTag, Recipe.id == RecipeTag.recipe_id)
+        .join(Tag, RecipeTag.tag_id == Tag.id)
+        .filter(Recipe.is_persisted == True)  # noqa: E712
+        .filter(Tag.name == tag)
+        .order_by(
+            # Prioritize saved recipes first (using CASE for conditional sort)
+            case(
+                (Recipe.id.in_(saved_recipe_ids), 0),  # Saved = 0 (sorts first)
+                else_=1  # Non-saved = 1 (sorts second)
+            ).asc(),
+            # Then by popularity (times cooked)
+            Recipe.times_cooked.desc()
+        )
+        .limit(limit)
+    )
 
-    matching_recipes.sort(key=sort_key)
-    recipes = matching_recipes[:limit]
-
-    logger.info(f"Found {len(recipes)} recipes for tag '{tag}' for user {user_id}")
+    recipes = query.all()
+    logger.info(f"Found {len(recipes)} recipes for tag '{tag}' for user {user_id} (indexed query)")
     return recipes
 
 

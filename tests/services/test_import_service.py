@@ -579,8 +579,12 @@ class TestImportRecipeFromUrl:
         # Verify rollback was called
         mock_db.rollback.assert_called_once()
 
-        # Verify query was called twice (dedup check + post-IntegrityError check)
-        assert query_call_count == 2
+        # Verify query was called multiple times:
+        # 1. Initial dedup check (Recipe query)
+        # 2. sync_recipe_tags -> RecipeTag delete query
+        # 3. Post-IntegrityError check (Recipe query)
+        # Note: Tag queries in sync_recipe_tags happen during the transaction that raises IntegrityError
+        assert query_call_count == 3
 
 
 class TestImportBatch:

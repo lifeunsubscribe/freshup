@@ -45,6 +45,7 @@ from src.routers.recipe_helpers import (
     validate_step_index,
 )
 from src.services.recipe_service import trigger_persistence
+from src.services.tag_service import sync_recipe_tags
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,10 @@ def create_recipe(
     )
 
     db.add(new_recipe)
+    db.flush()  # Get recipe ID before syncing tags
+
+    # Sync tags to junction table for indexed queries
+    sync_recipe_tags(new_recipe.id, recipe_dict.get('tags', []), db)
 
     try:
         db.commit()
@@ -235,6 +240,9 @@ def create_ad_hoc_recipe(
                 step_index=item_usage.step_index,  # Pass through step_index from inventory usage
             )
             db.add(recipe_ingredient)
+
+        # Sync tags to junction table for indexed queries
+        sync_recipe_tags(new_recipe.id, recipe_data.tags, db)
 
         # Decrement inventory if requested
         if recipe_data.decrement_inventory:
@@ -474,6 +482,10 @@ def update_recipe(
     # Apply updates
     for field, value in update_dict.items():
         setattr(recipe, field, value)
+
+    # Sync tags to junction table if tags were updated
+    if 'tags' in update_dict:
+        sync_recipe_tags(recipe.id, update_dict['tags'], db)
 
     try:
         db.commit()

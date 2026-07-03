@@ -24,6 +24,7 @@ from src.db.models.recipe_ingredient import RecipeIngredient
 from src.db.models.inventory_item import InventoryItem
 from src.db.models.user_recipe import UserRecipeRating
 from src.services.auth_service import hash_password, create_access_token
+from src.services.tag_service import sync_recipe_tags
 
 from fastapi import FastAPI
 from src.routers import feed as feed_router
@@ -544,6 +545,13 @@ class TestPersonalizedRows:
         db_session.add_all([recipe1, recipe2, recipe3, recipe4])
         db_session.commit()
 
+        # Sync tags to junction table for indexed queries
+        sync_recipe_tags(recipe1.id, recipe1.tags, db_session)
+        sync_recipe_tags(recipe2.id, recipe2.tags, db_session)
+        sync_recipe_tags(recipe3.id, recipe3.tags, db_session)
+        sync_recipe_tags(recipe4.id, recipe4.tags, db_session)
+        db_session.commit()
+
         # User saves 3 recipes with "indian" tag (meets >=3 threshold)
         rating1 = UserRecipeRating(
             id=uuid4(),
@@ -602,6 +610,11 @@ class TestPersonalizedRows:
             db_session.add(recipe)
         db_session.commit()
 
+        # Sync tags to junction table for indexed queries
+        for recipe in recipes:
+            sync_recipe_tags(recipe.id, recipe.tags, db_session)
+        db_session.commit()
+
         # User saves only first 3 (meets >=3 threshold)
         for i in range(3):
             rating = UserRecipeRating(
@@ -648,6 +661,11 @@ class TestPersonalizedRows:
         db_session.add_all([recipe1, recipe2])
         db_session.commit()
 
+        # Sync tags to junction table for indexed queries
+        sync_recipe_tags(recipe1.id, recipe1.tags, db_session)
+        sync_recipe_tags(recipe2.id, recipe2.tags, db_session)
+        db_session.commit()
+
         # User saves only 2 recipes with "rare_tag" (below threshold)
         rating1 = UserRecipeRating(
             id=uuid4(),
@@ -678,6 +696,7 @@ class TestPersonalizedRows:
         """Test personalized rows respect max limit of 4 rows."""
         # Create recipes with 5 different tags, all meeting threshold
         tags = ["italian", "mexican", "chinese", "japanese", "thai"]
+        all_recipes = []
         for tag in tags:
             for i in range(3):  # Create 3 recipes per tag to meet threshold
                 recipe = Recipe(
@@ -688,17 +707,24 @@ class TestPersonalizedRows:
                     tags=[tag],
                     times_cooked=i + 1
                 )
+                all_recipes.append(recipe)
                 db_session.add(recipe)
-                db_session.commit()
+        db_session.commit()
 
-                # User saves all recipes
-                rating = UserRecipeRating(
-                    id=uuid4(),
-                    user_id=test_user.id,
-                    recipe_id=recipe.id,
-                    rating=5.0
-                )
-                db_session.add(rating)
+        # Sync tags to junction table for indexed queries
+        for recipe in all_recipes:
+            sync_recipe_tags(recipe.id, recipe.tags, db_session)
+        db_session.commit()
+
+        # User saves all recipes
+        for recipe in all_recipes:
+            rating = UserRecipeRating(
+                id=uuid4(),
+                user_id=test_user.id,
+                recipe_id=recipe.id,
+                rating=5.0
+            )
+            db_session.add(rating)
         db_session.commit()
 
         # Call endpoint
@@ -1052,6 +1078,7 @@ class TestBrowseEndpoint:
     def test_browse_combines_personalized_source_fallback(self, client, auth_headers, test_user, db_session):
         """Test browse endpoint combines personalized, source, and fallback rows."""
         # Create recipes with tags (for personalized rows)
+        recipes = []
         for i in range(3):
             recipe = Recipe(
                 id=uuid4(),
@@ -1062,9 +1089,17 @@ class TestBrowseEndpoint:
                 times_cooked=i + 1,  # Needed for "Popular recipes" row
                 cook_time_minutes=25  # Needed for "Quick meals" row
             )
+            recipes.append(recipe)
             db_session.add(recipe)
-            db_session.commit()
+        db_session.commit()
 
+        # Sync tags to junction table for indexed queries
+        for recipe in recipes:
+            sync_recipe_tags(recipe.id, recipe.tags, db_session)
+        db_session.commit()
+
+        # Add ratings
+        for recipe in recipes:
             rating = UserRecipeRating(
                 id=uuid4(),
                 user_id=test_user.id,

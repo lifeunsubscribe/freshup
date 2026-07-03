@@ -20,6 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from src.services.scraper_service import scrape_recipe, ScraperError
 from src.services.ingredient_parser import parse_ingredient
+from src.services.tag_service import sync_recipe_tags
 from src.schemas.import_service import ImportResult, ImportStatus, BatchImportResult
 from src.db.models.recipe import Recipe
 from src.db.models.recipe_ingredient import RecipeIngredient
@@ -235,6 +236,10 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
                 is_optional=parsed_ing['is_optional'],
             )
             db.add(recipe_ingredient)
+
+        # Sync tags to junction table for indexed queries
+        # This populates the recipe_tags table for efficient tag-based lookups
+        sync_recipe_tags(new_recipe.id, scraped_data.tags, db)
 
         # Commit transaction
         db.commit()
