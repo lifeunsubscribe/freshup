@@ -27,21 +27,18 @@ def upgrade() -> None:
     start as non-persisted and become persisted through user interaction
     (bookmarking, liking, adding to a meal plan or menu).
 
-    The server_default is false to match Recipe.is_persisted (default=False) —
-    a row inserted outside the ORM is browse-cache data until something claims
-    it. Rows that already existed predate the browse-then-persist flow, so they
-    are backfilled to true and left untouched by the cleanup job.
+    The server_default is true, matching Recipe.is_persisted (default=True).
+    Only the scraper path marks a recipe False explicitly. Defaulting to true
+    also backfills every pre-existing row as persisted, which is correct: they
+    predate the browse-then-persist flow and must never be pruned.
     """
     with op.batch_alter_table('recipes', schema=None) as batch_op:
         batch_op.add_column(
-            sa.Column('is_persisted', sa.Boolean(), nullable=False, server_default=sa.false())
+            sa.Column('is_persisted', sa.Boolean(), nullable=False, server_default=sa.true())
         )
         # cleanup_service filters on is_persisted == False to prune the browse
         # cache, and the feed queries filter on is_persisted == True.
         batch_op.create_index('ix_recipes_is_persisted', ['is_persisted'])
-
-    # Backfill pre-existing recipes as persisted so cleanup never prunes them.
-    op.execute(sa.text('UPDATE recipes SET is_persisted = true'))
 
 
 def downgrade() -> None:

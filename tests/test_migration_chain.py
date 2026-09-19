@@ -213,3 +213,60 @@ class TestMigrationRoundTrip:
 
         model_tables = set(Base.metadata.tables.keys())
         assert model_tables - tables == set()
+
+
+class TestNoNewSchemaDrift:
+    """
+    The migrated schema and the models must not drift further apart.
+
+    Alembic's autogenerate comparison is the same machinery that would propose a
+    new migration. Anything it reports is a difference between what migrations
+    build and what the models declare — which is invisible to the rest of the
+    suite, since those tests use create_all.
+
+    One class of difference is knowingly tolerated: older migrations declare
+    UUID columns as sa.Uuid() (CHAR(32) on SQLite) while the Phase 2.5 and
+    Phase 4 migrations use sa.UUID() (NUMERIC affinity). SQLite stores both as
+    TEXT and the ORM's own bind/result processors keep values correct — verified
+    by round-tripping and joining across these columns — so it is cosmetic here.
+    It stops being cosmetic on Postgres, so it is tracked in ADR Section 13.4 as
+    a Phase 6B prerequisite rather than fixed by rewriting migration history.
+
+    Everything else must be zero.
+    """
+
+    def test_only_known_benign_drift_remains(self, migrated_db):
+        from alembic.autogenerate import compare_metadata
+        from alembic.migration import MigrationContext
+
+        with migrated_db.connect() as conn:
+            diffs = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+
+        unexpected = []
+        for diff in diffs:
+            # compare_metadata yields column-level diffs as a list of tuples and
+            # table-level diffs as a bare tuple.
+            entries = diff if isinstance(diff, list) else [diff]
+            for entry in entries:
+                if not isinstance(entry, tuple) or not entry:
+                    unexpected.append(entry)
+                    continue
+                if entry[0] == "modify_type" and _is_uuid_affinity_diff(entry):
+                    continue
+                unexpected.append(entry)
+
+        assert not unexpected, (
+            "New drift between the migrated schema and the models:\n  "
+            + "\n  ".join(repr(u) for u in unexpected)
+            + "\n\nEither add the change to a migration, or declare it on the model "
+            "(ADR Section 13, rule 5: model and migration move together)."
+        )
+
+
+def _is_uuid_affinity_diff(entry: tuple) -> bool:
+    """True for the documented sa.UUID() vs sa.Uuid() declaration mismatch."""
+    if len(entry) < 7:
+        return False
+    existing_type, target_type = entry[5], entry[6]
+    rendered = {type(existing_type).__name__, type(target_type).__name__}
+    return rendered <= {"NUMERIC", "Uuid", "UUID", "CHAR"}

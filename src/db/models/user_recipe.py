@@ -23,14 +23,18 @@ class UserRecipeRelation(Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
-    recipe_id: Mapped[UUID] = mapped_column(ForeignKey("recipes.id"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    recipe_id: Mapped[UUID] = mapped_column(ForeignKey("recipes.id"), index=True)
     rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_bookmarked: Mapped[bool] = mapped_column(Boolean, default=False)
     is_liked: Mapped[bool] = mapped_column(Boolean, default=False)
     rating_photos: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     rating_comment: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
-    menu_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("menus.id"), nullable=True)
+    menu_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("menus.id", name="fk_user_recipe_relations_menu_id_menus", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

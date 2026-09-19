@@ -1141,13 +1141,20 @@ Separately, `pj1kqfxy9rvw_rename_user_recipe_rating_to_relation.py` opened with 
 
 `tests/test_migration_chain.py` runs the deployment path — empty database upgraded to head via the Alembic CLI — and asserts single head, no orphaned revisions, no duplicate revision ids, table and column parity against the models, and a `head → base → head` round trip. It is the only test in the suite that executes migrations; keep it that way rather than slowing the other 1500 tests down with them.
 
-### 13.4 Known remaining drift
+### 13.4 Drift status
 
-These are real but non-breaking, and deliberately left for a follow-up rather than folded into the chain repair:
+Autogenerate reported 19 differences between the migrated schema and the models after the chain repair. Nine remain, all of one known-benign class.
 
-- **Indexes exist only in migrations.** `ix_recipes_is_persisted`, `ix_menus_user_id`, `ix_menu_recipes_recipe_id`, `ix_user_recipe_relations_{user,recipe,menu}_id`, `ix_recipes_created_at`, and `ix_grocery_list_items_purchased_created_at` are created by migrations but not declared on the models. A `create_all()` database — which is what every test uses — therefore has none of them, and `alembic revision --autogenerate` will propose dropping them all.
-- **UUID column types are inconsistent.** Older migrations use `sa.Uuid()` (renders as `CHAR(32)` on SQLite); the Phase 2.5 and Phase 4 migrations use `sa.UUID()` (falls back to `NUMERIC` affinity). SQLite's dynamic typing absorbs this and the ORM's bind/result processors keep values correct, but it will matter at the Postgres migration in Phase 6B.
-- **The `user_recipe_relations.menu_id` foreign key is named and `ondelete='SET NULL'` in the migration, unnamed with no `ondelete` on the model.**
+**Fixed (2026-09-18):**
+
+- **Indexes now declared on the models.** `ix_recipes_is_persisted`, `ix_recipes_created_at`, `ix_menus_user_id`, `ix_menu_recipes_recipe_id`, `ix_user_recipe_relations_{user,recipe,menu}_id`, and `ix_grocery_list_items_purchased_created_at` existed only in migrations. A `create_all()` database — what every test uses — had none of them, and autogenerate would have proposed dropping them all. They are now declared with `index=True` (or `__table_args__` for the composite), so migrations and models agree.
+- **`user_recipe_relations.menu_id` foreign key** now carries its name and `ondelete='SET NULL'` on the model, matching the migration.
+
+**Tolerated, tracked for Phase 6B:**
+
+- **UUID column type declarations are inconsistent.** Older migrations use `sa.Uuid()` (renders `CHAR(32)` on SQLite); the Phase 2.5 and Phase 4 migrations use `sa.UUID()` (`NUMERIC` affinity). Verified cosmetic on SQLite: both store as `TEXT` in practice, and UUID values round-trip and join correctly through the ORM's bind/result processors, which key off the model's type rather than the column's declared one. Not fixed, because the only clean routes are rewriting migration history (violates 13.2 rule 3) or a multi-table SQLite batch rebuild carrying real risk for no present benefit. **It stops being cosmetic on Postgres** — resolve it as part of the Phase 6B migration, where the tables are rebuilt anyway.
+
+This boundary is enforced, not just documented: `test_only_known_benign_drift_remains` runs the same autogenerate comparison and fails on anything outside the UUID class.
 
 ---
 

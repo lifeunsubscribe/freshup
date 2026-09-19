@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Float, Boolean, DateTime, ForeignKey, func
+from sqlalchemy import String, Float, Boolean, DateTime, ForeignKey, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -20,6 +20,11 @@ class GrocerySource(str, PyEnum):
 
 class GroceryListItem(Base):
     __tablename__ = "grocery_list_items"
+    __table_args__ = (
+        # purchased first (the filter), then created_at (the ordering) — matches
+        # the list query. Declared here so create_all and the migrations agree.
+        Index('ix_grocery_list_items_purchased_created_at', 'purchased', 'created_at'),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     item_name: Mapped[str] = mapped_column(String(255))
