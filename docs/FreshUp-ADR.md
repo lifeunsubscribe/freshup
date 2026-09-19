@@ -18,8 +18,13 @@
 | 2A | Ollama integration layer | Complete |
 | 2C | Web scrapers (HelloFresh, Kitchen Sanctuary) | Complete |
 | 2B / 2D | Card OCR pipeline, URL import & photo upload | Not started |
-| 2.5A–E | Recipe engagement backend (data model, scrapers, feed, menus, auto-draft) | Complete |
-| 2.5F–I | Recipe engagement frontend (engagement UI, home feed, menus, plan page) | **Not started** |
+| 2.5A | Data model & migration | **Partial** — `UserRecipeRelation`, `Menu`, `MenuRecipe`, `is_persisted` done; `UserCookEvent` and `UserRecipeView` never built |
+| 2.5B | Scraper browse-then-persist | Complete |
+| 2.5C | Feed engine | Complete (substitutes available signals for the missing cook/view events) |
+| 2.5D | Menu system | Complete |
+| 2.5E | Meal plan draft & schedule | **Partial** — draft/week/confirm done; per-meal opt-out endpoint missing |
+| 2.5F | Frontend: recipe engagement UI | **Partial** — bookmark/like quick actions done; "I cooked this" and add-to-plan blocked (see below) |
+| 2.5G–I | Frontend: home feed, menus, plan page | Not started |
 | 3 | Smart meal planning | Not started |
 | 4A | Costco digital receipt pipeline | Complete |
 | 4B | Paper receipt OCR (Tesseract) | Complete |
@@ -27,7 +32,19 @@
 | 5 | Voice interface | Not started |
 | 6 | Mobile & cloud | Not started |
 
-**Where the seam is:** Phase 2.5's backend is finished and tested — 88 routes, feed engine, menus, and weekly auto-draft all exist and work. None of it has a user interface. `frontend/src/pages/Plan.tsx` is still a placeholder reading "Coming in Phase 3". Phase 2.5F is the natural next unit of work.
+**Where the seam is:** most of Phase 2.5's backend works and is tested — feed engine, menus, weekly auto-draft, and now the bookmark/like engagement toggles. The frontend lags: recipe cards carry bookmark and like quick actions, but `frontend/src/pages/Plan.tsx` is still a placeholder reading "Coming in Phase 3", and there is no home feed or menus UI.
+
+**What blocks the rest of 2.5F** — all of it traces to plan sections 1.5/1.6 never being implemented:
+
+| Blocked feature | Missing backend |
+|---|---|
+| "I cooked this" button | `UserCookEvent` model, `POST /recipes/{id}/cook`, `GET /recipes/{id}/cook-history` |
+| Rating gated on having cooked | `UserCookEvent` (the gate has no data to check) |
+| "Viewed but not cooked" feed row | `UserRecipeView` model, `POST /recipes/{id}/view` |
+| Add-to-plan from a recipe card | An endpoint that creates a `MealPlanEntry` for a given date and meal slot; `/plan` exposes only draft-generate, week, and confirm |
+| Per-meal opt-out | `PUT /plan/entries/{id}/opt-out` |
+
+**A caution about `POST /recipes/{id}/rate`:** it is a whole-relation upsert — it writes every field of `UserRecipeRelationCreate` onto the row, so a request setting one field silently clears the others. Use it only to submit a complete relation. Bookmark and like have dedicated single-field endpoints for exactly this reason; anything added later that flips one flag should follow that pattern rather than reusing `/rate`.
 
 **Note on execution history:** Phases 2.5A–E were implemented by batched parallel Sharkrite agent sessions in early May 2026. That batching produced a duplicate Alembic migration and a broken table rename, which left the migration chain with three heads and the API unable to start (see Section 13). Repaired 2026-09-18. Migrations are now covered by `tests/test_migration_chain.py`.
 

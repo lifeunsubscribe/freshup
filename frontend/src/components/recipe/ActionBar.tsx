@@ -1,12 +1,16 @@
-import { Heart, ShoppingCart } from 'lucide-react'
+import { Bookmark, Heart, ShoppingCart } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useCreateGroceryItem, useGroceryList } from '../../api/hooks/useGrocery'
 import type { IngredientStockStatus } from '../../utils/pantryMatcher'
 import { batchPromises } from '../../utils/batchPromises'
 
 interface ActionBarProps {
-  isFavorited: boolean
-  onFavoriteToggle: () => void
+  /** "I endorse this" — public to the household. */
+  isLiked: boolean
+  onLikeToggle: () => void
+  /** "Save for later" — private to the user. */
+  isBookmarked: boolean
+  onBookmarkToggle: () => void
   onAddToMealPlan: () => void
   isLoading?: boolean
   missingIngredients?: IngredientStockStatus[]
@@ -19,14 +23,16 @@ interface ActionBarProps {
  * - Fixed bottom bar (mobile-friendly)
  * - "Add missing to list" button (pantry cross-reference)
  * - "Add to meal plan" button (Phase 2 feature)
- * - Favorite heart toggle (filled when favorited)
+ * - Like heart toggle (filled when liked) and bookmark toggle (filled when saved)
  * - Shows count of missing ingredients
  * - Disabled when all ingredients in stock
  * - Sticky positioning with shadow for visibility
  */
 export default function ActionBar({
-  isFavorited,
-  onFavoriteToggle,
+  isLiked,
+  onLikeToggle,
+  isBookmarked,
+  onBookmarkToggle,
   onAddToMealPlan,
   isLoading = false,
   missingIngredients = [],
@@ -205,16 +211,32 @@ export default function ActionBar({
             </span>
           </button>
 
-          {/* Favorite toggle button */}
+          {/* Like toggle button */}
           <button
-            onClick={onFavoriteToggle}
+            onClick={onLikeToggle}
             disabled={isLoading}
             className="flex-shrink-0 p-3 rounded-button border-2 border-warm-border bg-cream hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+            aria-label={isLiked ? 'Unlike recipe' : 'Like recipe'}
+            aria-pressed={isLiked}
           >
             <Heart
               size={24}
-              className={isFavorited ? 'fill-mocha stroke-mocha' : 'stroke-mocha'}
+              className={isLiked ? 'fill-mocha stroke-mocha' : 'stroke-mocha'}
+              strokeWidth={2}
+            />
+          </button>
+
+          {/* Bookmark toggle button */}
+          <button
+            onClick={onBookmarkToggle}
+            disabled={isLoading}
+            className="flex-shrink-0 p-3 rounded-button border-2 border-warm-border bg-cream hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark recipe'}
+            aria-pressed={isBookmarked}
+          >
+            <Bookmark
+              size={24}
+              className={isBookmarked ? 'fill-olive stroke-olive' : 'stroke-mocha'}
               strokeWidth={2}
             />
           </button>

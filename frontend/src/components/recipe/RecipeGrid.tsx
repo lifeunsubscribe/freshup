@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRecipeList, type RecipeListFilters } from '../../api'
 import type { RecipeListResponse } from '../../api/types'
-import RecipeCard from './RecipeCard'
+import ConnectedRecipeCard from './ConnectedRecipeCard'
 import FilterChips, { type RecipeFilters } from './FilterChips'
 import { ArrowLeft } from 'lucide-react'
 
@@ -21,7 +21,7 @@ const RECIPES_PER_PAGE = 100
  * - Back button to return to carousel view
  * - FilterChips for source_type, tag, and cook_time
  * - 2-column responsive grid
- * - RecipeCard components in grid variant
+ * - ConnectedRecipeCard components in grid variant
  * - Loading, error, and empty states
  * - Combines search query with filters
  * - Pagination with "Load More" button
@@ -133,7 +133,7 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
         {!isLoading && !isError && allRecipes.length > 0 && (
           <div className="grid grid-cols-2 gap-3">
             {allRecipes.map((recipe) => (
-              <RecipeCard
+              <ConnectedRecipeCard
                 key={recipe.id}
                 recipe={recipe}
                 variant="grid"

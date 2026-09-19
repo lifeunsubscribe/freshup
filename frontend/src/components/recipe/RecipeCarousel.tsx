@@ -1,5 +1,5 @@
 import { useRecipeList, type RecipeListFilters } from '../../api'
-import RecipeCard from './RecipeCard'
+import ConnectedRecipeCard from './ConnectedRecipeCard'
 import SectionHeader from '../ui/SectionHeader'
 import { ChevronRight, ChevronLeft } from 'lucide-react'
 import { useRef, useState, useEffect } from 'react'
@@ -17,7 +17,7 @@ interface RecipeCarouselProps {
  * Features:
  * - Section header with olive period
  * - "See all →" link on right
- * - Horizontal scroll of RecipeCard components in carousel variant
+ * - Horizontal scroll of ConnectedRecipeCard components in carousel variant
  * - Navigation controls (left/right arrow buttons) for accessibility
  * - Last visible card has opacity 0.7 to hint scrollability
  * - Loading and error states
@@ -147,7 +147,7 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId }: 
               aria-label={`${title} carousel`}
             >
               {recipes.map((recipe, index) => (
-                <RecipeCard
+                <ConnectedRecipeCard
                   key={recipe.id}
                   recipe={recipe}
                   variant="carousel"

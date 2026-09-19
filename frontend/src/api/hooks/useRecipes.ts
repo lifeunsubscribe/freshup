@@ -28,8 +28,8 @@ import type {
   RecipeIngredientCreate,
   RecipeIngredientUpdate,
   RecipeIngredientResponse,
-  UserRecipeRatingCreate,
-  UserRecipeRatingResponse,
+  UserRecipeRelationCreate,
+  UserRecipeRelationResponse,
   RecipeAggregateRatingsResponse,
 } from '../types';
 
@@ -295,9 +295,9 @@ export function useRateRecipe() {
       data,
     }: {
       recipeId: string;
-      data: UserRecipeRatingCreate;
+      data: UserRecipeRelationCreate;
     }) => {
-      return apiClient<UserRecipeRatingResponse>(`/recipes/${recipeId}/rate`, {
+      return apiClient<UserRecipeRelationResponse>(`/recipes/${recipeId}/rate`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -319,12 +319,12 @@ export function useRateRecipe() {
  */
 export function useMyRecipeRating(
   recipeId: string,
-  options?: Omit<UseQueryOptions<UserRecipeRatingResponse>, 'queryKey' | 'queryFn'>
+  options?: Omit<UseQueryOptions<UserRecipeRelationResponse>, 'queryKey' | 'queryFn'>
 ) {
   return useQuery({
     queryKey: recipeKeys.myRating(recipeId),
     queryFn: async () => {
-      return apiClient<UserRecipeRatingResponse>(`/recipes/${recipeId}/my-rating`, {
+      return apiClient<UserRecipeRelationResponse>(`/recipes/${recipeId}/my-rating`, {
         method: 'GET',
       });
     },

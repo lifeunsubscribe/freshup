@@ -323,6 +323,20 @@ class RecipeAggregateRatingsResponse(BaseModel):
     favorite_count: int = Field(..., description="Number of users who favorited this recipe")
 
 
+class BookmarkCreate(BaseModel):
+    """
+    Request body for POST /recipes/{id}/bookmark.
+
+    Optional menu assignment on bookmark, per ADR Section 4.1. Unlike
+    UserRecipeRelationCreate (a full upsert), this touches only is_bookmarked
+    and menu_id — a bookmark must never clear a like or a rating.
+    """
+
+    menu_id: Optional[UUID] = Field(
+        default=None, description="Optional menu to file this bookmark under"
+    )
+
+
 class InventoryItemUsage(BaseModel):
     """Schema for inventory item usage in ad-hoc recipe creation."""
 

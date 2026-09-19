@@ -1,7 +1,22 @@
 import { Link } from 'react-router-dom'
-import { Heart } from 'lucide-react'
+import { Bookmark, Heart } from 'lucide-react'
 import { useState } from 'react'
 import Pill from '../ui/Pill'
+
+/**
+ * Run a quick action without letting the click reach the wrapping <Link>.
+ *
+ * The whole card navigates to the recipe, so every overlay button has to stop
+ * propagation or tapping bookmark would also leave the page.
+ */
+function quickAction(
+  event: React.MouseEvent | React.KeyboardEvent,
+  handler: (() => void) | undefined
+) {
+  event.preventDefault()
+  event.stopPropagation()
+  handler?.()
+}
 
 export interface RecipeCardProps {
   recipe: {
@@ -14,8 +29,17 @@ export interface RecipeCardProps {
   }
   variant?: 'grid' | 'carousel'
   isLastVisible?: boolean
-  isFavorited?: boolean
-  onFavoriteToggle?: () => void
+  /**
+   * "I endorse this" — public to the household. Renders the heart.
+   *
+   * Before Phase 2.5 this was a single `is_favorite` flag; it now maps to the
+   * like half of UserRecipeRelation, with bookmarking as the private half.
+   */
+  isLiked?: boolean
+  onLikeToggle?: () => void
+  /** "Save for later" — private to the user. Renders the bookmark. */
+  isBookmarked?: boolean
+  onBookmarkToggle?: () => void
   householdContext?: {
     timesCooked: number
   }
@@ -44,8 +68,10 @@ export default function RecipeCard({
   recipe,
   variant = 'grid',
   isLastVisible = false,
-  isFavorited = false,
-  onFavoriteToggle,
+  isLiked = false,
+  onLikeToggle,
+  isBookmarked = false,
+  onBookmarkToggle,
   householdContext,
   imageUrl,
   servings,
@@ -125,31 +151,40 @@ export default function RecipeCard({
           </div>
         )}
 
-        {/* Favorite heart overlay (top-right) */}
-        <button
-          onClick={(e) => {
-            // Prevent card navigation when clicking favorite button
-            e.preventDefault()
-            e.stopPropagation()
-            onFavoriteToggle?.()
-          }}
-          onKeyDown={(e) => {
-            // Handle keyboard accessibility (Enter or Space)
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              e.stopPropagation()
-              onFavoriteToggle?.()
-            }
-          }}
-          className="absolute top-2 right-2 p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors"
-          aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-        >
-          <Heart
-            size={20}
-            className={isFavorited ? 'fill-mocha stroke-mocha' : 'stroke-mocha'}
-            strokeWidth={2}
-          />
-        </button>
+        {/* Quick actions (top-right): like, then bookmark */}
+        <div className="absolute top-2 right-2 flex gap-1.5">
+          <button
+            onClick={(e) => quickAction(e, onLikeToggle)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') quickAction(e, onLikeToggle)
+            }}
+            className="p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors"
+            aria-label={isLiked ? 'Unlike recipe' : 'Like recipe'}
+            aria-pressed={isLiked}
+          >
+            <Heart
+              size={20}
+              className={isLiked ? 'fill-mocha stroke-mocha' : 'stroke-mocha'}
+              strokeWidth={2}
+            />
+          </button>
+
+          <button
+            onClick={(e) => quickAction(e, onBookmarkToggle)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') quickAction(e, onBookmarkToggle)
+            }}
+            className="p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors"
+            aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark recipe'}
+            aria-pressed={isBookmarked}
+          >
+            <Bookmark
+              size={20}
+              className={isBookmarked ? 'fill-olive stroke-olive' : 'stroke-mocha'}
+              strokeWidth={2}
+            />
+          </button>
+        </div>
       </div>
 
       {/* Content section */}
