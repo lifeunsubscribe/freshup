@@ -39,18 +39,21 @@ describe('StatCards', () => {
       <StatCards totalItems={10} expiringSoonCount={3} lowStockCount={2} />
     )
 
+    // The component is a compact horizontal row of 3 cards (design system
+    // Section 6), not the stacked-then-responsive layout this test was
+    // originally written against.
     const grid = container.querySelector('.grid')
     expect(grid).toBeInTheDocument()
-    expect(grid?.className).toContain('grid-cols-1')
-    expect(grid?.className).toContain('sm:grid-cols-3')
+    expect(grid?.className).toContain('grid-cols-3')
   })
 
-  it('applies cream-dark background to cards', () => {
+  it('renders three bordered white cards', () => {
     const { container } = render(
       <StatCards totalItems={10} expiringSoonCount={3} lowStockCount={2} />
     )
 
-    const cards = container.querySelectorAll('.bg-cream-dark')
+    // Cards moved from bg-cream-dark to white with a warm border.
+    const cards = container.querySelectorAll('.bg-white.rounded-card')
     expect(cards).toHaveLength(3)
   })
 

@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import ReadyToEat from '../ReadyToEat'
 import { usePreparedFoodList } from '../../../api'
+import { renderWithProviders } from '../../../test/renderWithProviders'
+
+// ReadyToEat renders SectionHeader, which contains a react-router <Link>, so
+// these renders need a Router even though the data hook is mocked.
+const render = (ui: React.ReactElement) => renderWithProviders(ui)
 
 // Mock the API hook
 vi.mock('../../../api', () => ({

@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { BrowserRouter, MemoryRouter } from 'react-router-dom'
+import { screen } from '@testing-library/react'
 import BottomNav from './BottomNav'
+import { renderWithProviders } from '../../test/renderWithProviders'
 
-// Helper to render component with Router context
+// BottomNav reads the unpurchased grocery count for its badge, so it needs a
+// QueryClient as well as a Router.
 const renderWithRouter = (ui: React.ReactElement, { route = '/' } = {}) => {
-  return render(<MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>)
+  return renderWithProviders(ui, { route })
 }
 
 describe('BottomNav', () => {
@@ -137,10 +138,14 @@ describe('BottomNav', () => {
       expect(homeLabel).toHaveClass('text-olive')
     })
 
-    it('inactive tab has tertiary text color', () => {
+    it('inactive tab has secondary text color', () => {
+      // Was asserting 'text-tertiary', which is not a class this config can
+      // produce — the palette nests tertiary under text, so it would be
+      // 'text-text-tertiary'. The component renders inactive labels as
+      // text-text-secondary; assert what it actually does.
       renderWithRouter(<BottomNav />, { route: '/' })
       const planLabel = screen.getByText('Plan')
-      expect(planLabel).toHaveClass('text-tertiary')
+      expect(planLabel).toHaveClass('text-text-secondary')
     })
   })
 

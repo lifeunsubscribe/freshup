@@ -8,12 +8,29 @@ import ExpiringSection from '../components/pantry/ExpiringSection'
 import LowStockSection from '../components/pantry/LowStockSection'
 import CategoryGroup from '../components/pantry/CategoryGroup'
 import { useInventoryList, useLowStockAlerts } from '../api'
-import { StorageLocation, type InventoryItemListResponse } from '../api/types'
+import {
+  StorageLocation,
+  type InventoryItemListResponse,
+  type LowStockAlertItem,
+} from '../api/types'
 import { getDaysUntilDate } from '../utils/dateUtils'
 
 type StorageTab = 'all' | StorageLocation
 
 const ITEMS_PER_PAGE = 100
+
+/**
+ * Stable empty arrays for the "query has no data yet" case.
+ *
+ * A default like `const { data: items = [] } = useQuery()` builds a NEW array
+ * on every render while data is undefined. `inventoryItems` is a dependency of
+ * the pagination effect below, so a fresh identity each render re-runs the
+ * effect, which calls setAllItems([]) — also a new identity — which re-renders,
+ * which rebuilds the default. That loop spins until the heap gives out.
+ * Hoisting the fallbacks keeps the identity stable across renders.
+ */
+const NO_INVENTORY_ITEMS: InventoryItemListResponse[] = []
+const NO_LOW_STOCK_ITEMS: LowStockAlertItem[] = []
 
 export default function Pantry() {
   const [activeTab, setActiveTab] = useState<StorageTab>('all')
@@ -26,11 +43,16 @@ export default function Pantry() {
 
   // Fetch inventory with storage filter
   const storageFilter = activeTab === 'all' ? undefined : activeTab
-  const { data: inventoryItems = [], isLoading: isLoadingInventory, error: inventoryError } = useInventoryList({
+  const {
+    data: inventoryData,
+    isLoading: isLoadingInventory,
+    error: inventoryError,
+  } = useInventoryList({
     storage_location: storageFilter,
     limit: ITEMS_PER_PAGE,
     offset,
   })
+  const inventoryItems = inventoryData ?? NO_INVENTORY_ITEMS
 
   // Accumulate items and track if there are more to load
   useEffect(() => {
@@ -55,14 +77,29 @@ export default function Pantry() {
       // If we got fewer items than requested, there are no more to load
       setHasMore(inventoryItems.length === ITEMS_PER_PAGE)
     } else if (offset === 0) {
-      // First load returned empty - reset state
-      setAllItems([])
+      // First load returned empty - reset state. Keep the previous array when
+      // it is already empty so this does not schedule a pointless re-render.
+      setAllItems((prev) => (prev.length === 0 ? prev : []))
       setHasMore(false)
     }
   }, [inventoryItems, offset, activeTab])
 
-  // Reset pagination when tab changes
+  // Reset pagination when the tab changes — but not on mount.
+  //
+  // This effect runs after the accumulate effect above, so on mount it used to
+  // wipe the first page straight back out. That was invisible while the query
+  // was always pending on first render, but React Query serves cached data
+  // synchronously: navigating back to Pantry with a warm cache rendered an
+  // empty pantry until something changed the array identity. Skip the mount
+  // run so only a genuine tab change clears accumulated items.
+  const hasMountedRef = useRef(false)
   useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true
+      currentTabRef.current = activeTab
+      return
+    }
+
     currentTabRef.current = activeTab
     setOffset(0)
     setHasMore(true)
@@ -70,7 +107,12 @@ export default function Pantry() {
   }, [activeTab])
 
   // Fetch low stock alerts
-  const { data: lowStockItems = [], isLoading: isLoadingLowStock, error: lowStockError } = useLowStockAlerts()
+  const {
+    data: lowStockData,
+    isLoading: isLoadingLowStock,
+    error: lowStockError,
+  } = useLowStockAlerts()
+  const lowStockItems = lowStockData ?? NO_LOW_STOCK_ITEMS
 
   // Calculate expiring items (within 3 days)
   // Uses timezone-safe date utilities to avoid off-by-one errors
