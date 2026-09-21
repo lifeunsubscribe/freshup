@@ -315,6 +315,29 @@ FreshUp should feel like having a knowledgeable sous chef — one who knows what
 | approved_by | FK? | Coordinator who approved the final plan |
 | approved_date | DateTime? | |
 
+#### UserCookEvent *(added Phase 2.5A)*
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | Primary key |
+| user_id | FK | Link to User |
+| recipe_id | FK | Link to Recipe |
+| cooked_at | DateTime | `server_default=func.now()` — when the cook event was recorded |
+| meal_plan_entry_id | FK? | Link to MealPlanEntry when the cook was planned; nullable |
+| notes | String(500)? | Optional cook notes |
+
+*No unique constraint — a user can cook the same recipe many times and each instance is an independent row. The feed signal uses cook count vs. view count to surface viewed-but-not-cooked recipes. Backfill from `Recipe.times_cooked` is intentionally excluded: that column is a global count with no per-user attribution.*
+
+#### UserRecipeView *(added Phase 2.5A)*
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | Primary key |
+| user_id | FK | Link to User |
+| recipe_id | FK | Link to Recipe |
+| viewed_at | DateTime | `server_default=func.now()` — when the view was recorded |
+| source | String(50)? | How the user arrived at the recipe: `browse`, `detail`, `search`, `feed`, `menu` |
+
+*No unique constraint — repeat views are each recorded separately. The feed signal compares view count to cook count to surface recipes the user has viewed but never cooked.*
+
 ### 4.2 Entity Relationship Summary
 
 ```
@@ -619,6 +642,41 @@ Each phase produces a usable increment of the system. Phases are broken into cle
 - Ollama LLM parsing for unstructured recipe photos
 
 **Phase 2 Deliverable:** A rich recipe database populated from all defined sources with automated and semi-automated ingestion pipelines.
+
+---
+
+### Phase 2.5 — Recipe Engagement
+
+**Goal:** Capture per-user cook events and recipe views to power cook-gated ratings, an "I cooked this" button, and the viewed-but-not-cooked feed signal.
+
+**Implementation Status:**
+
+| Area | Status | Notes |
+|---|---|---|
+| 2.5A | Complete | `UserCookEvent` and `UserRecipeView` models + migration |
+| 2.5B | Pending | "I cooked this" button / cook event API endpoint |
+| 2.5C | Pending | Cook-gated rating gate on `POST /recipes/{id}/rate` |
+| 2.5D | Implemented | Auto-generated menus (auto-draft meal plan logic) |
+| 2.5E | Implemented | Weekly auto-draft meal plan |
+
+**Development Areas:**
+
+#### 2.5A: Cook Event and View Models
+- `UserCookEvent` table: records each cook instance per user per recipe, with optional meal-plan link and notes
+- `UserRecipeView` table: records each recipe view per user, with source tracking (`browse`, `detail`, `search`, `feed`, `menu`)
+- Relationships on `User` and `Recipe` models
+- Single Alembic migration
+
+#### 2.5B: Cook Event API
+- `POST /recipes/{id}/cook` — create a `UserCookEvent` row
+- `GET /cook-history` — list cook events for the authenticated user
+- `POST /recipes/{id}/view` — record a view event (called by the frontend on recipe page load)
+
+#### 2.5C: Cook-Gated Rating
+- Extend `POST /recipes/{id}/rate` to require at least one `UserCookEvent` before a rating is accepted
+- Return a 403 with a user-readable message if the recipe has never been cooked by this user
+
+**Phase 2.5 Deliverable:** Per-user cook history and view tracking that unlocks cook-gated ratings, the "I cooked this" interaction, and feed signals based on engagement depth.
 
 ---
 

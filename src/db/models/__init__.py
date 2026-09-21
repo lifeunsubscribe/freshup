@@ -28,6 +28,8 @@ from src.db.models.consumption_pattern import ConsumptionPattern
 from src.db.models.user_recipe import UserRecipeRelation
 from src.db.models.menu import Menu, MenuRecipe
 from src.db.models.processing_task import ProcessingTask, TaskType, TaskStatus
+from src.db.models.user_cook_event import UserCookEvent
+from src.db.models.user_recipe_view import UserRecipeView
 
 __all__ = [
     "User",
@@ -64,4 +66,6 @@ __all__ = [
     "ProcessingTask",
     "TaskType",
     "TaskStatus",
+    "UserCookEvent",
+    "UserRecipeView",
 ]

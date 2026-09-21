@@ -60,3 +60,5 @@ class User(Base):
     recipe_relations: Mapped[list["UserRecipeRelation"]] = relationship(back_populates="user_rel")
     menus: Mapped[list["Menu"]] = relationship(back_populates="user_rel")
     audit_logs: Mapped[list["AuthAuditLog"]] = relationship(back_populates="user")
+    cook_events: Mapped[list["UserCookEvent"]] = relationship(back_populates="user_rel")
+    recipe_views: Mapped[list["UserRecipeView"]] = relationship(back_populates="user_rel")
