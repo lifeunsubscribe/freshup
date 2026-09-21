@@ -2,7 +2,7 @@
 Pydantic schemas for meal plan endpoints.
 
 Defines request/response models for weekly meal plan draft generation,
-viewing, and confirmation.
+viewing, confirmation, and single-entry creation.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from uuid import UUID
 from datetime import date as date_type
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
+
+from src.db.models.meal_plan import MealType
 
 
 class MealPlanEntrySchema(BaseModel):
@@ -69,3 +71,17 @@ class ConfirmEntryResponse(BaseModel):
 
     entry: MealPlanEntrySchema = Field(..., description="Updated meal plan entry")
     grocery_items_added: int = Field(..., description="Number of items added to grocery list")
+
+
+class CreateEntryRequest(BaseModel):
+    """Request schema for POST /plan/entries — place a recipe into a meal slot."""
+
+    date: date_type = Field(..., description="Date of the meal (YYYY-MM-DD)")
+    meal_type: MealType = Field(..., description="Meal slot (breakfast, lunch, dinner, snack)")
+    recipe_id: UUID = Field(..., description="Recipe to add to the meal plan")
+    planned_servings: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Number of servings (defaults to recipe's base_servings when omitted)",
+    )
+    notes: Optional[str] = Field(None, description="Optional free-text notes for this entry")

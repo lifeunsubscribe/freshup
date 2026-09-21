@@ -2,7 +2,7 @@
 Meal plan API endpoints.
 
 Provides endpoints for auto-draft meal plan generation, weekly plan viewing,
-and entry confirmation.
+entry confirmation, and manual single-entry creation.
 """
 
 import logging
@@ -23,6 +23,7 @@ from src.schemas.plan import (
     WeekViewResponse,
     ConfirmEntryResponse,
     MealPlanEntrySchema,
+    CreateEntryRequest,
 )
 from src.exceptions import NotFoundError, ValidationError
 
@@ -156,4 +157,50 @@ def confirm_entry(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to confirm meal plan entry",
+        )
+
+
+@router.post("/entries", response_model=MealPlanEntrySchema, status_code=status.HTTP_201_CREATED)
+def create_entry(
+    request: CreateEntryRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> MealPlanEntrySchema:
+    """
+    Add a recipe to the meal plan for a specific date and meal slot.
+
+    Creates a draft entry that appears in GET /plan/week. The calling user is
+    automatically opted in. Multiple entries per date/meal slot are allowed.
+
+    **Auth:** Required
+    **Scope:** Phase 2.5E - Add-to-plan quick action
+    """
+    try:
+        entry = meal_plan_service.create_entry(
+            request_date=request.date,
+            meal_type=request.meal_type.value,
+            recipe_id=request.recipe_id,
+            planned_servings=request.planned_servings,
+            notes=request.notes,
+            current_user=current_user,
+            db=db,
+        )
+        return MealPlanEntrySchema.model_validate(entry)
+    except NotFoundError as e:
+        logger.warning(f"Recipe not found during entry creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        logger.warning(f"Validation error during entry creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during entry creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create meal plan entry",
         )
