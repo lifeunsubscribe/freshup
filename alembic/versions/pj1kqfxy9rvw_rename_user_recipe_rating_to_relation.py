@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect as sa_inspect
 
 
 # revision identifiers, used by Alembic.
@@ -30,8 +31,19 @@ def upgrade() -> None:
     5. Rename unique constraint
     """
     # Step 1: Rename table and update constraint
+    # Guard the drop_constraint call: on an empty database upgraded from scratch
+    # the constraint was never explicitly named, so SQLite will not have it.
+    # Inspect the live connection to find out whether the named constraint exists
+    # before attempting to drop it.
+    bind = op.get_bind()
+    inspector = sa_inspect(bind)
+    existing_uq_names = {
+        uc["name"]
+        for uc in inspector.get_unique_constraints("user_recipe_ratings")
+    }
     with op.batch_alter_table('user_recipe_ratings', schema=None) as batch_op:
-        batch_op.drop_constraint('uq_user_recipe_rating', type_='unique')
+        if 'uq_user_recipe_rating' in existing_uq_names:
+            batch_op.drop_constraint('uq_user_recipe_rating', type_='unique')
 
     op.rename_table('user_recipe_ratings', 'user_recipe_relations')
 
