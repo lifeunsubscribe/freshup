@@ -33,7 +33,9 @@ export default function ActionBar({
   onLikeToggle,
   isBookmarked,
   onBookmarkToggle,
-  onAddToMealPlan,
+  // onAddToMealPlan stays in the props contract for Phase 2.5F's add-to-plan
+  // button, which is blocked on a backend endpoint (ADR Section 0). Not
+  // destructured until there is something to wire it to.
   isLoading = false,
   missingIngredients = [],
 }: ActionBarProps) {

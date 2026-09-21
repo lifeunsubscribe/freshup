@@ -84,7 +84,7 @@ describe('ManualAddTab', () => {
       const addButton = screen.getByRole('button', { name: /Add another/ })
       await user.click(addButton)
 
-      expect(screen.getByRole('alert')).toHaveTextContent('Item name is required')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Item name is required')
       expect(mutateAsync).not.toHaveBeenCalled()
     })
 
@@ -101,7 +101,7 @@ describe('ManualAddTab', () => {
       await user.type(quantityInput, '0')
       await user.click(addButton)
 
-      expect(screen.getByRole('alert')).toHaveTextContent(
+      expect(await screen.findByRole('alert')).toHaveTextContent(
         'Quantity must be greater than 0'
       )
       expect(mutateAsync).not.toHaveBeenCalled()
@@ -120,7 +120,7 @@ describe('ManualAddTab', () => {
       await user.type(quantityInput, '-1')
       await user.click(addButton)
 
-      expect(screen.getByRole('alert')).toHaveTextContent(
+      expect(await screen.findByRole('alert')).toHaveTextContent(
         'Quantity must be greater than 0'
       )
       expect(mutateAsync).not.toHaveBeenCalled()
@@ -138,7 +138,7 @@ describe('ManualAddTab', () => {
       await user.clear(unitInput)
       await user.click(addButton)
 
-      expect(screen.getByRole('alert')).toHaveTextContent('Unit is required')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Unit is required')
       expect(mutateAsync).not.toHaveBeenCalled()
     })
   })

@@ -177,7 +177,9 @@ export default function InventoryRow({ item }: InventoryRowProps) {
         {/* Storage badge */}
         <div className="flex-shrink-0">
           <StorageBadge
-            storageLocation={item.storage_location}
+            // InventoryItemResponse types this as a plain string (it comes
+            // straight off the API), while StorageBadge wants the enum.
+            storageLocation={item.storage_location as StorageLocation}
             onCycle={handleStorageCycle}
             disabled={isPending}
           />

@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
+
+/*
+ * These tests run on fake timers. waitFor polls using real timers, which are
+ * frozen here, so an assertion wrapped in waitFor can never re-poll and simply
+ * burns its 5s timeout. Advancing inside act() flushes the React state update
+ * synchronously, so the assertion that follows can be plain.
+ */
 import GreetingHeader from '../GreetingHeader'
 import { useCurrentUser } from '../../../api'
 
@@ -11,8 +18,7 @@ vi.mock('../../../api', () => ({
 describe('GreetingHeader', () => {
   const mockUser = {
     id: 'user-1',
-    username: 'testuser',
-    display_name: 'Test User',
+    name: 'Test User',
   }
 
   beforeEach(() => {
@@ -51,7 +57,7 @@ describe('GreetingHeader', () => {
 
       render(<GreetingHeader />)
 
-      expect(screen.getByText('Tuesday, March 25')).toBeInTheDocument()
+      expect(screen.getByText('Wednesday, March 25')).toBeInTheDocument()
     })
 
     it('renders olive period after greeting', () => {
@@ -141,20 +147,22 @@ describe('GreetingHeader', () => {
       expect(screen.getByText(/Good morning/i)).toBeInTheDocument()
 
       // Simulate time passing to noon
-      vi.setSystemTime(new Date('2026-03-25T12:00:00'))
-      vi.advanceTimersByTime(60000) // Advance by 1 minute to trigger interval
-
-      await waitFor(() => {
-        expect(screen.getByText(/Good afternoon/i)).toBeInTheDocument()
+      act(() => {
+        vi.setSystemTime(new Date('2026-03-25T12:00:00'))
+        vi.advanceTimersByTime(60000) // Advance by 1 minute to trigger interval
       })
+
+      expect(screen.getByText(/Good afternoon/i)).toBeInTheDocument()
     })
   })
 
   describe('user display name handling', () => {
-    it('displays username when display_name is not available', () => {
+    it('falls back to "there" when the user has no name', () => {
+      // The API's UserResponse has no username/display_name fields; `name` is
+      // the only one. A user object without it greets generically.
       vi.setSystemTime(new Date('2026-03-25T10:00:00'))
       vi.mocked(useCurrentUser).mockReturnValue({
-        data: { id: 'user-1', username: 'testuser' },
+        data: { id: 'user-1' },
         isLoading: false,
         isError: false,
         error: null,
@@ -162,7 +170,7 @@ describe('GreetingHeader', () => {
 
       render(<GreetingHeader />)
 
-      expect(screen.getByText(/Good morning, testuser/i)).toBeInTheDocument()
+      expect(screen.getByText(/Good morning, there/i)).toBeInTheDocument()
     })
 
     it('displays "there" when user data is not available', () => {
@@ -223,12 +231,12 @@ describe('GreetingHeader', () => {
       expect(screen.getByText(/Good morning/i)).toBeInTheDocument()
 
       // Advance time to 12:00 PM (afternoon)
-      vi.setSystemTime(new Date('2026-03-25T12:00:00'))
-      vi.advanceTimersByTime(60000) // Trigger 1-minute interval
-
-      await waitFor(() => {
-        expect(screen.getByText(/Good afternoon/i)).toBeInTheDocument()
+      act(() => {
+        vi.setSystemTime(new Date('2026-03-25T12:00:00'))
+        vi.advanceTimersByTime(60000) // Trigger 1-minute interval
       })
+
+      expect(screen.getByText(/Good afternoon/i)).toBeInTheDocument()
     })
 
     it('updates date after midnight', async () => {
@@ -242,15 +250,15 @@ describe('GreetingHeader', () => {
       } as any)
 
       render(<GreetingHeader />)
-      expect(screen.getByText('Tuesday, March 25')).toBeInTheDocument()
+      expect(screen.getByText('Wednesday, March 25')).toBeInTheDocument()
 
-      // Advance time to 12:00 AM on March 26
-      vi.setSystemTime(new Date('2026-03-26T00:00:00'))
-      vi.advanceTimersByTime(60000) // Trigger 1-minute interval
-
-      await waitFor(() => {
-        expect(screen.getByText('Wednesday, March 26')).toBeInTheDocument()
+      // Advance time to 12:00 AM on March 26 (a Thursday)
+      act(() => {
+        vi.setSystemTime(new Date('2026-03-26T00:00:00'))
+        vi.advanceTimersByTime(60000) // Trigger 1-minute interval
       })
+
+      expect(screen.getByText('Thursday, March 26')).toBeInTheDocument()
     })
 
     it('updates on visibility change when app regains focus', async () => {
@@ -275,11 +283,11 @@ describe('GreetingHeader', () => {
         configurable: true,
         value: 'visible',
       })
-      document.dispatchEvent(new Event('visibilitychange'))
-
-      await waitFor(() => {
-        expect(screen.getByText(/Good afternoon/i)).toBeInTheDocument()
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
       })
+
+      expect(screen.getByText(/Good afternoon/i)).toBeInTheDocument()
     })
 
     it('does not update on visibility change when app becomes hidden', async () => {

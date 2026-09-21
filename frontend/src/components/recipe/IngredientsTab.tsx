@@ -2,11 +2,7 @@ import type { RecipeIngredientResponse, InventoryItemListResponse } from '../../
 import type { PantryCheckResult } from '../../utils/pantryMatcher'
 import PantryCheck from './PantryCheck'
 import Pill from '../ui/Pill'
-import {
-  UNPARSEABLE_QUANTITY_SENTINEL,
-  SENTINEL_TOLERANCE,
-  isUnparseableQuantity,
-} from '../../constants/recipe'
+import { isUnparseableQuantity } from '../../constants/recipe'
 
 /**
  * Props for IngredientsTab component
@@ -96,7 +92,9 @@ function formatQuantity(quantity: number, multiplier: number = 1): string {
 export default function IngredientsTab({
   ingredients,
   servingsMultiplier,
-  inventoryItems,
+  // inventoryItems is still part of the props contract (callers pass it), but
+  // stock matching now happens upstream and arrives via stockStatus, so this
+  // component no longer reads it.
   stockStatus,
   inventoryError,
 }: IngredientsTabProps) {

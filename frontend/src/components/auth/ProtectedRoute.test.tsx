@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import ProtectedRoute from './ProtectedRoute'
 import { AuthProvider } from '../../contexts/AuthContext'
 
@@ -25,9 +25,14 @@ vi.mock('../../api/client', () => ({
 }))
 
 // Helper component to wrap ProtectedRoute with routing context
+// MemoryRouter, not BrowserRouter: BrowserRouter drives the real jsdom
+// history, which is shared by every test in this file. Once an unauthenticated
+// case redirected to /login, later renders started there and never mounted
+// ProtectedRoute at all — so the loading tests passed alone and failed in
+// sequence. Each render now starts fresh at "/".
 const TestWrapper = ({ children }: { children: React.ReactNode }) => {
   return (
-    <BrowserRouter>
+    <MemoryRouter initialEntries={['/']}>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<div>Login Page</div>} />
@@ -41,7 +46,7 @@ const TestWrapper = ({ children }: { children: React.ReactNode }) => {
           />
         </Routes>
       </AuthProvider>
-    </BrowserRouter>
+    </MemoryRouter>
   )
 }
 
@@ -211,14 +216,14 @@ describe('ProtectedRoute', () => {
       })
 
       render(
-        <BrowserRouter>
+        <MemoryRouter initialEntries={['/']}>
           <AuthProvider>
             <ProtectedRoute>
               <div>First Child</div>
               <div>Second Child</div>
             </ProtectedRoute>
           </AuthProvider>
-        </BrowserRouter>
+        </MemoryRouter>
       )
 
       expect(screen.getByText('First Child')).toBeInTheDocument()
@@ -243,13 +248,13 @@ describe('ProtectedRoute', () => {
       )
 
       render(
-        <BrowserRouter>
+        <MemoryRouter initialEntries={['/']}>
           <AuthProvider>
             <ProtectedRoute>
               <ComplexComponent />
             </ProtectedRoute>
           </AuthProvider>
-        </BrowserRouter>
+        </MemoryRouter>
       )
 
       expect(screen.getByText('Header')).toBeInTheDocument()

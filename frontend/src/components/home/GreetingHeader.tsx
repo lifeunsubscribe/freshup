@@ -68,7 +68,10 @@ export default function GreetingHeader() {
   const getDisplayName = () => {
     if (isLoading) return '...'
     if (isError) return 'there'
-    return user?.display_name || user?.username || 'there'
+    // The API's UserResponse exposes `name` — there are no display_name or
+    // username fields, so the old lookup always fell through and every user
+    // was greeted as "there".
+    return user?.name || 'there'
   }
 
   const displayName = getDisplayName()

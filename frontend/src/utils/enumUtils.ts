@@ -19,7 +19,9 @@
 export function getEnumValues<T extends Record<string, string>>(
   enumObject: T
 ): T[keyof T][] {
-  return Object.values(enumObject)
+  // Object.values widens to string[]; the enum's own value union is narrower
+  // and is what callers rely on.
+  return Object.values(enumObject) as T[keyof T][]
 }
 
 /**

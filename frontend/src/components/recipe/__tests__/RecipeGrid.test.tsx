@@ -144,15 +144,29 @@ describe('RecipeGrid', () => {
       expect(screen.getByText('Loading recipes...')).toBeInTheDocument()
     })
 
-    it('does not display loading message during pagination', () => {
+    it('does not display loading message during pagination', async () => {
+      // The component keys the main message on `isLoading && offset === 0`, so
+      // this has to actually paginate. Rendering once with isLoading:true left
+      // offset at 0, where showing "Loading recipes..." is the correct
+      // behaviour — the test was asserting against the first-load case.
+      const user = userEvent.setup()
+
+      // "Load More" only renders when a full page came back (hasMore is set
+      // from recipes.length === RECIPES_PER_PAGE, which is 100).
+      const fullPage = Array.from({ length: 100 }, (_, i) => ({
+        ...mockRecipes[0],
+        id: `page1-recipe-${i}`,
+        name: `Recipe ${i}`,
+      }))
+
       vi.mocked(useRecipeList).mockReturnValue({
-        data: mockRecipes,
-        isLoading: true,
+        data: fullPage,
+        isLoading: false,
         isError: false,
         error: null,
       } as any)
 
-      renderWithRouter(
+      const { rerender } = renderWithRouter(
         <RecipeGrid
           searchQuery=""
           filters={{}}
@@ -161,8 +175,31 @@ describe('RecipeGrid', () => {
         />
       )
 
-      // Should not show main loading message when data exists
+      // Advance past the first page
+      await user.click(screen.getByRole('button', { name: /Load More Recipes/i }))
+
+      // Now a fetch is in flight for page 2
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: fullPage,
+        isLoading: true,
+        isError: false,
+        error: null,
+      } as any)
+
+      rerender(
+        <BrowserRouter>
+          <RecipeGrid
+            searchQuery=""
+            filters={{}}
+            onFilterChange={mockOnFilterChange}
+            onBack={mockOnBack}
+          />
+        </BrowserRouter>
+      )
+
+      // The full-page message stays hidden; the pagination one takes over
       expect(screen.queryByText('Loading recipes...')).not.toBeInTheDocument()
+      expect(screen.getByText('Loading more recipes...')).toBeInTheDocument()
     })
   })
 

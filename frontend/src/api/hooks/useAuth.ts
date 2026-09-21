@@ -13,7 +13,7 @@ import {
   apiClient,
   setAuthToken,
   clearAuthToken,
-  getAuthToken,
+  isAuthenticated,
 } from '../client';
 import type {
   LoginRequest,
@@ -101,7 +101,10 @@ export function useCurrentUser() {
         method: 'GET',
       });
     },
-    enabled: () => !!getAuthToken(), // Use function to avoid stale closure
+    // isAuthenticated, not just getAuthToken: a token can be present but
+    // expired or malformed, and firing /auth/me with one only earns a 401.
+    // Kept as a function so the check is re-evaluated rather than captured.
+    enabled: () => isAuthenticated(),
     staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
   });
 }

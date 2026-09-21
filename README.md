@@ -27,6 +27,25 @@ The frontend runs separately:
 cd frontend && npm install && npm run dev
 ```
 
+Its tests and build:
+
+```bash
+cd frontend
+npx vitest run        # full suite, ~17s
+npm run build         # typecheck + production bundle
+```
+
+Two things to know when writing frontend tests:
+
+- Wrap renders in `src/test/renderWithProviders.tsx` rather than a bare
+  `render`. It supplies a Router and a QueryClient, which most components need
+  — often only after someone adds a hook or a `<Link>` long after the test was
+  written.
+- On fake timers, `waitFor` cannot poll (it needs the real timers it just
+  froze) and `userEvent` hangs unless you pass
+  `vi.useFakeTimers({ shouldAdvanceTime: true })`. Advance inside `act()` and
+  assert synchronously.
+
 The API applies any pending Alembic migrations on startup and seeds local test
 users (`sarah@freshup.dev` / `alex@freshup.dev`, password `FreshUp2024!`) when
 `ENVIRONMENT=local`.

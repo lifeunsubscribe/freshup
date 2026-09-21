@@ -42,16 +42,23 @@ describe('App', () => {
     })
   })
 
+  const renderApp = () =>
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    )
+
   describe('routing structure', () => {
     it('renders the app wrapper with BrowserRouter and AuthProvider', () => {
-      render(<App />)
+      renderApp()
       // App should render without crashing
       expect(document.body).toBeInTheDocument()
     })
 
     it('shows NotFound page for invalid routes', async () => {
       window.history.pushState({}, '', '/invalid-route')
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         expect(screen.getByText('404')).toBeInTheDocument()
@@ -61,7 +68,7 @@ describe('App', () => {
 
     it('renders NotFound page with "Go Home" link', async () => {
       window.history.pushState({}, '', '/nonexistent')
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         const homeLink = screen.getByRole('link', { name: /go home/i })
@@ -73,7 +80,7 @@ describe('App', () => {
   describe('bottom navigation visibility', () => {
     it('shows BottomNav on protected routes', async () => {
       window.history.pushState({}, '', '/')
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         const nav = screen.getByRole('navigation', { name: /main navigation/i })
@@ -83,7 +90,7 @@ describe('App', () => {
 
     it('hides BottomNav on login page', async () => {
       window.history.pushState({}, '', '/login')
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         const nav = screen.queryByRole('navigation', { name: /main navigation/i })
@@ -95,7 +102,7 @@ describe('App', () => {
   describe('route definitions', () => {
     it('defines all required routes', () => {
       // This test verifies that the routes exist by checking the App component structure
-      render(<App />)
+      renderApp()
 
       // The app should render successfully with all routes defined
       expect(document.querySelector('.min-h-screen')).toBeInTheDocument()
@@ -153,7 +160,7 @@ describe('App', () => {
         throw new Error('Failed to load authentication state')
       })
 
-      render(<App />)
+      renderApp()
 
       // Should render the AuthErrorFallback UI
       await waitFor(() => {
@@ -175,7 +182,7 @@ describe('App', () => {
         throw new Error('Network timeout')
       })
 
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Authentication Error' })).toBeInTheDocument()
@@ -196,7 +203,7 @@ describe('App', () => {
         throw new Error('Database connection failed: postgresql://user:password@host/db')
       })
 
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Authentication Error' })).toBeInTheDocument()
@@ -225,7 +232,7 @@ describe('App', () => {
       delete (window as any).location
       window.location = { href: '' } as Location
 
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: 'Return to Login' })).toBeInTheDocument()
@@ -310,7 +317,7 @@ describe('App', () => {
         throw new Error('Failed to initialize auth context')
       })
 
-      render(<App />)
+      renderApp()
 
       // Should catch the error and render fallback
       await waitFor(() => {
@@ -334,7 +341,7 @@ describe('App', () => {
         throw new Error('Test error for logging')
       })
 
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: 'Authentication Error' })).toBeInTheDocument()

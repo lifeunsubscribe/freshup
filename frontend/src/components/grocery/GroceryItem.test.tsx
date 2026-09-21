@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import GroceryItem from './GroceryItem'
@@ -313,20 +313,22 @@ describe('GroceryItem', () => {
       const checkbox = screen.getByRole('button', {
         name: /Mark Olive oil as purchased/,
       })
-      fireEvent.click(checkbox)
+      // Fake timers are installed, so waitFor cannot poll — it relies on real
+      // timers that are frozen here. act() flushes the state update instead.
+      act(() => {
+        fireEvent.click(checkbox)
+      })
 
       // Error should be visible initially
-      await waitFor(() => {
-        expect(screen.getByRole('alert')).toBeInTheDocument()
-      })
+      expect(screen.getByRole('alert')).toBeInTheDocument()
 
       // Fast-forward 5 seconds
-      vi.advanceTimersByTime(5000)
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
 
       // Error should be dismissed
-      await waitFor(() => {
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-      })
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
       vi.useRealTimers()
     })

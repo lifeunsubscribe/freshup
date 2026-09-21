@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import RecipeCard from './RecipeCard'
@@ -50,9 +50,10 @@ describe('RecipeCard', () => {
       )
       const image = screen.getByAltText('Sweet Potato Chickpea Curry')
 
-      // Simulate image load error
-      const errorEvent = new Event('error', { bubbles: true })
-      image.dispatchEvent(errorEvent)
+      // fireEvent.error, not a hand-built Event: React routes onError through
+      // its synthetic event system and the resulting setState has to run inside
+      // act(). A raw dispatchEvent never reaches the handler.
+      fireEvent.error(image)
 
       // Should show "No image" placeholder after error
       expect(screen.getByText('No image')).toBeInTheDocument()
@@ -218,8 +219,10 @@ describe('RecipeCard', () => {
 
     it('displays metadata with separators in correct format', () => {
       renderWithRouter(<RecipeCard recipe={mockRecipe} servings={4} />)
-      // Check for the pattern: "25 min · 4 srv · mexican"
-      const metadataText = screen.getByText(/25 min/).textContent
+      // Check for the pattern: "25 min · 4 srv · mexican".
+      // Each field is its own <span>, so getByText returns just that span.
+      // Read the row that contains them.
+      const metadataText = screen.getByText(/25 min/).parentElement?.textContent
       expect(metadataText).toContain('25 min')
       expect(metadataText).toContain('4 srv')
       expect(metadataText).toContain('mexican')

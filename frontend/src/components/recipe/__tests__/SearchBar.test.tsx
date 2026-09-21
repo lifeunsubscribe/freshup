@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import SearchBar from '../SearchBar'
 
@@ -8,7 +8,10 @@ describe('SearchBar', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.useFakeTimers()
+    // shouldAdvanceTime lets real time tick alongside the fake clock, which is
+    // what userEvent v14 needs to resolve its internal scheduling. Without it
+    // every `await user.type(...)` hangs until the 5s test timeout.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
   })
 
   afterEach(() => {
@@ -42,7 +45,7 @@ describe('SearchBar', () => {
 
   describe('input interaction', () => {
     it('updates local value when typing', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = userEvent.setup({ delay: null, advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="" onChange={mockOnChange} />)
       const input = screen.getByPlaceholderText('Search recipes...')
 
@@ -64,7 +67,7 @@ describe('SearchBar', () => {
 
   describe('debounced onChange', () => {
     it('calls onChange after debounce delay (default 300ms)', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = userEvent.setup({ delay: null, advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="" onChange={mockOnChange} />)
       const input = screen.getByPlaceholderText('Search recipes...')
 
@@ -81,7 +84,7 @@ describe('SearchBar', () => {
     })
 
     it('respects custom debounce delay', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = userEvent.setup({ delay: null, advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="" onChange={mockOnChange} debounceMs={500} />)
       const input = screen.getByPlaceholderText('Search recipes...')
 
@@ -97,26 +100,35 @@ describe('SearchBar', () => {
       expect(mockOnChange).toHaveBeenCalledWith('burger')
     })
 
-    it('debounces multiple rapid keystrokes', async () => {
-      const user = userEvent.setup({ delay: null })
+    it('debounces multiple rapid keystrokes', () => {
+      // Driven with fireEvent rather than userEvent on purpose. The suite runs
+      // fake timers with shouldAdvanceTime so userEvent's internal scheduling
+      // resolves, but that also lets real time move during an await — enough
+      // for a 300ms debounce to fire before a 299ms boundary check. fireEvent
+      // is synchronous, so the only time that passes is what we advance.
       render(<SearchBar value="" onChange={mockOnChange} />)
       const input = screen.getByPlaceholderText('Search recipes...')
 
-      await user.type(input, 'chicken')
+      fireEvent.change(input, { target: { value: 'chicken' } })
 
-      // Fast-forward 299ms (just before debounce)
-      vi.advanceTimersByTime(299)
+      // Just before the debounce fires
+      act(() => {
+        vi.advanceTimersByTime(299)
+      })
       expect(mockOnChange).not.toHaveBeenCalled()
 
-      // Type one more character - should reset timer
-      await user.type(input, ' ')
+      // One more character resets the timer
+      fireEvent.change(input, { target: { value: 'chicken ' } })
 
-      // Fast-forward 299ms again
-      vi.advanceTimersByTime(299)
+      act(() => {
+        vi.advanceTimersByTime(299)
+      })
       expect(mockOnChange).not.toHaveBeenCalled()
 
-      // Fast-forward final 1ms to complete debounce
-      vi.advanceTimersByTime(1)
+      // Final 1ms completes the debounce
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
       expect(mockOnChange).toHaveBeenCalledTimes(1)
       expect(mockOnChange).toHaveBeenCalledWith('chicken ')
     })
@@ -139,7 +151,7 @@ describe('SearchBar', () => {
     })
 
     it('shows clear button when input has value', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = userEvent.setup({ delay: null, advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="" onChange={mockOnChange} />)
       const input = screen.getByPlaceholderText('Search recipes...')
 
@@ -149,7 +161,7 @@ describe('SearchBar', () => {
     })
 
     it('clears input when clear button is clicked', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="pasta" onChange={mockOnChange} />)
       const input = screen.getByPlaceholderText('Search recipes...') as HTMLInputElement
       const clearButton = screen.getByLabelText('Clear search')
@@ -161,7 +173,7 @@ describe('SearchBar', () => {
     })
 
     it('calls onChange immediately when clear button is clicked (no debounce)', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="soup" onChange={mockOnChange} />)
       const clearButton = screen.getByLabelText('Clear search')
 
@@ -173,7 +185,7 @@ describe('SearchBar', () => {
     })
 
     it('hides clear button after clearing', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="noodles" onChange={mockOnChange} />)
       const clearButton = screen.getByLabelText('Clear search')
 
@@ -185,7 +197,7 @@ describe('SearchBar', () => {
     })
 
     it('prevents stale debounced value after clear button is clicked', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = userEvent.setup({ delay: null, advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="" onChange={mockOnChange} />)
       const input = screen.getByPlaceholderText('Search recipes...')
 
@@ -211,7 +223,7 @@ describe('SearchBar', () => {
 
   describe('accessibility', () => {
     it('input is keyboard accessible', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = userEvent.setup({ delay: null, advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="" onChange={mockOnChange} />)
       const input = screen.getByPlaceholderText('Search recipes...')
 
@@ -228,7 +240,7 @@ describe('SearchBar', () => {
 
   describe('styling', () => {
     it('applies focus styles when input is focused', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) })
       render(<SearchBar value="" onChange={mockOnChange} />)
       const input = screen.getByPlaceholderText('Search recipes...')
 

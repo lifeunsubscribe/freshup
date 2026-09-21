@@ -79,6 +79,14 @@ describe('UserSwitcher', () => {
         mutations: { retry: false },
       },
     })
+
+    // UserSwitcher calls useUsers() before its coordinator check — hooks cannot
+    // be conditional — so even tests that expect it to render nothing need the
+    // auto-mock to return a shape. Individual tests override this.
+    vi.mocked(useUsers).mockReturnValue({
+      data: [],
+      isLoading: false,
+    } as any)
   })
 
   const renderWithProviders = (component: React.ReactElement) => {

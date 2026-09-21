@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useCurrentUser, useLogin, useLogout } from './useAuth'
+import { authKeys, useCurrentUser, useLogin, useLogout } from './useAuth'
 import { setAuthToken, clearAuthToken, getAuthToken } from '../client'
 import type { ReactNode } from 'react'
 
@@ -170,7 +170,15 @@ describe('useCurrentUser with token expiration', () => {
       // Start with no token
       clearAuthToken()
 
-      const wrapper = createWrapper()
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false, gcTime: 0 },
+          mutations: { retry: false },
+        },
+      })
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      )
       const { result, rerender } = renderHook(() => useCurrentUser(), { wrapper })
 
       // Initially no data
@@ -195,7 +203,13 @@ describe('useCurrentUser with token expiration', () => {
         json: async () => mockUserData,
       })
 
-      // Trigger re-evaluation
+      // Invalidate, the way useLogin does after storing a token. A bare
+      // rerender is not enough and never was: React Query re-reads `enabled`
+      // but does not start a fetch just because it flipped to true mid-render.
+      // The app does not depend on that — useLogin calls setAuthToken and then
+      // invalidateQueries(authKeys.currentUser()) — so this mirrors the real
+      // flow, and still proves `enabled` re-evaluates against the new token.
+      await queryClient.invalidateQueries({ queryKey: authKeys.currentUser() })
       rerender()
 
       // Query should now fetch data
