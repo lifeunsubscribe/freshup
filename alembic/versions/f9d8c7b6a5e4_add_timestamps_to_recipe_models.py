@@ -45,8 +45,16 @@ def downgrade() -> None:
     with op.batch_alter_table('recipe_ingredients', schema=None) as batch_op:
         batch_op.drop_column('created_at')
 
-    # Remove timestamps from recipes table
+    # Remove timestamps from recipes table.
+    # Guard ix_recipes_created_at: later migrations (oi0jpexw8quw, pi1jpdky8rus)
+    # run batch_alter_table on recipes without re-declaring this index, so SQLite
+    # batch mode silently drops it during the upgrade.  Attempting to drop an
+    # absent index aborts the entire downgrade chain.
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("recipes")}
     with op.batch_alter_table('recipes', schema=None) as batch_op:
-        batch_op.drop_index('ix_recipes_created_at')
+        if "ix_recipes_created_at" in existing_indexes:
+            batch_op.drop_index('ix_recipes_created_at')
         batch_op.drop_column('updated_at')
         batch_op.drop_column('created_at')

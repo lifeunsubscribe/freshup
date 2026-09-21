@@ -26,7 +26,22 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Remove is_persisted column from recipes table."""
+    """Remove is_persisted column from recipes table.
+
+    Guards against the sibling migration pi1jpdky8rus, which revises the same
+    parent (nh9iocxw7qtv) and also adds is_persisted (without an index).  When
+    upgrading from base to head, pi1jpdky8rus.upgrade() runs a batch_alter_table
+    on the recipes table AFTER this migration's upgrade created
+    ix_recipes_is_persisted.  SQLite batch mode rebuilds the table without
+    preserving indexes that were not re-declared within that batch context, so
+    the index may already be gone by the time this downgrade runs.  Attempting
+    to drop a non-existent index raises OperationalError on SQLite and would
+    abort the entire downgrade chain, so we skip gracefully when absent.
+    """
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("recipes")}
     with op.batch_alter_table('recipes', schema=None) as batch_op:
-        batch_op.drop_index('ix_recipes_is_persisted')
+        if "ix_recipes_is_persisted" in existing_indexes:
+            batch_op.drop_index('ix_recipes_is_persisted')
         batch_op.drop_column('is_persisted')

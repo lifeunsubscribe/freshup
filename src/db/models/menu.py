@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, func, UniqueConstraint
+from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, func, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -19,6 +19,9 @@ class Menu(Base):
     to override auto-generated results.
     """
     __tablename__ = "menus"
+    __table_args__ = (
+        Index('ix_menus_user_id', 'user_id'),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
@@ -47,6 +50,7 @@ class MenuRecipe(Base):
     __tablename__ = "menu_recipes"
     __table_args__ = (
         UniqueConstraint('menu_id', 'recipe_id', name='uq_menu_recipe'),
+        Index('ix_menu_recipes_recipe_id', 'recipe_id'),
     )
 
     menu_id: Mapped[UUID] = mapped_column(ForeignKey("menus.id"), primary_key=True)

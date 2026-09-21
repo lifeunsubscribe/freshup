@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Float, Boolean, ForeignKey, UniqueConstraint, DateTime, JSON, func
+from sqlalchemy import String, Float, Boolean, ForeignKey, UniqueConstraint, DateTime, JSON, func, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -20,6 +20,9 @@ class UserRecipeRelation(Base):
     __tablename__ = "user_recipe_relations"
     __table_args__ = (
         UniqueConstraint('user_id', 'recipe_id', name='uq_user_recipe_relation'),
+        Index('ix_user_recipe_relations_user_id', 'user_id'),
+        Index('ix_user_recipe_relations_recipe_id', 'recipe_id'),
+        Index('ix_user_recipe_relations_menu_id', 'menu_id'),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -30,7 +33,7 @@ class UserRecipeRelation(Base):
     is_liked: Mapped[bool] = mapped_column(Boolean, default=False)
     rating_photos: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     rating_comment: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
-    menu_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("menus.id"), nullable=True)
+    menu_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("menus.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
