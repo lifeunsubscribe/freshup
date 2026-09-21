@@ -12,6 +12,8 @@ build/
 .eggs/
 venv/
 .venv
+.venv*/
+env/
 
 # Database
 *.db

@@ -6,10 +6,14 @@ Privacy-first kitchen management system for multi-person households.
 
 ### Local Development (Mac)
 
-The project venv is `.venv313` (Python 3.13). Everything below assumes it.
+The project venv is `.venv` (Python 3.13). Everything below assumes it.
+
+Keep this name. Sharkrite looks for `.venv/bin/python`, then `venv/`, then
+`env/` — it does not find anything else, and will build its own `.venv` in
+every worktree if none is there.
 
 ```bash
-source .venv313/bin/activate
+source .venv/bin/activate
 pip install -r requirements.txt        # safe to re-run; catches drift
 uvicorn src.main:app --reload
 ```
@@ -90,9 +94,9 @@ Returns `schema` and `migrations` fields alongside `status` — `migrations:
 ## Testing
 
 ```bash
-.venv313/bin/python -m pytest -q              # full suite, ~6 min
-.venv313/bin/python -m pytest -q tests/routers # one area
-.venv313/bin/python -m pytest -m integration   # hits live scraper targets; excluded by default
+.venv/bin/python -m pytest -q              # full suite, ~6 min
+.venv/bin/python -m pytest -q tests/routers # one area
+.venv/bin/python -m pytest -m integration   # hits live scraper targets; excluded by default
 ```
 
 Most tests build their schema with `Base.metadata.create_all()` straight from
@@ -104,10 +108,10 @@ the models. Run it before any PR that touches `alembic/`.
 ## Database Migrations
 
 ```bash
-.venv313/bin/alembic heads                       # MUST be exactly one line
-.venv313/bin/alembic current                     # where this database sits
-.venv313/bin/alembic revision -m "describe it"   # always generate, never hand-write
-.venv313/bin/alembic upgrade head
+.venv/bin/alembic heads                       # MUST be exactly one line
+.venv/bin/alembic current                     # where this database sits
+.venv/bin/alembic revision -m "describe it"   # always generate, never hand-write
+.venv/bin/alembic upgrade head
 ```
 
 Two rules, both learned the hard way (see ADR Section 13):
