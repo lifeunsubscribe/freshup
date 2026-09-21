@@ -27,13 +27,39 @@ EXPECTED_TABLES = frozenset(Base.metadata.tables.keys())
 
 
 def _ensure_schema() -> None:
-    """Apply any pending Alembic migrations. Creates tables on a fresh DB."""
+    """Apply any pending Alembic migrations. Creates tables on a fresh DB.
+
+    Raises RuntimeError with an actionable message if the migration chain has
+    multiple heads (which makes ``alembic upgrade head`` ambiguous) or if the
+    upgrade command itself fails.
+    """
     from alembic.config import Config
     from alembic import command
+    from alembic.script import ScriptDirectory
+    from alembic.util.exc import CommandError
 
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
-    command.upgrade(alembic_cfg, "head")
+
+    # Guard: refuse to proceed when the chain is ambiguous.
+    script = ScriptDirectory.from_config(alembic_cfg)
+    heads = script.get_heads()
+    if len(heads) != 1:
+        heads_str = ", ".join(heads)
+        raise RuntimeError(
+            f"Migration chain has {len(heads)} heads: {heads_str}. "
+            "Resolve with: alembic merge -m '<reason>' "
+            + " ".join(heads)
+        )
+
+    try:
+        command.upgrade(alembic_cfg, "head")
+    except CommandError as exc:
+        raise RuntimeError(
+            f"alembic upgrade head failed: {exc}. "
+            "Check the migration chain and run `alembic upgrade head` manually "
+            "to diagnose."
+        ) from exc
 
 
 def _ensure_seed_data() -> None:

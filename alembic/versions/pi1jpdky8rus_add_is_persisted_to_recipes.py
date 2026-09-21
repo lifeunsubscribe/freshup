@@ -44,6 +44,20 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Remove is_persisted column from recipes table."""
+    """Remove is_persisted column from recipes table.
+
+    Guards against the sibling migration oi0jpexw8quw, which revises the same
+    parent (nh9iocxw7qtv) and also adds is_persisted (with an index).  When
+    downgrading from head to base, oi0jpexw8quw's downgrade runs before this
+    one (it sits deeper in the qk2lrgyz0swx→pj1kqfxy9rvw→oi0jpexw8quw chain),
+    so the column may already be gone.  Attempting drop_column on a
+    non-existent column raises OperationalError on SQLite and would abort the
+    entire downgrade chain, so we skip gracefully when the column is absent.
+    """
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {c["name"] for c in inspector.get_columns("recipes")}
+    if "is_persisted" not in columns:
+        return
     with op.batch_alter_table('recipes', schema=None) as batch_op:
         batch_op.drop_column('is_persisted')
