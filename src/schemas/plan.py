@@ -73,6 +73,12 @@ class ConfirmEntryResponse(BaseModel):
     grocery_items_added: int = Field(..., description="Number of items added to grocery list")
 
 
+class OptOutEntryResponse(BaseModel):
+    """Response schema for PUT /plan/entries/{id}/opt-out."""
+
+    entry: MealPlanEntrySchema = Field(..., description="Updated meal plan entry after opt-out")
+
+
 class CreateEntryRequest(BaseModel):
     """Request schema for POST /plan/entries — place a recipe into a meal slot."""
 

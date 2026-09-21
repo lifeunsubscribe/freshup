@@ -314,6 +314,90 @@ def confirm_entry(
         raise ValidationError("Failed to confirm meal plan entry")
 
 
+def opt_out_entry(
+    entry_id: UUID,
+    current_user: User,
+    db: Session,
+) -> MealPlanEntry:
+    """
+    Remove the calling user from a meal plan entry's opt-in list.
+
+    Idempotent: calling this when the user is already absent returns the
+    unchanged entry without error.  The entry itself is never deleted —
+    an empty opt-in list just means no one is currently opted in; the
+    household can decide what to do about it.
+
+    Serving recomputation rule:
+        planned_servings = len(remaining_opt_ins)   when that count > 0
+        planned_servings unchanged                  when the list empties
+
+    Args:
+        entry_id: ID of the entry to opt out of.
+        current_user: The authenticated user opting out.
+        db: Database session.
+
+    Returns:
+        The updated MealPlanEntry with user_opt_ins loaded.
+
+    Raises:
+        NotFoundError: If the entry doesn't exist.
+
+    Note:
+        Single-household mode: any authenticated user can opt out of any
+        entry.  When multi-household support is added a household membership
+        check should be inserted before the opt-out logic.
+    """
+    # TODO(multi-household): verify entry.household_id == current_user.household_id
+    # before allowing the opt-out.
+
+    # Load the entry with its current opt-in list
+    entry = (
+        db.query(MealPlanEntry)
+        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .filter(MealPlanEntry.id == entry_id)
+        .first()
+    )
+
+    if not entry:
+        raise NotFoundError(f"Meal plan entry {entry_id} not found")
+
+    # Remove the caller from opt-ins only if they are currently present.
+    # This makes the operation idempotent: a user who was never opted in
+    # (or who already opted out) gets a 200 with the unchanged entry.
+    opted_in_ids = {u.id for u in entry.user_opt_ins}
+    if current_user.id in opted_in_ids:
+        entry.user_opt_ins = [u for u in entry.user_opt_ins if u.id != current_user.id]
+
+        # Recompute planned_servings from the remaining opt-in count.
+        # If nobody is left we leave planned_servings alone so the household
+        # retains the original serving target for future reference.
+        remaining = len(entry.user_opt_ins)
+        if remaining > 0:
+            entry.planned_servings = remaining
+
+    try:
+        db.commit()
+        db.refresh(entry)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during opt-out for entry {entry_id}: {e}")
+        raise ValidationError("Failed to opt out of meal plan entry")
+
+    # Reload with fresh opt-ins so the response serialiser can access the list
+    entry_with_opts = (
+        db.query(MealPlanEntry)
+        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .filter(MealPlanEntry.id == entry.id)
+        .one()
+    )
+
+    logger.info(
+        f"User {current_user.id} opted out of meal plan entry {entry_id}; "
+        f"remaining opt-ins: {len(entry_with_opts.user_opt_ins)}"
+    )
+    return entry_with_opts
+
+
 def create_entry(
     request_date: date,
     meal_type: str,
