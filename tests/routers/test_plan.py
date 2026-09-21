@@ -616,7 +616,8 @@ def test_create_entry_caller_is_in_user_opt_ins(client, db_session, auth_headers
     )
 
     assert response.status_code == 201
-    entry_id = response.json()["id"]
+    from uuid import UUID as _UUID
+    entry_id = _UUID(response.json()["id"])
 
     # Verify in the database that the user is in opt-ins
     from src.db.models.meal_plan import meal_plan_user_association
@@ -697,7 +698,8 @@ def test_create_entry_persisted_recipe_entry_is_committed(
         headers=auth_headers,
     )
     assert response.status_code == 201
-    entry_id = response.json()["id"]
+    from uuid import UUID as _UUID
+    entry_id = _UUID(response.json()["id"])
 
     # Query via a fresh SELECT to confirm the row was committed, not just flushed
     fresh_entry = db_session.query(MealPlanEntry).filter(
@@ -709,39 +711,35 @@ def test_create_entry_persisted_recipe_entry_is_committed(
     assert fresh_entry.recipe_id == single_recipe.id
 
 
-def test_create_entry_null_base_servings_no_planned_servings_returns_422(
+def test_create_entry_omitted_planned_servings_falls_back_to_base_servings(
     client, db_session, auth_headers, test_user
 ):
-    """When base_servings is None and planned_servings is omitted, return 422 not 500.
+    """When planned_servings is omitted, the entry uses recipe.base_servings as the default.
 
-    Regression for: `None < 1` TypeError when both planned_servings is omitted
-    and recipe.base_servings is None, which previously surfaced as a 500.
+    Recipe.base_servings is a non-nullable int column (default=4); omitting
+    planned_servings falls back to that value and the request succeeds with 201.
     """
-    # Create a recipe with no base_servings set
-    recipe_no_servings = Recipe(
+    recipe = Recipe(
         id=uuid4(),
-        name="Recipe Without Servings",
+        name="Recipe With Default Servings",
         source_type="manual",
-        base_servings=None,
         is_persisted=True,
         created_by=test_user.id,
     )
-    db_session.add(recipe_no_servings)
+    db_session.add(recipe)
     db_session.commit()
-    db_session.refresh(recipe_no_servings)
+    db_session.refresh(recipe)
 
     response = client.post(
         "/plan/entries",
         json={
             "date": "2026-09-22",
             "meal_type": "dinner",
-            "recipe_id": str(recipe_no_servings.id),
-            # planned_servings intentionally omitted — will fall back to base_servings=None
+            "recipe_id": str(recipe.id),
+            # planned_servings intentionally omitted — falls back to recipe.base_servings
         },
         headers=auth_headers,
     )
 
-    assert response.status_code == 422, (
-        f"Expected 422 but got {response.status_code}; "
-        "None base_servings should return 422, not 500"
-    )
+    assert response.status_code == 201
+    assert response.json()["planned_servings"] == recipe.base_servings
