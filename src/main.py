@@ -27,13 +27,50 @@ EXPECTED_TABLES = frozenset(Base.metadata.tables.keys())
 
 
 def _ensure_schema() -> None:
-    """Apply any pending Alembic migrations. Creates tables on a fresh DB."""
+    """
+    Apply any pending Alembic migrations. Creates tables on a fresh DB.
+
+    Failures here are fatal by design — serving requests against a schema the
+    models do not match produces confusing errors far from the cause. But they
+    are reported with a diagnosis rather than a bare traceback: this runs during
+    lifespan startup, so a failure means the app never starts, Docker's
+    `restart: unless-stopped` brings it back, it fails again, and the only
+    symptom is a crash loop. That is exactly how a three-head migration chain
+    kept the API down from 2026-05-03 to 2026-09-18 without anyone noticing
+    (ADR Section 13.1).
+    """
     from alembic.config import Config
     from alembic import command
+    from alembic.script import ScriptDirectory
+    from alembic.util.exc import CommandError
 
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
-    command.upgrade(alembic_cfg, "head")
+
+    # Check for a branched chain first. `upgrade("head")` on multiple heads
+    # raises a CommandError whose message does not say which heads, nor how to
+    # resolve it.
+    heads = ScriptDirectory.from_config(alembic_cfg).get_heads()
+    if len(heads) > 1:
+        message = (
+            f"Cannot start: the Alembic chain has {len(heads)} heads "
+            f"({', '.join(sorted(heads))}). `alembic upgrade head` is ambiguous, "
+            "so the schema cannot be brought up to date. Merge them with: "
+            f"alembic merge -m 'merge heads' {' '.join(sorted(heads))}"
+        )
+        logger.error(message)
+        raise RuntimeError(message)
+
+    try:
+        command.upgrade(alembic_cfg, "head")
+    except CommandError as e:
+        message = (
+            f"Cannot start: database migration failed ({e}). Run "
+            "`alembic upgrade head` against this database to see the full "
+            "traceback, and see ADR Section 13 before editing any migration."
+        )
+        logger.error(message)
+        raise RuntimeError(message) from e
 
 
 def _ensure_seed_data() -> None:

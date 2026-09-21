@@ -270,3 +270,80 @@ def _is_uuid_affinity_diff(entry: tuple) -> bool:
     existing_type, target_type = entry[5], entry[6]
     rendered = {type(existing_type).__name__, type(target_type).__name__}
     return rendered <= {"NUMERIC", "Uuid", "UUID", "CHAR"}
+
+
+class TestStartupReportsMigrationFailures:
+    """
+    A broken chain must say what is wrong, not just crash.
+
+    _ensure_schema runs during lifespan startup, so any failure stops the app
+    from booting. With `restart: unless-stopped` and the homelab container
+    check, the visible symptom is a restart loop — which is why the three-head
+    chain went unnoticed for four months. The message has to name the problem
+    and the fix.
+    """
+
+    def test_multiple_heads_raises_an_actionable_error(self, monkeypatch, tmp_path):
+        from alembic.script import ScriptDirectory
+        import src.main as main
+
+        monkeypatch.setattr(
+            ScriptDirectory, "get_heads", lambda self: ["aaaa1111", "bbbb2222"]
+        )
+
+        with pytest.raises(RuntimeError) as excinfo:
+            main._ensure_schema()
+
+        message = str(excinfo.value)
+        assert "2 heads" in message
+        assert "aaaa1111" in message and "bbbb2222" in message
+        # The operator should be able to copy the fix straight out of the log.
+        assert "alembic merge" in message
+
+    def test_upgrade_failure_is_wrapped_with_guidance(self, monkeypatch):
+        from alembic import command
+        from alembic.util.exc import CommandError
+        import src.main as main
+
+        def boom(*_args, **_kwargs):
+            raise CommandError("relation already exists")
+
+        monkeypatch.setattr(command, "upgrade", boom)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            main._ensure_schema()
+
+        message = str(excinfo.value)
+        assert "relation already exists" in message
+        assert "alembic upgrade head" in message
+
+    def test_single_head_chain_starts_cleanly(self, tmp_path):
+        """
+        The happy path still runs the upgrade rather than short-circuiting.
+
+        Run in a subprocess like the rest of this file. alembic/env.py calls
+        logging.config.fileConfig, which rebuilds the global logging config and
+        marks every existing logger disabled — in-process that silently breaks
+        caplog for the remainder of the session, and unrelated logging
+        assertions elsewhere start failing.
+        """
+        db_path = tmp_path / "startup.db"
+        result = subprocess.run(
+            [sys.executable, "-c", "import src.main as m; m._ensure_schema()"],
+            cwd=PROJECT_ROOT,
+            env={**os.environ, "DATABASE_URL": f"sqlite:///{db_path}"},
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"_ensure_schema failed on a clean database:\n{result.stdout}\n{result.stderr}"
+        )
+
+        engine = create_engine(f"sqlite:///{db_path}")
+        try:
+            tables = set(inspect(engine).get_table_names())
+        finally:
+            engine.dispose()
+
+        assert "alembic_version" in tables
+        assert set(Base.metadata.tables.keys()) <= tables
