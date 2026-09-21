@@ -17,6 +17,7 @@ from src.db.models.recipe import Recipe
 from src.db.models.recipe_ingredient import RecipeIngredient
 from src.services import feed_service
 from src.services import grocery_service
+from src.services import recipe_service
 from src.exceptions import NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -311,3 +312,99 @@ def confirm_entry(
         db.rollback()
         logger.error(f"Database error during entry confirmation: {e}")
         raise ValidationError("Failed to confirm meal plan entry")
+
+
+def create_entry(
+    request_date: date,
+    meal_type: str,
+    recipe_id: UUID,
+    planned_servings: int | None,
+    notes: str | None,
+    current_user: User,
+    db: Session,
+) -> MealPlanEntry:
+    """
+    Create a single draft meal plan entry for a given date and meal slot.
+
+    Places a recipe into the household meal plan for the specified date and
+    meal type. Multiple entries for the same date/meal slot are permitted
+    (e.g. two different dinners for different household members).
+
+    Side effects:
+    - Appends the calling user to the entry's user_opt_ins association.
+    - Calls trigger_persistence so browse-cache recipes survive the cleanup job.
+
+    Args:
+        request_date: Calendar date for the meal.
+        meal_type: One of 'breakfast', 'lunch', 'dinner', 'snack'.
+        recipe_id: ID of the recipe to plan.
+        planned_servings: Serving count; defaults to recipe.base_servings when None.
+        notes: Optional free-text annotation.
+        current_user: The authenticated user making the request.
+        db: Database session.
+
+    Returns:
+        The newly created MealPlanEntry with user_opt_ins loaded.
+
+    Raises:
+        NotFoundError: If the recipe does not exist.
+        ValidationError: If planned_servings is not positive.
+    """
+    # Look up the recipe — 404 if it doesn't exist
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise NotFoundError(f"Recipe {recipe_id} not found")
+
+    # Apply the serving default before any validation so the error message
+    # correctly reflects what was used.
+    servings = planned_servings if planned_servings is not None else recipe.base_servings
+
+    # Guard: base_servings should always be >= 1, but validate defensively.
+    # Also handles None (recipe.base_servings not set) to avoid TypeError.
+    if servings is None or servings < 1:
+        raise ValidationError("planned_servings must be greater than 0")
+
+    # Build the entry; status is always draft for user-created entries
+    entry = MealPlanEntry(
+        date=request_date,
+        meal_type=meal_type,
+        recipe_id=recipe.id,
+        planned_servings=servings,
+        status=MealPlanStatus.draft.value,
+        notes=notes,
+    )
+    db.add(entry)
+
+    # Flush to assign entry.id before manipulating the association table
+    db.flush()
+
+    # Opt the calling user in — they requested this meal
+    entry.user_opt_ins.append(current_user)
+
+    # Persist the recipe so the cleanup job won't delete a planned recipe.
+    # trigger_persistence is idempotent but only commits when the recipe was
+    # not already persisted; we therefore always commit explicitly below to
+    # ensure the entry and opt-in rows flushed above are durably saved.
+    try:
+        recipe_service.trigger_persistence(recipe, db)
+        db.commit()
+        db.refresh(entry)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error while persisting recipe {recipe_id}: {e}")
+        raise ValidationError("Failed to create meal plan entry")
+
+    # Re-load with opt-ins so the schema serialiser can access the relationship
+    db.refresh(entry)
+    entry_with_opts = (
+        db.query(MealPlanEntry)
+        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .filter(MealPlanEntry.id == entry.id)
+        .one()
+    )
+
+    logger.info(
+        f"Created meal plan entry for user {current_user.id}: "
+        f"recipe={recipe_id}, date={request_date}, meal_type={meal_type}"
+    )
+    return entry_with_opts

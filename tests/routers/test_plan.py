@@ -425,3 +425,321 @@ def test_endpoints_require_authentication(client):
     fake_id = uuid4()
     response = client.put(f"/plan/entries/{fake_id}/confirm")
     assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# POST /plan/entries — create_entry tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def single_recipe(db_session, test_user):
+    """Create a single recipe with a known base_servings value."""
+    recipe = Recipe(
+        id=uuid4(),
+        name="Single Test Recipe",
+        source_type="manual",
+        base_servings=3,
+        prep_time_minutes=10,
+        cook_time_minutes=20,
+        is_persisted=True,
+        created_by=test_user.id,
+    )
+    db_session.add(recipe)
+    db_session.commit()
+    db_session.refresh(recipe)
+    return recipe
+
+
+@pytest.fixture
+def unpersisted_recipe(db_session, test_user):
+    """Create a recipe that has not been persisted (browse-cache state)."""
+    recipe = Recipe(
+        id=uuid4(),
+        name="Browse Cache Recipe",
+        source_type="url_import",
+        base_servings=2,
+        is_persisted=False,
+        created_by=test_user.id,
+    )
+    db_session.add(recipe)
+    db_session.commit()
+    db_session.refresh(recipe)
+    return recipe
+
+
+def test_create_entry_returns_201_with_body(client, auth_headers, single_recipe):
+    """POST /plan/entries creates an entry and returns 201 with the entry body."""
+    payload = {
+        "date": "2026-09-22",
+        "meal_type": "dinner",
+        "recipe_id": str(single_recipe.id),
+        "planned_servings": 4,
+    }
+
+    response = client.post("/plan/entries", json=payload, headers=auth_headers)
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["recipe_id"] == str(single_recipe.id)
+    assert data["meal_type"] == "dinner"
+    assert data["planned_servings"] == 4
+    assert data["status"] == MealPlanStatus.draft.value
+    assert "id" in data
+
+
+def test_create_entry_appears_in_week_view(client, db_session, auth_headers, single_recipe):
+    """Entry created via POST /plan/entries is returned by GET /plan/week."""
+    entry_date = date(2026, 9, 22)
+
+    client.post(
+        "/plan/entries",
+        json={
+            "date": entry_date.isoformat(),
+            "meal_type": "lunch",
+            "recipe_id": str(single_recipe.id),
+            "planned_servings": 2,
+        },
+        headers=auth_headers,
+    )
+
+    # week_start must cover 2026-09-22; Monday of that week is 2026-09-21
+    week_start = date(2026, 9, 21)
+    response = client.get(
+        f"/plan/week?week_start={week_start.isoformat()}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    draft_ids = [e["recipe_id"] for e in data["draft_entries"]]
+    assert str(single_recipe.id) in draft_ids
+
+
+def test_create_entry_defaults_planned_servings_to_base_servings(
+    client, auth_headers, single_recipe
+):
+    """When planned_servings is omitted, it defaults to the recipe's base_servings."""
+    payload = {
+        "date": "2026-09-22",
+        "meal_type": "breakfast",
+        "recipe_id": str(single_recipe.id),
+        # planned_servings intentionally omitted
+    }
+
+    response = client.post("/plan/entries", json=payload, headers=auth_headers)
+
+    assert response.status_code == 201
+    assert response.json()["planned_servings"] == single_recipe.base_servings
+
+
+def test_create_entry_invalid_meal_type_returns_422(client, auth_headers, single_recipe):
+    """Invalid meal_type value is rejected with 422 by Pydantic."""
+    payload = {
+        "date": "2026-09-22",
+        "meal_type": "midnight_snack",  # not a valid MealType
+        "recipe_id": str(single_recipe.id),
+        "planned_servings": 2,
+    }
+
+    response = client.post("/plan/entries", json=payload, headers=auth_headers)
+
+    assert response.status_code == 422
+
+
+def test_create_entry_zero_servings_returns_422(client, auth_headers, single_recipe):
+    """planned_servings of 0 is rejected with 422 (ge=1 constraint)."""
+    payload = {
+        "date": "2026-09-22",
+        "meal_type": "dinner",
+        "recipe_id": str(single_recipe.id),
+        "planned_servings": 0,
+    }
+
+    response = client.post("/plan/entries", json=payload, headers=auth_headers)
+
+    assert response.status_code == 422
+
+
+def test_create_entry_negative_servings_returns_422(client, auth_headers, single_recipe):
+    """planned_servings < 0 is rejected with 422 (ge=1 constraint)."""
+    payload = {
+        "date": "2026-09-22",
+        "meal_type": "dinner",
+        "recipe_id": str(single_recipe.id),
+        "planned_servings": -1,
+    }
+
+    response = client.post("/plan/entries", json=payload, headers=auth_headers)
+
+    assert response.status_code == 422
+
+
+def test_create_entry_unknown_recipe_returns_404(client, auth_headers):
+    """POST /plan/entries with an unknown recipe_id returns 404."""
+    payload = {
+        "date": "2026-09-22",
+        "meal_type": "dinner",
+        "recipe_id": str(uuid4()),
+        "planned_servings": 2,
+    }
+
+    response = client.post("/plan/entries", json=payload, headers=auth_headers)
+
+    assert response.status_code == 404
+
+
+def test_create_entry_requires_authentication(client, single_recipe):
+    """POST /plan/entries without auth returns 401."""
+    payload = {
+        "date": "2026-09-22",
+        "meal_type": "dinner",
+        "recipe_id": str(single_recipe.id),
+        "planned_servings": 2,
+    }
+
+    response = client.post("/plan/entries", json=payload)  # no auth headers
+
+    assert response.status_code == 401
+
+
+def test_create_entry_caller_is_in_user_opt_ins(client, db_session, auth_headers, test_user, single_recipe):
+    """The calling user is added to the entry's user_opt_ins."""
+    response = client.post(
+        "/plan/entries",
+        json={
+            "date": "2026-09-22",
+            "meal_type": "dinner",
+            "recipe_id": str(single_recipe.id),
+            "planned_servings": 2,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+    from uuid import UUID as _UUID
+    entry_id = _UUID(response.json()["id"])
+
+    # Verify in the database that the user is in opt-ins
+    from src.db.models.meal_plan import meal_plan_user_association
+    row = db_session.execute(
+        meal_plan_user_association.select().where(
+            meal_plan_user_association.c.meal_plan_entry_id == entry_id
+        )
+    ).first()
+    assert row is not None
+    assert str(row.user_id) == str(test_user.id)
+
+
+def test_create_entry_triggers_recipe_persistence(
+    client, db_session, auth_headers, unpersisted_recipe
+):
+    """Adding a non-persisted recipe to the plan sets is_persisted=True."""
+    assert unpersisted_recipe.is_persisted is False
+
+    response = client.post(
+        "/plan/entries",
+        json={
+            "date": "2026-09-22",
+            "meal_type": "dinner",
+            "recipe_id": str(unpersisted_recipe.id),
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+
+    # Re-query to get fresh state from the database
+    db_session.expire(unpersisted_recipe)
+    db_session.refresh(unpersisted_recipe)
+    assert unpersisted_recipe.is_persisted is True
+
+
+def test_create_entry_allows_duplicate_date_meal_slot(
+    client, auth_headers, single_recipe
+):
+    """Two entries for the same date and meal slot are both accepted (201)."""
+    payload = {
+        "date": "2026-09-22",
+        "meal_type": "dinner",
+        "recipe_id": str(single_recipe.id),
+        "planned_servings": 2,
+    }
+
+    response1 = client.post("/plan/entries", json=payload, headers=auth_headers)
+    response2 = client.post("/plan/entries", json=payload, headers=auth_headers)
+
+    assert response1.status_code == 201
+    assert response2.status_code == 201
+    # Each call creates a distinct entry
+    assert response1.json()["id"] != response2.json()["id"]
+
+
+def test_create_entry_persisted_recipe_entry_is_committed(
+    client, db_session, auth_headers, single_recipe
+):
+    """Entry created for an already-persisted recipe must be durable (committed).
+
+    Regression for: trigger_persistence returns False without committing when
+    recipe.is_persisted is True, causing the entry to be discarded on session close.
+    Verified via GET /plan/week on a fresh query — the draft entry must appear.
+    """
+    entry_date = date(2026, 9, 22)
+    # single_recipe fixture has is_persisted=True — this is the primary happy path
+    assert single_recipe.is_persisted is True
+
+    response = client.post(
+        "/plan/entries",
+        json={
+            "date": entry_date.isoformat(),
+            "meal_type": "dinner",
+            "recipe_id": str(single_recipe.id),
+            "planned_servings": 2,
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    from uuid import UUID as _UUID
+    entry_id = _UUID(response.json()["id"])
+
+    # Query via a fresh SELECT to confirm the row was committed, not just flushed
+    fresh_entry = db_session.query(MealPlanEntry).filter(
+        MealPlanEntry.id == entry_id
+    ).first()
+    assert fresh_entry is not None, (
+        "Entry was not committed to the database; likely discarded after session close"
+    )
+    assert fresh_entry.recipe_id == single_recipe.id
+
+
+def test_create_entry_omitted_planned_servings_falls_back_to_base_servings(
+    client, db_session, auth_headers, test_user
+):
+    """When planned_servings is omitted, the entry uses recipe.base_servings as the default.
+
+    Recipe.base_servings is a non-nullable int column (default=4); omitting
+    planned_servings falls back to that value and the request succeeds with 201.
+    """
+    recipe = Recipe(
+        id=uuid4(),
+        name="Recipe With Default Servings",
+        source_type="manual",
+        is_persisted=True,
+        created_by=test_user.id,
+    )
+    db_session.add(recipe)
+    db_session.commit()
+    db_session.refresh(recipe)
+
+    response = client.post(
+        "/plan/entries",
+        json={
+            "date": "2026-09-22",
+            "meal_type": "dinner",
+            "recipe_id": str(recipe.id),
+            # planned_servings intentionally omitted — falls back to recipe.base_servings
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["planned_servings"] == recipe.base_servings
