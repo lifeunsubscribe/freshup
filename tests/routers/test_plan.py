@@ -671,3 +671,77 @@ def test_create_entry_allows_duplicate_date_meal_slot(
     assert response2.status_code == 201
     # Each call creates a distinct entry
     assert response1.json()["id"] != response2.json()["id"]
+
+
+def test_create_entry_persisted_recipe_entry_is_committed(
+    client, db_session, auth_headers, single_recipe
+):
+    """Entry created for an already-persisted recipe must be durable (committed).
+
+    Regression for: trigger_persistence returns False without committing when
+    recipe.is_persisted is True, causing the entry to be discarded on session close.
+    Verified via GET /plan/week on a fresh query — the draft entry must appear.
+    """
+    entry_date = date(2026, 9, 22)
+    # single_recipe fixture has is_persisted=True — this is the primary happy path
+    assert single_recipe.is_persisted is True
+
+    response = client.post(
+        "/plan/entries",
+        json={
+            "date": entry_date.isoformat(),
+            "meal_type": "dinner",
+            "recipe_id": str(single_recipe.id),
+            "planned_servings": 2,
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    entry_id = response.json()["id"]
+
+    # Query via a fresh SELECT to confirm the row was committed, not just flushed
+    fresh_entry = db_session.query(MealPlanEntry).filter(
+        MealPlanEntry.id == entry_id
+    ).first()
+    assert fresh_entry is not None, (
+        "Entry was not committed to the database; likely discarded after session close"
+    )
+    assert fresh_entry.recipe_id == single_recipe.id
+
+
+def test_create_entry_null_base_servings_no_planned_servings_returns_422(
+    client, db_session, auth_headers, test_user
+):
+    """When base_servings is None and planned_servings is omitted, return 422 not 500.
+
+    Regression for: `None < 1` TypeError when both planned_servings is omitted
+    and recipe.base_servings is None, which previously surfaced as a 500.
+    """
+    # Create a recipe with no base_servings set
+    recipe_no_servings = Recipe(
+        id=uuid4(),
+        name="Recipe Without Servings",
+        source_type="manual",
+        base_servings=None,
+        is_persisted=True,
+        created_by=test_user.id,
+    )
+    db_session.add(recipe_no_servings)
+    db_session.commit()
+    db_session.refresh(recipe_no_servings)
+
+    response = client.post(
+        "/plan/entries",
+        json={
+            "date": "2026-09-22",
+            "meal_type": "dinner",
+            "recipe_id": str(recipe_no_servings.id),
+            # planned_servings intentionally omitted — will fall back to base_servings=None
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422, (
+        f"Expected 422 but got {response.status_code}; "
+        "None base_servings should return 422, not 500"
+    )

@@ -359,8 +359,9 @@ def create_entry(
     # correctly reflects what was used.
     servings = planned_servings if planned_servings is not None else recipe.base_servings
 
-    # Guard: base_servings should always be >= 1, but validate defensively
-    if servings < 1:
+    # Guard: base_servings should always be >= 1, but validate defensively.
+    # Also handles None (recipe.base_servings not set) to avoid TypeError.
+    if servings is None or servings < 1:
         raise ValidationError("planned_servings must be greater than 0")
 
     # Build the entry; status is always draft for user-created entries
@@ -380,11 +381,14 @@ def create_entry(
     # Opt the calling user in — they requested this meal
     entry.user_opt_ins.append(current_user)
 
-    # Persist the recipe so the cleanup job won't delete a planned recipe
-    # trigger_persistence is idempotent and commits the session (including
-    # the entry and opt-in row flushed above).
+    # Persist the recipe so the cleanup job won't delete a planned recipe.
+    # trigger_persistence is idempotent but only commits when the recipe was
+    # not already persisted; we therefore always commit explicitly below to
+    # ensure the entry and opt-in rows flushed above are durably saved.
     try:
         recipe_service.trigger_persistence(recipe, db)
+        db.commit()
+        db.refresh(entry)
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"Database error while persisting recipe {recipe_id}: {e}")
