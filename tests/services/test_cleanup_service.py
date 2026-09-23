@@ -11,7 +11,7 @@ Tests cover:
 
 import pytest
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from uuid import uuid4
@@ -21,6 +21,7 @@ from src.db import models  # Import all models to ensure Base.metadata has all t
 from src.db.models.recipe import Recipe
 from src.db.models.user import User, UserRole
 from src.db.models.user_recipe import UserRecipeRelation
+from src.db.models.user_recipe_view import UserRecipeView
 from src.services.cleanup_service import prune_unpersisted_recipes
 from src.services.auth_service import hash_password
 
@@ -63,6 +64,13 @@ def db_session():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,  # Critical for SQLite :memory: to work correctly
     )
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     Base.metadata.create_all(bind=engine)
@@ -292,6 +300,48 @@ class TestPruneUnpersistedRecipes:
 
         # Verify no errors and returns 0
         assert pruned_count == 0
+
+    def test_deletes_view_rows_for_pruned_recipe(self, db_session, test_user):
+        """Pruning a browse-cache recipe cascades to UserRecipeView rows.
+
+        This is load-bearing: viewed browse-cache recipes are pruned by
+        prune_unpersisted_recipes. Without CASCADE on user_recipe_views.recipe_id
+        the delete would fail outright or leave orphaned view rows.
+        """
+        old_date = datetime.now(timezone.utc) - timedelta(days=10)
+        recipe_id = uuid4()
+        old_recipe = Recipe(
+            id=recipe_id,
+            name="Old Browse Recipe With Views",
+            source_type="hellofresh_web",
+            is_persisted=False,
+            created_at=old_date,
+            created_by=None,
+        )
+        db_session.add(old_recipe)
+        db_session.commit()
+
+        # Create view rows for this recipe
+        view_id = uuid4()
+        view = UserRecipeView(
+            id=view_id,
+            user_id=test_user.id,
+            recipe_id=recipe_id,
+            source="browse",
+        )
+        db_session.add(view)
+        db_session.commit()
+
+        # Verify view exists before cleanup
+        assert db_session.query(UserRecipeView).filter_by(id=view_id).first() is not None
+
+        # Run cleanup
+        pruned_count = prune_unpersisted_recipes(db_session)
+
+        # Verify recipe and its view rows were both removed
+        assert pruned_count == 1
+        assert db_session.query(Recipe).filter_by(id=recipe_id).first() is None
+        assert db_session.query(UserRecipeView).filter_by(id=view_id).first() is None
 
     def test_custom_ttl_setting(self, db_session, test_user, monkeypatch):
         """Test that cleanup respects custom TTL setting."""

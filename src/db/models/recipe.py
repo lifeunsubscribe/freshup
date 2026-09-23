@@ -54,3 +54,9 @@ class Recipe(Base):
     user_relations: Mapped[list["UserRecipeRelation"]] = relationship(back_populates="recipe_rel")
     menu_recipes: Mapped[list["MenuRecipe"]] = relationship(back_populates="recipe_rel")
     prepared_foods: Mapped[list["PreparedFood"]] = relationship(back_populates="source_recipe_rel")
+    cook_events: Mapped[list["UserCookEvent"]] = relationship(
+        back_populates="recipe_rel", cascade="all, delete-orphan", passive_deletes=True
+    )
+    views: Mapped[list["UserRecipeView"]] = relationship(
+        back_populates="recipe_rel", cascade="all, delete-orphan", passive_deletes=True
+    )
