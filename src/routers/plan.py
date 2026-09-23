@@ -22,6 +22,7 @@ from src.schemas.plan import (
     DraftGenerateResponse,
     WeekViewResponse,
     ConfirmEntryResponse,
+    OptOutEntryResponse,
     MealPlanEntrySchema,
     CreateEntryRequest,
 )
@@ -157,6 +158,51 @@ def confirm_entry(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to confirm meal plan entry",
+        )
+
+
+@router.put("/entries/{entry_id}/opt-out", response_model=OptOutEntryResponse)
+def opt_out_entry(
+    entry_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> OptOutEntryResponse:
+    """
+    Remove the calling user from a meal plan entry's opt-in list.
+
+    Idempotent: calling this endpoint twice in a row returns 200 both times
+    and leaves one consistent state.  The entry is never deleted, even when
+    the last participant opts out.  planned_servings is recomputed from the
+    remaining opt-in count when that count is > 0; it is left unchanged when
+    nobody remains opted in.
+
+    **Auth:** Required
+    **Scope:** Phase 2.5E - Per-meal opt-out
+    """
+    try:
+        entry = meal_plan_service.opt_out_entry(
+            entry_id=entry_id,
+            current_user=current_user,
+            db=db,
+        )
+        return OptOutEntryResponse(entry=MealPlanEntrySchema.model_validate(entry))
+    except NotFoundError as e:
+        logger.warning(f"Entry not found during opt-out: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        logger.warning(f"Validation error during opt-out: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during opt-out: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to opt out of meal plan entry",
         )
 
 

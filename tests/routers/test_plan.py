@@ -426,6 +426,10 @@ def test_endpoints_require_authentication(client):
     response = client.put(f"/plan/entries/{fake_id}/confirm")
     assert response.status_code == 401
 
+    # Test opt-out
+    response = client.put(f"/plan/entries/{fake_id}/opt-out")
+    assert response.status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # POST /plan/entries — create_entry tests
@@ -711,6 +715,272 @@ def test_create_entry_persisted_recipe_entry_is_committed(
     assert fresh_entry.recipe_id == single_recipe.id
 
 
+@pytest.fixture
+def second_user(db_session):
+    """Create a second household member for multi-user opt-out tests."""
+    user = User(
+        id=uuid4(),
+        name="Second User",
+        email="second@example.com",
+        hashed_password=hash_password("testpass123"),
+        role=UserRole.member.value,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def second_user_headers(second_user):
+    """Generate auth headers for the second user."""
+    token = create_access_token({"sub": str(second_user.id)})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def opted_in_entry(db_session, test_user, single_recipe):
+    """Create a meal plan entry with test_user already opted in."""
+    entry = MealPlanEntry(
+        id=uuid4(),
+        date=date(2026, 9, 22),
+        meal_type=MealType.dinner.value,
+        recipe_id=single_recipe.id,
+        planned_servings=1,
+        status=MealPlanStatus.draft.value,
+    )
+    db_session.add(entry)
+    db_session.flush()
+    # Opt the test user in via the association table
+    entry.user_opt_ins.append(test_user)
+    db_session.commit()
+    db_session.refresh(entry)
+    return entry
+
+
+# ---------------------------------------------------------------------------
+# PUT /plan/entries/{id}/opt-out tests
+# ---------------------------------------------------------------------------
+
+
+def test_opt_out_removes_caller_from_user_opt_ins(
+    client, db_session, auth_headers, test_user, opted_in_entry
+):
+    """Opting out removes the caller from the entry's user_opt_ins association."""
+    # Confirm user is currently opted in
+    from src.db.models.meal_plan import meal_plan_user_association as _assoc_tbl
+    row_before = db_session.execute(
+        _assoc_tbl.select().where(
+            _assoc_tbl.c.meal_plan_entry_id == opted_in_entry.id,
+            _assoc_tbl.c.user_id == test_user.id,
+        )
+    ).first()
+    assert row_before is not None
+
+    response = client.put(
+        f"/plan/entries/{opted_in_entry.id}/opt-out",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "entry" in data
+    assert data["entry"]["id"] == str(opted_in_entry.id)
+
+    # Verify the association row is gone
+    row_after = db_session.execute(
+        _assoc_tbl.select().where(
+            _assoc_tbl.c.meal_plan_entry_id == opted_in_entry.id,
+            _assoc_tbl.c.user_id == test_user.id,
+        )
+    ).first()
+    assert row_after is None
+
+
+def test_opt_out_is_idempotent(client, auth_headers, opted_in_entry):
+    """Calling opt-out twice returns 200 both times with the same final state."""
+    url = f"/plan/entries/{opted_in_entry.id}/opt-out"
+
+    first = client.put(url, headers=auth_headers)
+    second = client.put(url, headers=auth_headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    # Both responses return the same entry id
+    assert first.json()["entry"]["id"] == second.json()["entry"]["id"]
+
+
+def test_opt_out_entry_still_exists_after_last_participant_leaves(
+    client, db_session, auth_headers, opted_in_entry
+):
+    """The entry is NOT deleted when the last participant opts out."""
+    response = client.put(
+        f"/plan/entries/{opted_in_entry.id}/opt-out",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+
+    # Entry must still exist in the database
+    surviving = db_session.query(MealPlanEntry).filter(
+        MealPlanEntry.id == opted_in_entry.id
+    ).first()
+    assert surviving is not None
+
+
+def test_opt_out_does_not_affect_other_users_opt_ins(
+    client, db_session, auth_headers, second_user, single_recipe
+):
+    """Opting out only removes the calling user; other participants stay opted in."""
+    from src.db.models.meal_plan import meal_plan_user_association as _assoc_tbl
+
+    # Create a user from auth_headers (test_user) and second_user both opted in
+    # We need test_user here — retrieve it from the db by email
+    test_user_obj = db_session.query(User).filter(User.email == "test@example.com").first()
+
+    entry = MealPlanEntry(
+        id=uuid4(),
+        date=date(2026, 9, 22),
+        meal_type=MealType.dinner.value,
+        recipe_id=single_recipe.id,
+        planned_servings=2,
+        status=MealPlanStatus.draft.value,
+    )
+    db_session.add(entry)
+    db_session.flush()
+    entry.user_opt_ins.append(test_user_obj)
+    entry.user_opt_ins.append(second_user)
+    db_session.commit()
+
+    # test_user opts out
+    response = client.put(
+        f"/plan/entries/{entry.id}/opt-out",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+
+    # second_user's opt-in row must still be present
+    row = db_session.execute(
+        _assoc_tbl.select().where(
+            _assoc_tbl.c.meal_plan_entry_id == entry.id,
+            _assoc_tbl.c.user_id == second_user.id,
+        )
+    ).first()
+    assert row is not None, "second_user's opt-in was incorrectly removed"
+
+
+def test_opt_out_recomputes_planned_servings_when_others_remain(
+    client, db_session, auth_headers, second_user, single_recipe
+):
+    """planned_servings drops to the remaining opt-in count when > 0."""
+    test_user_obj = db_session.query(User).filter(User.email == "test@example.com").first()
+
+    entry = MealPlanEntry(
+        id=uuid4(),
+        date=date(2026, 9, 22),
+        meal_type=MealType.dinner.value,
+        recipe_id=single_recipe.id,
+        planned_servings=2,
+        status=MealPlanStatus.draft.value,
+    )
+    db_session.add(entry)
+    db_session.flush()
+    entry.user_opt_ins.append(test_user_obj)
+    entry.user_opt_ins.append(second_user)
+    db_session.commit()
+
+    response = client.put(
+        f"/plan/entries/{entry.id}/opt-out",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    # 1 participant remains → planned_servings must be 1
+    assert response.json()["entry"]["planned_servings"] == 1
+
+
+def test_opt_out_leaves_planned_servings_unchanged_when_list_empties(
+    client, auth_headers, opted_in_entry
+):
+    """planned_servings is NOT changed when the last participant opts out."""
+    original_servings = opted_in_entry.planned_servings
+
+    response = client.put(
+        f"/plan/entries/{opted_in_entry.id}/opt-out",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["entry"]["planned_servings"] == original_servings
+
+
+def test_opt_out_user_never_opted_in_returns_200(
+    client, db_session, auth_headers, single_recipe
+):
+    """A user who was never in user_opt_ins can still call opt-out — it's a no-op 200."""
+    # Create an entry with no opt-ins at all
+    entry = MealPlanEntry(
+        id=uuid4(),
+        date=date(2026, 9, 22),
+        meal_type=MealType.dinner.value,
+        recipe_id=single_recipe.id,
+        planned_servings=4,
+        status=MealPlanStatus.draft.value,
+    )
+    db_session.add(entry)
+    db_session.commit()
+
+    response = client.put(
+        f"/plan/entries/{entry.id}/opt-out",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["entry"]["id"] == str(entry.id)
+
+
+def test_opt_out_unknown_entry_returns_404(client, auth_headers):
+    """opt-out on an unknown entry id returns 404."""
+    response = client.put(
+        f"/plan/entries/{uuid4()}/opt-out",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+
+
+def test_opt_out_requires_authentication(client, opted_in_entry):
+    """opt-out without auth returns 401."""
+    response = client.put(f"/plan/entries/{opted_in_entry.id}/opt-out")
+
+    assert response.status_code == 401
+
+
+def test_opt_out_entry_still_appears_in_week_view(
+    client, auth_headers, opted_in_entry
+):
+    """After opting out the entry still shows up in GET /plan/week."""
+    client.put(
+        f"/plan/entries/{opted_in_entry.id}/opt-out",
+        headers=auth_headers,
+    )
+
+    # opted_in_entry date is 2026-09-22, which falls in week starting 2026-09-21
+    week_start = date(2026, 9, 21)
+    response = client.get(
+        f"/plan/week?week_start={week_start.isoformat()}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    all_entry_ids = [
+        e["id"] for e in data["draft_entries"] + data["confirmed_entries"]
+    ]
+    assert str(opted_in_entry.id) in all_entry_ids
+
+
 def test_create_entry_omitted_planned_servings_falls_back_to_base_servings(
     client, db_session, auth_headers, test_user
 ):
@@ -743,3 +1013,21 @@ def test_create_entry_omitted_planned_servings_falls_back_to_base_servings(
 
     assert response.status_code == 201
     assert response.json()["planned_servings"] == recipe.base_servings
+
+
+def test_opt_out_db_commit_failure_returns_400(
+    client, db_session, auth_headers, opted_in_entry, monkeypatch
+):
+    """A SQLAlchemyError on db.commit during opt-out is re-raised as ValidationError
+    and mapped to HTTP 400 by the router — not leaked as a 500.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    monkeypatch.setattr(db_session, "commit", lambda: (_ for _ in ()).throw(SQLAlchemyError("simulated commit failure")))
+
+    response = client.put(
+        f"/plan/entries/{opted_in_entry.id}/opt-out",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
