@@ -14,7 +14,7 @@ Logging Policy:
 import logging
 from uuid import UUID
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy import func, or_, String
@@ -24,6 +24,9 @@ from src.db.models.user import User
 from src.db.models.recipe import Recipe, SourceType
 from src.db.models.recipe_ingredient import RecipeIngredient
 from src.db.models.user_recipe import UserRecipeRelation
+from src.db.models.user_cook_event import UserCookEvent
+from src.db.models.user_recipe_view import UserRecipeView
+from src.db.models.meal_plan import MealPlanEntry
 from src.db.models.inventory_item import InventoryItem
 from src.schemas.recipe import (
     RecipeCreate,
@@ -38,6 +41,9 @@ from src.schemas.recipe import (
     BookmarkCreate,
     RecipeAggregateRatingsResponse,
     AdHocRecipeCreate,
+    CookEventCreate,
+    CookEventResponse,
+    RecipeViewCreate,
 )
 from src.middleware.auth import get_current_user
 from src.routers.recipe_helpers import (
@@ -1095,6 +1101,183 @@ def unlike_recipe(
 
     logger.info(f"Recipe like removed: user_id={current_user.id}, recipe_id={recipe_id}")
     return relation
+
+
+@router.post(
+    "/{recipe_id}/cook",
+    response_model=CookEventResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def cook_recipe(
+    recipe_id: UUID,
+    body: CookEventCreate = Body(default=CookEventCreate()),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Record that the current user cooked this recipe.
+
+    Not idempotent — each call creates a new UserCookEvent row. This is by
+    design: a user who cooks the same recipe twice has two meaningful events.
+
+    Side effects:
+    - Increments Recipe.times_cooked (global count across all users).
+    - Triggers persistence so the cleanup job will not prune the recipe.
+
+    If meal_plan_entry_id is supplied, the entry must exist (404 otherwise).
+
+    Returns:
+        CookEventResponse (201): The newly created cook event.
+
+    Raises:
+        HTTPException(401): Unauthenticated caller.
+        HTTPException(404): Recipe not found, or meal_plan_entry_id not found.
+    """
+    recipe = _require_recipe(recipe_id, db)
+
+    # Validate the meal plan entry exists when provided
+    if body.meal_plan_entry_id is not None:
+        entry = db.query(MealPlanEntry).filter(
+            MealPlanEntry.id == body.meal_plan_entry_id
+        ).first()
+        if not entry:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meal plan entry not found",
+            )
+
+    # Create the cook event
+    event = UserCookEvent(
+        user_id=current_user.id,
+        recipe_id=recipe_id,
+        notes=body.notes,
+        meal_plan_entry_id=body.meal_plan_entry_id,
+    )
+    db.add(event)
+
+    # Increment the global cook counter on the recipe
+    recipe.times_cooked += 1
+
+    try:
+        db.commit()
+        db.refresh(event)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(
+            f"Database error during cook event creation: "
+            f"user_id={current_user.id}, recipe_id={recipe_id}"
+        )
+        logger.debug(f"Cook event creation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while recording the cook event",
+        )
+
+    # Cooking is a persistence trigger: a browse-cache recipe must not be
+    # pruned out from under a user who has cooked it.
+    try:
+        trigger_persistence(recipe, db)
+    except SQLAlchemyError as e:
+        logger.error(
+            f"Failed to trigger persistence after cook: recipe_id={recipe_id}",
+            exc_info=e,
+        )
+
+    logger.info(
+        f"Cook event recorded: user_id={current_user.id}, recipe_id={recipe_id}, "
+        f"event_id={event.id}"
+    )
+    return event
+
+
+@router.get("/{recipe_id}/cook-history", response_model=list[CookEventResponse])
+def get_cook_history(
+    recipe_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return the current user's cook events for this recipe, newest first.
+
+    Returns an empty list (not 404) when the user has never cooked the recipe.
+    Only the caller's own events are returned — other users' events are never
+    exposed.
+
+    Returns:
+        list[CookEventResponse] (200): The caller's cook history, newest first.
+
+    Raises:
+        HTTPException(401): Unauthenticated caller.
+        HTTPException(404): Recipe not found.
+    """
+    _require_recipe(recipe_id, db)
+
+    events = (
+        db.query(UserCookEvent)
+        .filter(
+            UserCookEvent.user_id == current_user.id,
+            UserCookEvent.recipe_id == recipe_id,
+        )
+        .order_by(UserCookEvent.cooked_at.desc(), UserCookEvent.id.desc())
+        .all()
+    )
+
+    return events
+
+
+@router.post("/{recipe_id}/view", status_code=status.HTTP_204_NO_CONTENT)
+def view_recipe(
+    recipe_id: UUID,
+    body: RecipeViewCreate = Body(default=RecipeViewCreate()),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Record that the current user viewed this recipe.
+
+    Fire-and-forget from the client's perspective: cheap, never blocks a page
+    render. Does NOT trigger persistence — viewing a browse-cache recipe is
+    exactly the case the cache exists for.
+
+    body.source must be one of: browse, detail, search, feed, menu.
+    Any other value is rejected with 422 by Pydantic before this handler runs.
+
+    Returns:
+        None (204 No Content).
+
+    Raises:
+        HTTPException(401): Unauthenticated caller.
+        HTTPException(404): Recipe not found.
+        HTTPException(422): Invalid source value (handled by Pydantic).
+    """
+    _require_recipe(recipe_id, db)
+
+    view = UserRecipeView(
+        user_id=current_user.id,
+        recipe_id=recipe_id,
+        source=body.source,
+    )
+    db.add(view)
+
+    try:
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(
+            f"Database error during view recording: "
+            f"user_id={current_user.id}, recipe_id={recipe_id}"
+        )
+        logger.debug(f"View recording error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while recording the view",
+        )
+
+    logger.info(
+        f"Recipe view recorded: user_id={current_user.id}, recipe_id={recipe_id}, "
+        f"source={body.source}"
+    )
+    return None
 
 
 @router.get("/{recipe_id}/my-rating", response_model=UserRecipeRelationResponse)
