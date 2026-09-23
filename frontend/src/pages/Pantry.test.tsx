@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Pantry from './Pantry'
+import { renderWithProviders as renderWithSharedProviders } from '../test/renderWithProviders'
 import type { InventoryItemListResponse, LowStockAlertItem } from '../api/types'
 import { StorageLocation } from '../api/types'
 
@@ -83,10 +84,25 @@ describe('Pantry', () => {
     })
   })
 
-  const renderWithProviders = (ui: React.ReactElement) => {
-    return render(
-      <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
-    )
+  // Pantry renders a <Link> in its empty state, so a Router is required
+  // alongside the QueryClient.
+  const renderWithProviders = (ui: React.ReactElement) =>
+    renderWithSharedProviders(ui, { queryClient })
+
+  /**
+   * Format a Date as YYYY-MM-DD using LOCAL calendar fields.
+   *
+   * `d.toISOString().split('T')[0]` gives the UTC date, which is a different
+   * day from local for part of every day in any non-UTC zone (west of UTC in
+   * the evening, east of UTC in the early morning). The component compares
+   * against local midnight via getTodayAtMidnight, so tests must build their
+   * fixtures the same way or they pass or fail depending on the clock.
+   */
+  const toLocalDateString = (d: Date): string => {
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   const createMockInventoryItem = (
@@ -232,9 +248,10 @@ describe('Pantry', () => {
 
       renderWithProviders(<Pantry />)
 
-      expect(
-        screen.getByText('No items in pantry yet. Add items to get started!')
-      ).toBeInTheDocument()
+      // The empty state was reworded to "Your pantry is empty" with a CTA
+      // linking to the "I shopped" flow; this assertion still had the old copy.
+      expect(screen.getByText('Your pantry is empty')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /shopped/i })).toBeInTheDocument()
     })
 
     it('shows specific message when all items are expiring', () => {
@@ -510,7 +527,7 @@ describe('Pantry', () => {
       const items = [
         createMockInventoryItem({
           id: 'item-1',
-          expiration_date: yesterday.toISOString(),
+          expiration_date: toLocalDateString(yesterday),
         }),
       ]
 
@@ -853,19 +870,19 @@ describe('Pantry', () => {
     it('correctly calculates expiring items using date-only strings without timezone conversion', () => {
       // Use date-only format (YYYY-MM-DD) as backend typically sends
       const today = new Date()
-      const todayDateStr = today.toISOString().split('T')[0]
+      const todayDateStr = toLocalDateString(today)
 
       const tomorrow = new Date(today)
       tomorrow.setDate(tomorrow.getDate() + 1)
-      const tomorrowDateStr = tomorrow.toISOString().split('T')[0]
+      const tomorrowDateStr = toLocalDateString(tomorrow)
 
       const threeDaysFromNow = new Date(today)
       threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3)
-      const threeDaysDateStr = threeDaysFromNow.toISOString().split('T')[0]
+      const threeDaysDateStr = toLocalDateString(threeDaysFromNow)
 
       const fourDaysFromNow = new Date(today)
       fourDaysFromNow.setDate(fourDaysFromNow.getDate() + 4)
-      const fourDaysDateStr = fourDaysFromNow.toISOString().split('T')[0]
+      const fourDaysDateStr = toLocalDateString(fourDaysFromNow)
 
       const items = [
         createMockInventoryItem({

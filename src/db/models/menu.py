@@ -21,7 +21,7 @@ class Menu(Base):
     __tablename__ = "menus"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     filter_rules: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -50,7 +50,11 @@ class MenuRecipe(Base):
     )
 
     menu_id: Mapped[UUID] = mapped_column(ForeignKey("menus.id"), primary_key=True)
-    recipe_id: Mapped[UUID] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"), primary_key=True)
+    # Indexed explicitly: the composite PK is (menu_id, recipe_id), so a
+    # recipe_id-only lookup cannot use its leftmost prefix.
+    recipe_id: Mapped[UUID] = mapped_column(
+        ForeignKey("recipes.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     manually_added: Mapped[bool] = mapped_column(Boolean, default=False)
     manually_removed: Mapped[bool] = mapped_column(Boolean, default=False)

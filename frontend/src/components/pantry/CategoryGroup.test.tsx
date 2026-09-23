@@ -86,7 +86,7 @@ describe('CategoryGroup', () => {
       wrapper: createWrapper(),
     })
 
-    const header = screen.getByRole('button')
+    const header = screen.getByRole('button', { name: /produce/i })
     fireEvent.click(header)
 
     expect(screen.queryByText('Tomato')).not.toBeInTheDocument()
@@ -98,7 +98,7 @@ describe('CategoryGroup', () => {
       wrapper: createWrapper(),
     })
 
-    const header = screen.getByRole('button')
+    const header = screen.getByRole('button', { name: /produce/i })
 
     // Collapse
     fireEvent.click(header)
@@ -129,14 +129,14 @@ describe('CategoryGroup', () => {
     const chevron = container.querySelector('svg')
 
     // Initially expanded, chevron should have rotate-180
-    expect(chevron?.className).toContain('rotate-180')
+    expect(chevron?.getAttribute('class')).toContain('rotate-180')
 
     // Collapse
-    const header = screen.getByRole('button')
+    const header = screen.getByRole('button', { name: /produce/i })
     fireEvent.click(header)
 
     // After collapse, chevron should not have rotate-180
-    expect(chevron?.className).not.toContain('rotate-180')
+    expect(chevron?.getAttribute('class')).not.toContain('rotate-180')
   })
 
   it('renders header as button element', () => {
@@ -144,7 +144,7 @@ describe('CategoryGroup', () => {
       wrapper: createWrapper(),
     })
 
-    const header = screen.getByRole('button')
+    const header = screen.getByRole('button', { name: /produce/i })
     expect(header.tagName).toBe('BUTTON')
     expect(header).toHaveAttribute('type', 'button')
   })

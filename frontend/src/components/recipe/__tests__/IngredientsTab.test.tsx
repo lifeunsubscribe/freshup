@@ -432,8 +432,12 @@ describe('IngredientsTab', () => {
       expect(screen.getByText(/0\.60 cup/)).toBeInTheDocument()
     })
 
-    it('formats 1.37 as decimal (outside 1 1/3 tolerance)', () => {
-      const ingredients = [createIngredient({ quantity: 1.37 })]
+    it('formats a quantity with no nearby fraction as a decimal', () => {
+      // Was 1.37, which the test assumed had no match because it is far from
+      // 1/3. But 0.37 is within the 0.01 tolerance of 3/8 (0.375), so the
+      // component correctly renders "1 3/8" — a better reading for a cook.
+      // 1.45 is genuinely outside every fraction in the table.
+      const ingredients = [createIngredient({ quantity: 1.45 })]
       render(
         <IngredientsTab
           ingredients={ingredients}
@@ -443,7 +447,7 @@ describe('IngredientsTab', () => {
           inventoryError={mockInventoryError}
         />
       )
-      expect(screen.getByText(/1\.37 cup/)).toBeInTheDocument()
+      expect(screen.getByText(/1\.45 cup/)).toBeInTheDocument()
     })
   })
 

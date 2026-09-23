@@ -19,9 +19,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Add is_persisted column to recipes table with default true."""
+    """
+    Add is_persisted column to recipes table.
+
+    This field tracks whether a recipe should be kept permanently (True) or is
+    eligible for cleanup as part of the browse cache (False). Scraped recipes
+    start as non-persisted and become persisted through user interaction
+    (bookmarking, liking, adding to a meal plan or menu).
+
+    The server_default is true, matching Recipe.is_persisted (default=True).
+    Only the scraper path marks a recipe False explicitly. Defaulting to true
+    also backfills every pre-existing row as persisted, which is correct: they
+    predate the browse-then-persist flow and must never be pruned.
+    """
     with op.batch_alter_table('recipes', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('is_persisted', sa.Boolean(), nullable=False, server_default='1'))
+        batch_op.add_column(
+            sa.Column('is_persisted', sa.Boolean(), nullable=False, server_default=sa.true())
+        )
+        # cleanup_service filters on is_persisted == False to prune the browse
+        # cache, and the feed queries filter on is_persisted == True.
         batch_op.create_index('ix_recipes_is_persisted', ['is_persisted'])
 
 

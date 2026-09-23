@@ -37,10 +37,15 @@ class Recipe(Base):
     tags: Mapped[list] = mapped_column(JSON, default=list)
     nutritional_info: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     times_cooked: Mapped[int] = mapped_column(Integer, default=0)
-    is_persisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Defaults to True so a recipe is kept unless something deliberately marks it
+    # as browse-cache data. The scraper path (import_service) passes False
+    # explicitly. Failing safe matters here: cleanup_service deletes
+    # is_persisted=False rows older than BROWSE_CACHE_TTL_DAYS on every startup,
+    # so a forgotten flag on a new creation path would silently destroy user data.
+    is_persisted: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     created_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String(10000), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships

@@ -35,6 +35,7 @@ from src.schemas.recipe import (
     RecipeIngredientResponse,
     UserRecipeRelationCreate,
     UserRecipeRelationResponse,
+    BookmarkCreate,
     RecipeAggregateRatingsResponse,
     AdHocRecipeCreate,
 )
@@ -396,6 +397,34 @@ def list_recipes(
     )
 
     return recipes
+
+
+@router.get("/my-relations", response_model=list[UserRecipeRelationResponse])
+def list_my_relations(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Every relation the current user holds, in one request.
+
+    Recipe cards show bookmark and like state, and a browse grid renders twenty
+    of them at once. Without this, each card would fetch its own relation from
+    GET /{recipe_id}/my-rating — twenty requests to paint one screen. The client
+    fetches this once and indexes it by recipe_id.
+
+    Unbounded by design: a relation row only exists once a user has engaged with
+    a recipe, so this is the size of one household member's own activity.
+
+    Note: this route is declared before /{recipe_id}/... so that "my-relations"
+    is not captured as a recipe_id path parameter.
+    """
+    relations = (
+        db.query(UserRecipeRelation)
+        .filter(UserRecipeRelation.user_id == current_user.id)
+        .all()
+    )
+
+    return relations
 
 
 @router.get("/{recipe_id}", response_model=RecipeResponse)
@@ -889,6 +918,183 @@ def rate_recipe(
             logger.error(f"Failed to trigger persistence for recipe {recipe_id}", exc_info=e)
 
     return rating_result
+
+
+def _get_or_create_relation(
+    recipe_id: UUID, user: User, db: Session
+) -> UserRecipeRelation:
+    """
+    Fetch the caller's relation row for a recipe, creating an empty one if absent.
+
+    Used by the bookmark and like toggles. Unlike POST /rate, which upserts the
+    whole relation from the request body, this preserves every field the caller
+    did not ask to change.
+    """
+    relation = (
+        db.query(UserRecipeRelation)
+        .filter(
+            UserRecipeRelation.user_id == user.id,
+            UserRecipeRelation.recipe_id == recipe_id,
+        )
+        .first()
+    )
+
+    if relation is None:
+        relation = UserRecipeRelation(user_id=user.id, recipe_id=recipe_id)
+        db.add(relation)
+        db.flush()
+
+    return relation
+
+
+def _commit_relation_change(
+    relation: UserRecipeRelation, db: Session, action: str, user_id: UUID
+) -> UserRecipeRelation:
+    """Commit a single-field relation change with the router's error handling."""
+    try:
+        db.commit()
+        db.refresh(relation)
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error during {action} for user {user_id}")
+        logger.debug(f"Integrity error occurred during {action}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not {action} due to data integrity violation",
+        )
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during {action} for user {user_id}")
+        logger.debug(f"Database error occurred during {action}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while trying to {action}",
+        )
+    return relation
+
+
+def _require_recipe(recipe_id: UUID, db: Session) -> Recipe:
+    """Load a recipe or raise 404."""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"
+        )
+    return recipe
+
+
+@router.post("/{recipe_id}/bookmark", response_model=UserRecipeRelationResponse)
+def bookmark_recipe(
+    recipe_id: UUID,
+    body: Optional[BookmarkCreate] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Bookmark a recipe for the current user ("save for later", private).
+
+    Idempotent: bookmarking an already-bookmarked recipe succeeds and returns the
+    unchanged relation. Only is_bookmarked (and menu_id, when supplied) are
+    touched — a like or rating on the same relation is preserved.
+
+    Bookmarking is a persistence trigger: a browse-cache recipe becomes permanent
+    so the cleanup job will not prune it out from under the user.
+    """
+    recipe = _require_recipe(recipe_id, db)
+
+    relation = _get_or_create_relation(recipe_id, current_user, db)
+    relation.is_bookmarked = True
+    if body is not None and body.menu_id is not None:
+        relation.menu_id = body.menu_id
+
+    _commit_relation_change(relation, db, "bookmark recipe", current_user.id)
+
+    try:
+        trigger_persistence(recipe, db)
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to trigger persistence for recipe {recipe_id}", exc_info=e)
+
+    logger.info(
+        f"Recipe bookmarked: user_id={current_user.id}, recipe_id={recipe_id}"
+    )
+    return relation
+
+
+@router.delete("/{recipe_id}/bookmark", response_model=UserRecipeRelationResponse)
+def unbookmark_recipe(
+    recipe_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Remove the current user's bookmark from a recipe.
+
+    Idempotent, and returns the relation so the client can resync state. Clearing
+    a bookmark does NOT reverse persistence — is_persisted is one-way, because
+    other users may hold their own relations to the same recipe.
+    """
+    _require_recipe(recipe_id, db)
+
+    relation = _get_or_create_relation(recipe_id, current_user, db)
+    relation.is_bookmarked = False
+    relation.menu_id = None
+
+    _commit_relation_change(relation, db, "remove bookmark", current_user.id)
+
+    logger.info(
+        f"Recipe bookmark removed: user_id={current_user.id}, recipe_id={recipe_id}"
+    )
+    return relation
+
+
+@router.post("/{recipe_id}/like", response_model=UserRecipeRelationResponse)
+def like_recipe(
+    recipe_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Like a recipe as the current user ("I endorse this", public-facing).
+
+    Idempotent, preserves bookmark and rating, and triggers persistence for the
+    same reason bookmarking does.
+    """
+    recipe = _require_recipe(recipe_id, db)
+
+    relation = _get_or_create_relation(recipe_id, current_user, db)
+    relation.is_liked = True
+
+    _commit_relation_change(relation, db, "like recipe", current_user.id)
+
+    try:
+        trigger_persistence(recipe, db)
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to trigger persistence for recipe {recipe_id}", exc_info=e)
+
+    logger.info(f"Recipe liked: user_id={current_user.id}, recipe_id={recipe_id}")
+    return relation
+
+
+@router.delete("/{recipe_id}/like", response_model=UserRecipeRelationResponse)
+def unlike_recipe(
+    recipe_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Remove the current user's like from a recipe.
+
+    Idempotent, preserves bookmark and rating, and does not reverse persistence.
+    """
+    _require_recipe(recipe_id, db)
+
+    relation = _get_or_create_relation(recipe_id, current_user, db)
+    relation.is_liked = False
+
+    _commit_relation_change(relation, db, "remove like", current_user.id)
+
+    logger.info(f"Recipe like removed: user_id={current_user.id}, recipe_id={recipe_id}")
+    return relation
 
 
 @router.get("/{recipe_id}/my-rating", response_model=UserRecipeRelationResponse)

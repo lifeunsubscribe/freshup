@@ -9,7 +9,12 @@ import CookTab from '../components/recipe/CookTab'
 import NutritionTab from '../components/recipe/NutritionTab'
 import ActionBar from '../components/recipe/ActionBar'
 import Pill from '../components/ui/Pill'
-import { useRecipe, useMyRecipeRating, useRateRecipe } from '../api/hooks/useRecipes'
+import { useRecipe } from '../api/hooks/useRecipes'
+import {
+  useMyRecipeRelation,
+  useToggleBookmark,
+  useToggleLike,
+} from '../api/hooks/useRecipeEngagement'
 import { useInventoryList } from '../api/hooks/useInventory'
 import { checkIngredientAvailability } from '../utils/pantryMatcher'
 import { useAuth } from '../contexts/AuthContext'
@@ -19,20 +24,21 @@ export default function RecipeDetail() {
   const { currentUser } = useAuth()
 
   const [activeTab, setActiveTab] = useState<TabType>('ingredients')
-  const [favoriteError, setFavoriteError] = useState<string | null>(null)
+  const [engagementError, setEngagementError] = useState<string | null>(null)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
     enabled: !!id,
   })
 
-  const { data: myRating, isLoading: isLoadingRating } = useMyRecipeRating(id!, {
+  const { data: myRelation, isLoading: isLoadingRelation } = useMyRecipeRelation(id!, {
     enabled: !!id,
     retry: false,
   })
 
   const { data: inventoryItems = [], isLoading: isLoadingInventory, isError: isInventoryError } = useInventoryList({})
 
-  const rateRecipeMutation = useRateRecipe()
+  const toggleLike = useToggleLike()
+  const toggleBookmark = useToggleBookmark()
 
   // Default to recipe's base_servings if it's one of the valid options (2, 4, 6)
   // Otherwise default to 2
@@ -50,30 +56,42 @@ export default function RecipeDetail() {
     }
   }, [recipe?.base_servings])
 
-  const handleFavoriteToggle = async () => {
+  /**
+   * Run a bookmark or like toggle, surfacing failures in the detail page banner.
+   *
+   * These go through the dedicated toggle endpoints rather than POST /rate.
+   * /rate is a whole-relation upsert, so driving a button through it rewrote
+   * every other field — the previous implementation here sent
+   * `rating: myRating?.rating || 0`, which turned an unrated recipe into one
+   * rated zero every time the user tapped the heart.
+   */
+  const runToggle = async (
+    mutateAsync: (vars: { recipeId: string; next: boolean }) => Promise<unknown>,
+    next: boolean,
+    failureMessage: string
+  ) => {
     if (!id) return
 
-    setFavoriteError(null)
+    setEngagementError(null)
 
     try {
-      // Toggle favorite status via rate endpoint (upsert behavior)
-      // Preserve existing rating value while toggling is_favorite
-      await rateRecipeMutation.mutateAsync({
-        recipeId: id,
-        data: {
-          rating: myRating?.rating || 0,
-          is_favorite: !myRating?.is_favorite,
-        },
-      })
+      await mutateAsync({ recipeId: id, next })
     } catch (error) {
-      console.error('Failed to toggle favorite:', error)
-      setFavoriteError('Failed to update favorite status. Please try again.')
-      // Clear error after 5 seconds
-      setTimeout(() => {
-        setFavoriteError(null)
-      }, 5000)
+      console.error(failureMessage, error)
+      setEngagementError(failureMessage)
+      setTimeout(() => setEngagementError(null), 5000)
     }
   }
+
+  const handleLikeToggle = () =>
+    runToggle(toggleLike.mutateAsync, !isLiked, 'Could not update like. Please try again.')
+
+  const handleBookmarkToggle = () =>
+    runToggle(
+      toggleBookmark.mutateAsync,
+      !isBookmarked,
+      'Could not update bookmark. Please try again.'
+    )
 
   const handleAddToMealPlan = () => {
     // Phase 2 feature: Add to meal plan functionality
@@ -117,7 +135,8 @@ export default function RecipeDetail() {
   const prepTime = recipe.prep_time_minutes
   const totalTime = (cookTime || 0) + (prepTime || 0)
 
-  const isFavorited = myRating?.is_favorite || false
+  const isLiked = myRelation?.is_liked ?? false
+  const isBookmarked = myRelation?.is_bookmarked ?? false
 
   // Calculate missing ingredients for "Add missing to list" button
   const stockStatus = recipe
@@ -135,8 +154,11 @@ export default function RecipeDetail() {
           />
 
           <div className="mb-4 flex flex-wrap gap-2">
-            {isFavorited && currentUser && (
-              <Pill variant="success">In {currentUser.name}'s favs</Pill>
+            {isLiked && currentUser && (
+              <Pill variant="success">{currentUser.name} likes this</Pill>
+            )}
+            {isBookmarked && (
+              <Pill variant="default">Saved</Pill>
             )}
             {totalTime > 0 && (
               <Pill variant="default">{totalTime} min</Pill>
@@ -179,9 +201,9 @@ export default function RecipeDetail() {
       </PageContainer>
 
       <>
-        {favoriteError && (
+        {engagementError && (
           <div className="fixed bottom-20 left-4 right-4 bg-red-50 border border-red-200 rounded-lg p-3 shadow-lg z-40">
-            <p className="text-sm text-red-800">{favoriteError}</p>
+            <p className="text-sm text-red-800">{engagementError}</p>
           </div>
         )}
         {isInventoryError && (
@@ -190,10 +212,12 @@ export default function RecipeDetail() {
           </div>
         )}
         <ActionBar
-          isFavorited={isFavorited}
-          onFavoriteToggle={handleFavoriteToggle}
+          isLiked={isLiked}
+          onLikeToggle={handleLikeToggle}
+          isBookmarked={isBookmarked}
+          onBookmarkToggle={handleBookmarkToggle}
           onAddToMealPlan={handleAddToMealPlan}
-          isLoading={rateRecipeMutation.isPending || isLoadingRating || isLoadingInventory || isInventoryError}
+          isLoading={isLoadingRelation || isLoadingInventory || isInventoryError}
           missingIngredients={stockStatus.outOfStock}
         />
       </>

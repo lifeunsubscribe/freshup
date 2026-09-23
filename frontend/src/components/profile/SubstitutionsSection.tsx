@@ -150,7 +150,20 @@ export default function SubstitutionsSection() {
               if (editingPreference) {
                 await updateMutation.mutateAsync({ id: editingPreference.id, data })
               } else {
-                await createMutation.mutateAsync(data)
+                // The modal omits original_ingredient in edit mode and always
+                // sends it in create mode, but its onSave type cannot express
+                // that. Narrow here so the create payload satisfies
+                // SubstitutionPreferenceCreate, and fail loudly if the
+                // invariant is ever broken.
+                if (!data.original_ingredient) {
+                  throw new Error(
+                    'Cannot create a substitution without an original ingredient'
+                  )
+                }
+                await createMutation.mutateAsync({
+                  ...data,
+                  original_ingredient: data.original_ingredient,
+                })
               }
               setShowAddModal(false)
               setEditingPreference(null)

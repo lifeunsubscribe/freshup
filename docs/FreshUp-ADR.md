@@ -4,7 +4,49 @@
 **Author:** Sarah  
 **Date:** 2026-03-13  
 **Status:** Approved — Ready for Phase Implementation  
-**ADR Version:** 1.0
+**ADR Version:** 1.2 (amended 2026-05-03 — Recipe Engagement & Personalized Feed; 2026-09-18 — status snapshot, migration discipline)
+
+---
+
+## 0. Current Implementation Status
+
+*Last reviewed: 2026-09-18. This section is a status snapshot, not a design decision — update it when a phase closes.*
+
+| Phase | Area | Status |
+|---|---|---|
+| 1 | Foundation (auth, inventory, recipes, grocery, prepared food) | Complete |
+| 2A | Ollama integration layer | Complete |
+| 2C | Web scrapers (HelloFresh, Kitchen Sanctuary) | Complete |
+| 2B / 2D | Card OCR pipeline, URL import & photo upload | Not started |
+| 2.5A | Data model & migration | **Partial** — `UserRecipeRelation`, `Menu`, `MenuRecipe`, `is_persisted` done; `UserCookEvent` and `UserRecipeView` never built |
+| 2.5B | Scraper browse-then-persist | Complete |
+| 2.5C | Feed engine | Complete (substitutes available signals for the missing cook/view events) |
+| 2.5D | Menu system | Complete |
+| 2.5E | Meal plan draft & schedule | **Partial** — draft/week/confirm done; per-meal opt-out endpoint missing |
+| 2.5F | Frontend: recipe engagement UI | **Partial** — bookmark/like quick actions done; "I cooked this" and add-to-plan blocked (see below) |
+| 2.5G–I | Frontend: home feed, menus, plan page | Not started |
+| 3 | Smart meal planning | Not started |
+| 4A | Costco digital receipt pipeline | Complete |
+| 4B | Paper receipt OCR (Tesseract) | Complete |
+| 4C / 4D | Consumption pattern learning, receipt module abstraction | Not started |
+| 5 | Voice interface | Not started |
+| 6 | Mobile & cloud | Not started |
+
+**Where the seam is:** most of Phase 2.5's backend works and is tested — feed engine, menus, weekly auto-draft, and now the bookmark/like engagement toggles. The frontend lags: recipe cards carry bookmark and like quick actions, but `frontend/src/pages/Plan.tsx` is still a placeholder reading "Coming in Phase 3", and there is no home feed or menus UI.
+
+**What blocks the rest of 2.5F** — all of it traces to plan sections 1.5/1.6 never being implemented:
+
+| Blocked feature | Missing backend |
+|---|---|
+| "I cooked this" button | `UserCookEvent` model, `POST /recipes/{id}/cook`, `GET /recipes/{id}/cook-history` |
+| Rating gated on having cooked | `UserCookEvent` (the gate has no data to check) |
+| "Viewed but not cooked" feed row | `UserRecipeView` model, `POST /recipes/{id}/view` |
+| Add-to-plan from a recipe card | An endpoint that creates a `MealPlanEntry` for a given date and meal slot; `/plan` exposes only draft-generate, week, and confirm |
+| Per-meal opt-out | `PUT /plan/entries/{id}/opt-out` |
+
+**A caution about `POST /recipes/{id}/rate`:** it is a whole-relation upsert — it writes every field of `UserRecipeRelationCreate` onto the row, so a request setting one field silently clears the others. Use it only to submit a complete relation. Bookmark and like have dedicated single-field endpoints for exactly this reason; anything added later that flips one flag should follow that pattern rather than reusing `/rate`.
+
+**Note on execution history:** Phases 2.5A–E were implemented by batched parallel Sharkrite agent sessions in early May 2026. That batching produced a duplicate Alembic migration and a broken table rename, which left the migration chain with three heads and the API unable to start (see Section 13). Repaired 2026-09-18. Migrations are now covered by `tests/test_migration_chain.py`.
 
 ---
 
@@ -159,7 +201,7 @@ FreshUp should feel like having a knowledgeable sous chef — one who knows what
 | allergies | String[] | Freeform: `lactose`, `gluten`, `tree nuts`, etc. |
 | disliked_ingredients | FK[] | Links to Ingredient entities |
 | favorite_ingredients | FK[] | Ranked list, used to boost suggestion priority |
-| favorite_recipes | FK[] | Links to Recipe entities |
+| favorite_recipes | FK[] | Links to Recipe entities via UserRecipeRelation (bookmarked or liked) |
 | preferred_substitutions | FK[] | Links to SubstitutionPreference entities |
 
 #### InventoryItem
@@ -210,8 +252,9 @@ FreshUp should feel like having a knowledgeable sous chef — one who knows what
 | base_servings | Int | Recipe's default serving count |
 | tags | String[] | Cuisine, method, difficulty, etc. |
 | nutritional_info | JSON? | Calories, protein, carbs, fat per serving (if available) |
-| user_ratings | FK[] | Per-user rating/favorite status |
+| user_ratings | FK[] | Per-user bookmark/like/rating status (via UserRecipeRelation) |
 | times_cooked | Int | Global cook count — drives familiar-first ranking |
+| is_persisted | Boolean | Default true. Scraped/browsed recipes enter as false; set to true when any user bookmarks, likes, or adds to meal plan. Non-persisted recipes are pruned after configurable TTL (default 7 days). |
 | created_by | FK? | User who created ad-hoc recipes |
 | notes | Text? | User notes, tips, modifications |
 
@@ -303,6 +346,74 @@ FreshUp should feel like having a knowledgeable sous chef — one who knows what
 
 *Pattern learning triggers: Suggestions are only generated for items with 3+ purchase cycles AND a consistency score below a defined threshold. Items purchased irregularly (high variance) are excluded from proactive suggestions. All suggestions are advisory — the system never auto-adds to the grocery list without user confirmation.*
 
+#### UserRecipeRelation (replaces UserRecipeRating as of v1.1)
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | Primary key |
+| user_id | FK | Link to User |
+| recipe_id | FK | Link to Recipe |
+| is_bookmarked | Boolean | "Save for later" — private utility, personal queue. |
+| is_liked | Boolean | "I endorse this" — public-facing curation, visible on user profile. |
+| rating | Float? | 0.0–5.0. Nullable. **Gated:** API rejects rating submissions unless the user has at least one `UserCookEvent` for this recipe. DB allows null freely for migration flexibility. |
+| rating_photos | JSON? | Array of MinIO object keys for photos attached to the rating. Only accepted post-cook. |
+| rating_comment | String(2000)? | Post-cook commentary, tips, modifications. |
+| menu_id | FK? | Default menu assignment on bookmark. Nullable. |
+| created_at | DateTime | |
+| updated_at | DateTime | |
+
+*Unique constraint: `(user_id, recipe_id)`. Each user has one relation row per recipe. Bookmarks and likes are independent — a user can bookmark without liking and vice versa. Ratings require a cook event.*
+
+#### Menu
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | Primary key |
+| user_id | FK | Owner |
+| name | String(255) | Display name. User-editable. Auto-generated menus get descriptive defaults. |
+| description | String(500)? | Optional |
+| filter_rules | JSON? | For auto-generated menus: rules that populate the menu. Schema: `{"match": "all"/"any", "rules": [{"field": "tags", "op": "contains", "value": "indian"}]}`. Null for manual menus. User-editable. |
+| is_auto_generated | Boolean | True if system-created. Can still be edited. |
+| cover_image | String? | MinIO key. Defaults to first recipe's image. |
+| sort_order | Integer | For ordering in user's menu list and homepage rotation |
+| created_at | DateTime | |
+| updated_at | DateTime | |
+
+*Filter rule fields: `tags` (contains/not_contains), `source_type` (eq/in), `cook_time_minutes` (<=/>=/eq), `nutritional_info.calories` (<=/>=/eq). `match: "all"` = AND, `match: "any"` = OR. User can edit rules to narrow or expand auto-generated menus (e.g., "Indian cuisine" → "Indian sides under 500 calories").*
+
+#### MenuRecipe (Join Table)
+| Field | Type | Notes |
+|---|---|---|
+| menu_id | FK | |
+| recipe_id | FK | |
+| sort_order | Integer | Position within menu |
+| manually_added | Boolean | Immune to filter rule changes |
+| manually_removed | Boolean | Suppresses re-addition by filter rules |
+| added_at | DateTime | |
+
+*Composite PK: `(menu_id, recipe_id)`.*
+
+#### UserCookEvent
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | Primary key |
+| user_id | FK | Link to User |
+| recipe_id | FK | Link to Recipe |
+| cooked_at | DateTime | |
+| meal_plan_entry_id | FK? | Link to MealPlanEntry if applicable |
+| notes | String(500)? | Optional cook notes |
+
+*Created when: MealPlanEntry transitions to `cooked` status, or via manual `POST /recipes/{id}/cook` endpoint. Gates rating submissions — users can only rate recipes they've cooked.*
+
+#### UserRecipeView
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | Primary key |
+| user_id | FK | Link to User |
+| recipe_id | FK | Link to Recipe |
+| viewed_at | DateTime | |
+| source | String(50)? | Where the view happened: `browse`, `detail`, `search`, `feed`, `menu` |
+
+*No unique constraint — multiple views per user per recipe are recorded. Used as a feed signal: high views relative to zero cook events indicates interest without commitment.*
+
 #### WeeklyMealPlanVote
 | Field | Type | Notes |
 |---|---|---|
@@ -319,18 +430,24 @@ FreshUp should feel like having a knowledgeable sous chef — one who knows what
 
 ```
 User ──┬── owns ──► SubstitutionPreference
-       ├── rates ──► Recipe
+       ├── relates to ──► Recipe (via UserRecipeRelation: bookmark, like, rate)
+       ├── cooks ──► Recipe (via UserCookEvent)
+       ├── views ──► Recipe (via UserRecipeView)
+       ├── owns ──► Menu
        ├── opts into ──► MealPlanEntry
        └── adds ──► GroceryListItem
 
 Recipe ──┬── contains ──► RecipeIngredient
          ├── produces ──► PreparedFood (after cooking)
-         └── referenced by ──► MealPlanEntry
+         ├── referenced by ──► MealPlanEntry
+         └── belongs to ──► Menu (via MenuRecipe)
+
+Menu ──── contains ──► Recipe (via MenuRecipe, with manual add/remove overrides)
 
 InventoryItem ──┬── purchased at ──► Store
                 └── reserved for ──► MealPlanEntry
 
-MealPlanEntry ──┬── generates ──► GroceryListItem (auto)
+MealPlanEntry ──┬── generates ──► GroceryListItem (auto, only when confirmed)
                 ├── produces ──► PreparedFood (leftovers)
                 └── belongs to ──► WeeklyMealPlanVote
 
@@ -446,13 +563,97 @@ The frontend design is documented in a companion file: `docs/FreshUp-Design-Syst
 - "Show what I can make now" toggle on the recipe browse page filters all content by ingredient availability.
 - "Add missing to list" button calculates the delta between recipe ingredients and inventory, adding missing items to the grocery list in one tap.
 
-**Household context over ratings:** Generic star ratings are replaced with personalized household data: "Cooked 7 times" (from `Recipe.times_cooked`), "In Sarah's favs" (from `UserRecipeRating.is_favorite`), and eventually "Top voted this week" (Phase 3 voting data). Passive voice is used for shared resource references ("in stock" not "you have") to avoid shareability conflicts.
+**Household context over ratings:** Generic star ratings are replaced with personalized household data: "Cooked 7 times" (from `Recipe.times_cooked`), "In Sarah's favs" (from `UserRecipeRelation.is_liked`), and eventually "Top voted this week" (Phase 3 voting data). Passive voice is used for shared resource references ("in stock" not "you have") to avoid shareability conflicts.
 
 **"I Shopped" flow:** The primary grocery-to-inventory bridge. Default tab is receipt scanning (Phase 4 readiness, with fallback to "From grocery list" in Phase 1). Items from the grocery list are presented grouped by store with tappable storage location badges (smart defaults from purchase history). Checked items are bulk-added to inventory; unchecked items persist on the grocery list.
 
 **Recipe ingestion library:** The `recipe-scrapers` Python library (MIT, 624+ supported sites including HelloFresh and Kitchen Sanctuary) will serve as the parsing engine for Phase 2C/2D. FreshUp builds the orchestration layer (rate limiting, dedup, ingredient string decomposition, validation UI) around it. The library handles HTML-to-structured-recipe extraction. See Section 6 for recipe source strategy.
 
 **Implementation order:** Shell (routing, nav, auth) → Home screen → Recipe browse → Recipe detail → Pantry → Grocery list → "I Shopped" flow. Each screen builds on components from the previous one.
+
+### 5.11 Recipe Engagement Model (added v1.1)
+
+Users interact with recipes through three semantically distinct actions:
+
+- **Bookmark** — "Save for later." Private utility. The user's personal queue of recipes to try. Bookmarked recipes can optionally be assigned to a Menu (see 5.13). Analogous to browser bookmarks or Spotify's "Save to Library."
+- **Like** — "I endorse this." Public-facing curation. Visible on the user's profile and used to curate a personal "menu" of recipes they stand behind. Analogous to Instagram likes or Spotify's public playlists.
+- **Rating** — Post-cook evaluation. **Only available after the user has logged at least one cook event for the recipe** (via `POST /recipes/{id}/cook`). Ratings include a 0–5 scale, optional photos (stored in MinIO), and optional text commentary (tips, modifications, warnings). Ratings are never available before cooking — this ensures they reflect actual experience, not aspiration.
+
+All three actions are independent. A user can bookmark without liking, like without bookmarking, and rate without either (as long as they've cooked the recipe). All three actions trigger recipe persistence (see 5.12).
+
+The existing `is_favorite` field on `UserRecipeRating` is replaced by `is_bookmarked` and `is_liked` on `UserRecipeRelation`. Existing `is_favorite=true` rows migrate to `is_bookmarked=true`.
+
+### 5.12 Browse-Then-Persist Recipe Storage (added v1.1)
+
+Recipes from external sources (scrapers, URL import) are stored in the Recipe table with `is_persisted = false`. This makes them browseable but ephemeral — a "browse cache."
+
+**Persistence triggers:** A recipe transitions from `is_persisted = false` to `is_persisted = true` when any user:
+- Bookmarks it
+- Likes it
+- Adds it to a meal plan
+
+Once persisted, a recipe is permanent — it accumulates ratings, cook events, and household context data.
+
+**Cleanup:** A scheduled task prunes non-persisted recipes older than a configurable TTL (default 7 days, controlled by `BROWSE_CACHE_TTL_DAYS` env var). This prevents the Recipe table from growing unboundedly with stale browse cache data.
+
+**Cold start:** When the database has zero persisted recipes or a user has zero saves, the homepage and recipe browse page display non-persisted recipes from the browse cache as fallback content, labeled with generic titles ("Popular recipes.", "Quick weeknight meals.") rather than personalized rows.
+
+**Scraper behavior change:** Scrapers no longer bulk-insert recipes as permanent entries. They write to the browse cache (`is_persisted = false`). Dedup logic accounts for persistence status — if a persisted recipe already exists, skip; if a non-persisted recipe was pruned, re-create on next scrape.
+
+### 5.13 Menu System (added v1.1)
+
+Menus are user-owned recipe collections — the FreshUp equivalent of playlists. They come in two flavors:
+
+**Manual menus:** User creates a menu, gives it a name, and manually adds/removes recipes. No filter rules.
+
+**Auto-generated menus:** The system analyzes the user's bookmarked and liked recipes to detect behavioral patterns, then creates menus for each pattern with sufficient signal (>= 3 saves matching the pattern). Patterns are detected across all recipe attributes: source type, cuisine tags, dietary tags, cook time ranges, and ingredient commonalities.
+
+**User editability (required):** Auto-generated menus are fully editable:
+- **Title:** User can rename (e.g., "Indian cuisine" → "Curry night favorites").
+- **Filter rules:** User can narrow, expand, or completely rewrite the rules. Examples: add a tag filter to restrict "Indian cuisine" to "Indian sides"; add a calorie cap to make a "lite" version; expand from "Indian" to "Indian OR Asian" by switching match logic to `any` and adding a rule.
+- **Manual overrides:** User can add recipes that don't match the filter (marked `manually_added`, immune to filter changes) or remove recipes that do match (marked `manually_removed`, suppressed on re-evaluation).
+
+**Homepage rotation:** Auto-generated menus rotate into homepage carousel slots. The 2–3 menus with highest engagement (measured by menu opens + recipe-from-menu cook events) are shown. All menus are permanently accessible in a "My Menus" section regardless of homepage visibility.
+
+### 5.14 Personalized Home Feed (added v1.1)
+
+Each user's homepage is personalized based on their behavioral data. The feed is recomputed on page load with a 15-minute React Query stale time for caching. All scoring is deterministic SQL — no LLM involvement.
+
+**Feed sections (in display order):**
+
+1. **"Make this right now" slideshow** — Recipes the user can cook immediately based on current inventory (100% ingredient availability, or configurable threshold). Sorted by: ingredient freshness priority (expiring items first), familiar-first ranking, user preference. Top 10. Persisted recipes only.
+
+2. **"On Repeat" playlist** — Recipes the user is currently into, derived from four weighted signals: viewed-but-not-cooked (0.25), high-frequency-cooked with recency bias (0.30), recently-highly-rated (0.25), genre/ingredient affinity expansion (0.20). Top 15, with light shuffling in positions 6–15.
+
+3. **Personalized rows (3–4 max)** — Dynamic carousel rows derived from the user's strongest behavioral patterns across any recipe attribute (source type, tags, cuisine, cook time). Patterns require >= 3 saves to qualify. Row selection prefers diversity across attribute types. Rows include both saved recipes and browse cache recipes matching the pattern (for discovery).
+
+4. **Source-specific rows (max 2)** — Dedicated rows for recipe sources with >= 5 user saves. "See all" expands to a browse page showing the user's saves from that source, plus additional browse cache recipes from the same source under a "Discover more" divider.
+
+5. **Fallback rows** — Fill remaining slots when personalized data is insufficient. Content: global popularity rankings, quick meals, recently scraped recipes. Phase out as personalized rows fill in.
+
+**Recipes are added to the database for everyone** (the Recipe table is shared), but **each user's home feed is specific to their own saves, schedule, dietary preferences, and behavioral signals.**
+
+### 5.15 Auto-Draft Weekly Meal Plan (added v1.1)
+
+Each week (configurable day/time, default Sunday 8am), the system generates a draft weekly meal plan for inspiration.
+
+**Draft behavior:**
+- Fills dinner slots (7 days). Optionally lunch slots if user has opted into lunch planning.
+- Sources from Suggestion Engine priority queue (Section 5.2): expiring items first, then familiar recipes, then new suggestions.
+- Weights by: variety (no cuisine repeats on consecutive days), dietary balance, ingredient overlap (batch-friendly grouping).
+- Includes 1–2 "stretch" recipes from browse cache to introduce variety.
+- **Draft recipes are never committed.** They appear as faded/greyed-out cards on the Plan page. No impact on grocery list or inventory reservations until the user explicitly confirms a recipe.
+
+**Household vs. Personal plan toggle:** The Plan page shows two views:
+- **Household plan:** Meals confirmed by the coordinator (or via Phase 3C voting). All members see the same schedule. Confirmed household meals show as full-color cards.
+- **My plan:** The user's personal schedule. Includes household meals they've opted into, personal meals they've planned, and auto-draft suggestions.
+
+**Per-meal opt-out:** For any household meal, each user can individually opt out. Opt-out adjusts auto-scaling (one fewer serving), adjusts grocery list (removes user-specific dietary variation ingredients if applicable), and frees the slot for personal planning.
+
+**Visual treatment:**
+- Confirmed meals: full-color recipe cards.
+- Draft/suggested meals: faded/greyed-out recipe cards with accept/dismiss/swap actions, labeled "Suggested."
+- Opted-out slots: "You opted out" with "Plan something" browse link.
 
 ---
 
@@ -495,6 +696,14 @@ The frontend design is documented in a companion file: `docs/FreshUp-Design-Syst
 
 - User-created recipes built from inventory selections (see Section 5.5).
 - The organic growth path for the recipe database — capturing what the household actually cooks.
+
+### 6.7 Browse-Then-Persist Model (added v1.1)
+
+All recipe sources above (except ad-hoc creation, which is always persisted) now follow the browse-then-persist pattern described in Section 5.12. Scraped and imported recipes enter the database with `is_persisted = false` and become permanent only when a user takes action (bookmark, like, or add to meal plan). This prevents the database from accumulating thousands of recipes that no household member has expressed interest in.
+
+**Scrapers (6.2, 6.3) run periodically** (configurable, default weekly) to refresh the browse cache. **URL import (6.4) and photo upload (6.5)** also create non-persisted entries by default, though these are typically immediately bookmarked by the importing user, triggering persistence.
+
+**See `docs/implementation-plan-recipe-engagement.md`** for detailed migration instructions affecting the existing scraper codebase.
 
 ---
 
@@ -622,9 +831,85 @@ Each phase produces a usable increment of the system. Phases are broken into cle
 
 ---
 
+### Phase 2.5 — Recipe Engagement & Personalized Feed (added v1.1)
+
+**Goal:** Transform FreshUp from a kitchen utility into a daily-use app by introducing recipe engagement semantics (bookmark/like/rate), personalized homepage feeds, recipe collections (menus), and auto-draft meal planning.
+
+**Prerequisite:** Phase 1 backend, Phase 2C (scrapers), Phase 2A (Ollama). Does not require Phase 2B or 2D.
+
+**Detailed implementation plan:** See `docs/implementation-plan-recipe-engagement.md` for full specifications, data model schemas, API endpoints, query logic, and Sharkrite directives.
+
+**Development Areas:**
+
+#### 2.5A: Data Model & Migration
+- Rename `UserRecipeRating` → `UserRecipeRelation` with bookmark/like split (Section 5.11)
+- Add `is_persisted` flag to Recipe model (Section 5.12)
+- New models: Menu, MenuRecipe, UserCookEvent, UserRecipeView
+- Alembic migration with data migration (`is_favorite` → `is_bookmarked`)
+- Update all model references across routers, schemas, and tests
+
+#### 2.5B: Scraper Architecture Overhaul
+- Modify existing scrapers to write `is_persisted = false`
+- Implement persistence trigger on bookmark/like/meal-plan-add
+- Implement cleanup job for expired non-persisted recipes
+- Update dedup logic to account for persistence status
+
+#### 2.5C: Feed Engine (Backend)
+- `GET /feed/home` endpoint with per-user personalized payload
+- "Make This Right Now" inventory-aware query
+- "On Repeat" weighted behavioral signal scoring
+- Dynamic personalized row pattern detection
+- Source-specific row generation
+- Cold start fallback logic
+
+#### 2.5D: Menu System (Backend)
+- Menu CRUD endpoints
+- Auto-generated menu creation from behavioral patterns
+- Filter rule evaluation engine (match/any logic across recipe attributes)
+- Manual override tracking (manually_added / manually_removed)
+- User-editable filter rules, titles, and organization
+
+#### 2.5E: Meal Plan Draft & Schedule (Backend)
+- Auto-draft generation (weekly, configurable schedule)
+- Household vs. personal plan data separation
+- Per-meal opt-out with scaling/grocery adjustment
+- Draft → confirmed transition (only confirmed entries affect grocery list)
+
+#### 2.5F: Frontend — Recipe Engagement UI
+- Bookmark and like buttons on RecipeCard and RecipeDetail (replacing is_favorite)
+- "I cooked this" button on RecipeDetail (creates UserCookEvent)
+- Rating UI gated by cook event existence
+- View tracking (fire-and-forget on recipe detail open)
+
+#### 2.5G: Frontend — Home Feed & Browse
+- Dynamic homepage from `GET /feed/home` (replace static sections)
+- "Make This Right Now" hero slideshow
+- "On Repeat" carousel
+- Personalized + source-specific rows
+- Source row "See all" → browse page with cached recipe expansion
+
+#### 2.5H: Frontend — Menus
+- "My Menus" section accessible from profile or recipe browse
+- Menu detail page with recipe grid
+- Menu filter rule editor UI
+- Menu title and description editing
+
+#### 2.5I: Frontend — Plan Page
+- Weekly calendar view (replace Phase 3 stub)
+- Household vs. personal plan toggle
+- Auto-draft recipe cards (faded/greyed-out treatment)
+- Accept/dismiss/swap actions on draft entries
+- Per-meal opt-out toggle on household meals
+
+**Phase 2.5 Deliverable:** A daily-driver recipe engagement experience where users browse, save, organize, cook, and rate recipes with a personalized home feed that encourages cooking — not just saving.
+
+---
+
 ### Phase 3 — Smart Meal Planning
 
 **Goal:** Intelligent recipe suggestions, democratic weekly meal planning with household voting, auto-scaling, and daily reconciliation.
+
+**Note (v1.1):** Phase 2.5 introduces a lighter auto-draft meal plan and the "Make This Right Now" inventory-aware feed. Phase 3A's Suggestion Engine builds on the behavioral signals and feed queries established in 2.5C. Phase 3C's Democratic Meal Planning extends the Plan page calendar built in 2.5I with the full voting flow. The auto-draft feature is not replaced — it continues as the single-user experience alongside the multi-user voting system.
 
 **Development Areas:**
 
@@ -800,7 +1085,7 @@ The following ideas were generated during brainstorming and are documented for f
 
 For Sharkrite issue generation, each development area maps to a focused set of issues:
 
-**Recommended Execution Order:** While the table below shows logical dependencies and sequential numbering, the recommended execution order for Phases 2 and 4 differs to prioritize immediate-value work and manage dependencies efficiently. Execute in this order: **2C → 2A → 4A → 4B → 2B → 2D**. See Section 8 (Phase 2 — Recipe Ingestion) for detailed rationale.
+**Recommended Execution Order:** While the table below shows logical dependencies and sequential numbering, the recommended execution order for Phases 2 and 4 differs to prioritize immediate-value work and manage dependencies efficiently. Execute in this order: **2C → 2A → 4A → 4B → 2.5A–I → 2B → 2D**. See Section 8 (Phase 2 — Recipe Ingestion) for detailed rationale. Phase 2.5 (Recipe Engagement) should be completed before Phase 3 as it establishes behavioral signals and feed infrastructure that Phase 3A depends on. See `docs/implementation-plan-recipe-engagement.md` for Phase 2.5 detail.
 
 | Code | Area | Phase | Dependencies |
 |---|---|---|---|
@@ -815,9 +1100,18 @@ For Sharkrite issue generation, each development area maps to a focused set of i
 | 2B | HelloFresh Card OCR | 2 | 2A, 1E |
 | 2C | Web Scrapers | 2 | 1E |
 | 2D | URL Import & Photo Upload | 2 | 2A, 1E |
-| 3A | Suggestion Engine | 3 | 1D, 1E, 1G |
+| 2.5A | Data Model & Migration | 2.5 | 1B, 1E |
+| 2.5B | Scraper Architecture Overhaul | 2.5 | 2C, 2.5A |
+| 2.5C | Feed Engine (Backend) | 2.5 | 2.5A, 2.5B |
+| 2.5D | Menu System (Backend) | 2.5 | 2.5A |
+| 2.5E | Meal Plan Draft & Schedule (Backend) | 2.5 | 2.5A, 1F |
+| 2.5F | Frontend: Recipe Engagement UI | 2.5 | 2.5A, 1-FE |
+| 2.5G | Frontend: Home Feed & Browse | 2.5 | 2.5C, 2.5F |
+| 2.5H | Frontend: Menus | 2.5 | 2.5D, 2.5F |
+| 2.5I | Frontend: Plan Page | 2.5 | 2.5E, 2.5F |
+| 3A | Suggestion Engine | 3 | 1D, 1E, 1G, 2.5C |
 | 3B | Recipe Auto-Scaling & Variations | 3 | 1E, 1F |
-| 3C | Democratic Meal Planning | 3 | 3A, 3B, 1C |
+| 3C | Democratic Meal Planning | 3 | 3A, 3B, 1C, 2.5I |
 | 3D | Daily Reconciliation | 3 | 1D, 1G, 3C |
 | 4A | Costco Digital Receipts | 4 | 1D, 2A |
 | 4B | Paper Receipt OCR | 4 | 2A, 4A |
@@ -833,4 +1127,52 @@ For Sharkrite issue generation, each development area maps to a focused set of i
 
 ---
 
-*This ADR captures the architectural decisions, rationale, and implementation plan for FreshUp as of 2026-03-13. It is intended to be expanded into actionable issue sets per development area using Sharkrite.*
+## 13. Migration Discipline
+
+*Added 2026-09-18 after repairing the Phase 2.5 migration chain.*
+
+### 13.1 What went wrong
+
+Phase 2.5A–E was generated by Sharkrite in batched parallel agent sessions on 2026-05-03. Batch `rite-473-474-475-476-477-478-479-480-481` ran nine issues concurrently. Two of them independently needed the same schema change:
+
+- Issue #474 (scraper browse-then-persist, PR #484) authored `pi1jpdky8rus_add_is_persisted_to_recipes.py`
+- Issue #473/#480 (menus, PR #494) authored `oi0jpexw8quw_add_is_persisted_to_recipes.py`
+
+Both declared `down_revision = 'nh9iocxw7qtv'` and both carried the identical hand-written timestamp `2026-05-03 17:00:00.000000` — neither was produced by `alembic revision`, which would have chained off the real current head. The result was a branched chain with three heads.
+
+Separately, `pj1kqfxy9rvw_rename_user_recipe_rating_to_relation.py` opened with `drop_constraint('uq_user_recipe_rating')`. That constraint never existed — the initial schema created `user_recipe_ratings` with only a primary key and two foreign keys. The migration was written against the model's declared `__table_args__` rather than against the actual database.
+
+**Impact:** `_ensure_schema()` in `src/main.py` runs `command.upgrade(cfg, "head")` on every startup, with no exception handling. Multiple heads raise `CommandError`, so the API could not start at all from 2026-05-03 until the repair. Combined with `restart: unless-stopped` and the homelab container check, the deployment would have been in a restart loop.
+
+**Why no test caught it:** every other test builds its schema with `Base.metadata.create_all()` directly from the models. Migrations never executed under test, so models and migration history were free to diverge invisibly. 1518 tests stayed green throughout.
+
+### 13.2 Rules going forward
+
+1. **Generate migrations with `alembic revision`, never by hand or from a template.** The autogenerated `down_revision` is the whole point — it chains off the actual current head.
+2. **One migration per batch.** If parallel work needs schema changes, the migration belongs in a single issue that the others depend on. This is a scheduling constraint on the issue generator, not a coding rule.
+3. **Write migrations against the database, not the model.** Before `drop_constraint` / `drop_index` / `drop_column`, confirm the object exists in the migration history that precedes you. A model's `__table_args__` describes the intended end state, not what the database currently has.
+4. **`alembic heads` must return exactly one line before any PR merges.** Enforced by `tests/test_migration_chain.py::test_exactly_one_head`.
+5. **Model and migration move together.** If a column's `default` changes in the model, its `server_default` changes in a migration in the same PR.
+
+### 13.3 Coverage
+
+`tests/test_migration_chain.py` runs the deployment path — empty database upgraded to head via the Alembic CLI — and asserts single head, no orphaned revisions, no duplicate revision ids, table and column parity against the models, and a `head → base → head` round trip. It is the only test in the suite that executes migrations; keep it that way rather than slowing the other 1500 tests down with them.
+
+### 13.4 Drift status
+
+Autogenerate reported 19 differences between the migrated schema and the models after the chain repair. Nine remain, all of one known-benign class.
+
+**Fixed (2026-09-18):**
+
+- **Indexes now declared on the models.** `ix_recipes_is_persisted`, `ix_recipes_created_at`, `ix_menus_user_id`, `ix_menu_recipes_recipe_id`, `ix_user_recipe_relations_{user,recipe,menu}_id`, and `ix_grocery_list_items_purchased_created_at` existed only in migrations. A `create_all()` database — what every test uses — had none of them, and autogenerate would have proposed dropping them all. They are now declared with `index=True` (or `__table_args__` for the composite), so migrations and models agree.
+- **`user_recipe_relations.menu_id` foreign key** now carries its name and `ondelete='SET NULL'` on the model, matching the migration.
+
+**Tolerated, tracked for Phase 6B:**
+
+- **UUID column type declarations are inconsistent.** Older migrations use `sa.Uuid()` (renders `CHAR(32)` on SQLite); the Phase 2.5 and Phase 4 migrations use `sa.UUID()` (`NUMERIC` affinity). Verified cosmetic on SQLite: both store as `TEXT` in practice, and UUID values round-trip and join correctly through the ORM's bind/result processors, which key off the model's type rather than the column's declared one. Not fixed, because the only clean routes are rewriting migration history (violates 13.2 rule 3) or a multi-table SQLite batch rebuild carrying real risk for no present benefit. **It stops being cosmetic on Postgres** — resolve it as part of the Phase 6B migration, where the tables are rebuilt anyway.
+
+This boundary is enforced, not just documented: `test_only_known_benign_drift_remains` runs the same autogenerate comparison and fails on anything outside the UUID class.
+
+---
+
+*This ADR captures the architectural decisions, rationale, and implementation plan for FreshUp as of 2026-03-13, amended 2026-05-03 (v1.1: Recipe Engagement & Personalized Feed) and 2026-09-18 (v1.2: status snapshot and migration discipline). It is intended to be expanded into actionable issue sets per development area using Sharkrite.*

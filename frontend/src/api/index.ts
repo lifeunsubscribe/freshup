@@ -73,6 +73,15 @@ export {
   type RecipeListFilters,
 } from './hooks/useRecipes';
 
+// Recipe engagement hooks (bookmark / like quick actions)
+export {
+  useMyRecipeRelation,
+  useToggleBookmark,
+  useToggleLike,
+  EMPTY_RELATION,
+  type RecipeRelation,
+} from './hooks/useRecipeEngagement';
+
 // Grocery hooks
 export {
   useGroceryList,

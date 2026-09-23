@@ -321,3 +321,78 @@ class TestPruneUnpersistedRecipes:
         assert pruned_count == 1
         remaining = db_session.query(Recipe).filter_by(id=recipe_id).first()
         assert remaining is None
+
+
+class TestRecipeDefaultIsPersisted:
+    """
+    Regression guard: user-created recipes must survive the cleanup job.
+
+    Recipe.is_persisted defaulted to False until 2026-09-18, and neither
+    recipe-creation route passes the flag. Every recipe a user made was
+    therefore born as browse-cache data and deleted by prune_unpersisted_recipes
+    once it aged past BROWSE_CACHE_TTL_DAYS — and that job runs on every app
+    startup. The default must fail safe: keep the recipe unless something
+    deliberately marks it disposable.
+    """
+
+    def test_recipe_defaults_to_persisted(self, db_session, test_user):
+        """A Recipe created without an explicit flag is persisted."""
+        recipe = Recipe(
+            name="Recipe With No Explicit Flag",
+            source_type="manual",
+            created_by=test_user.id,
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+
+        assert recipe.is_persisted is True, (
+            "Recipe.is_persisted must default to True — cleanup_service deletes "
+            "is_persisted=False rows on every startup."
+        )
+
+    def test_default_recipe_survives_cleanup(self, db_session, test_user):
+        """An aged recipe created without the flag is not pruned."""
+        old_date = datetime.now(timezone.utc) - timedelta(days=365)
+        recipe_id = uuid4()
+        db_session.add(
+            Recipe(
+                id=recipe_id,
+                name="Year-Old User Recipe",
+                source_type="ad_hoc",
+                created_at=old_date,
+                created_by=test_user.id,
+            )
+        )
+        db_session.commit()
+
+        pruned_count = prune_unpersisted_recipes(db_session)
+
+        assert pruned_count == 0
+        assert db_session.query(Recipe).filter_by(id=recipe_id).first() is not None
+
+    def test_scraped_recipes_are_still_pruned(self, db_session, test_user):
+        """
+        The browse cache still works.
+
+        Fixing the default must not make everything permanent — import_service
+        passes is_persisted=False explicitly, and those rows must still age out.
+        """
+        old_date = datetime.now(timezone.utc) - timedelta(days=365)
+        recipe_id = uuid4()
+        db_session.add(
+            Recipe(
+                id=recipe_id,
+                name="Stale Browse Cache Entry",
+                source_type="hellofresh_web",
+                is_persisted=False,
+                created_at=old_date,
+                created_by=None,
+            )
+        )
+        db_session.commit()
+
+        pruned_count = prune_unpersisted_recipes(db_session)
+
+        assert pruned_count == 1
+        assert db_session.query(Recipe).filter_by(id=recipe_id).first() is None

@@ -9,6 +9,15 @@ import { useRecipeList } from '../../../api'
 vi.mock('../../../api', () => ({
   useRecipeList: vi.fn(),
 }))
+// ConnectedRecipeCard (rendered inside) reads engagement state from React Query.
+// These tests mock the API layer rather than wrapping in a QueryClientProvider,
+// so the engagement hooks are stubbed the same way.
+vi.mock('../../../api/hooks/useRecipeEngagement', () => ({
+  useMyRecipeRelations: () => ({ data: new Map() }),
+  useToggleBookmark: () => ({ mutate: vi.fn() }),
+  useToggleLike: () => ({ mutate: vi.fn() }),
+}))
+
 
 // Helper to render component with Router context
 const renderWithRouter = (ui: React.ReactElement) => {

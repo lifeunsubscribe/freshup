@@ -352,25 +352,45 @@ export interface AdHocRecipeCreate {
   decrement_inventory?: boolean;
 }
 
-export interface UserRecipeRatingCreate {
-  rating: number;
-  is_favorite?: boolean;
-  notes?: string;
+/**
+ * Body for POST /recipes/{id}/rate.
+ *
+ * This is a WHOLE-RELATION UPSERT: the backend writes every field of this
+ * object onto the row, so omitted fields fall back to their defaults and
+ * overwrite whatever was there. Send the complete desired state, or use the
+ * bookmark/like toggles below, which change one field each.
+ */
+export interface UserRecipeRelationCreate {
+  rating?: number | null;
+  is_bookmarked?: boolean;
+  is_liked?: boolean;
+  rating_photos?: string[] | null;
+  rating_comment?: string | null;
+  menu_id?: string | null;
 }
 
-export interface UserRecipeRatingResponse {
+/** A user's engagement with one recipe: bookmark, like, and rating. */
+export interface UserRecipeRelationResponse {
   id: string;
   user_id: string;
   recipe_id: string;
-  rating: number;
-  is_favorite: boolean;
-  notes: string | null;
-  rated_at: string;
+  rating: number | null;
+  is_bookmarked: boolean;
+  is_liked: boolean;
+  rating_photos: string[] | null;
+  rating_comment: string | null;
+  menu_id: string | null;
+}
+
+/** Body for POST /recipes/{id}/bookmark. */
+export interface BookmarkCreate {
+  menu_id?: string | null;
 }
 
 export interface RecipeAggregateRatingsResponse {
   average_rating: number | null;
   rating_count: number;
+  /** Users who bookmarked. Named for the pre-2.5 "favorite" concept. */
   favorite_count: number;
 }
 

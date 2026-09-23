@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import InventoryRow from './InventoryRow'
@@ -90,13 +90,14 @@ describe('InventoryRow', () => {
   })
 
   describe('Visual States', () => {
-    it('renders item name in 14px primary text', () => {
+    it('renders item name in 13px primary text', () => {
       const item = createMockItem({ name: 'Olive oil' })
       const { container } = renderWithProviders(<InventoryRow item={item} />)
 
+      // Row text was tightened to 13px; this assertion still expected 14px.
       const itemName = screen.getByText('Olive oil')
       expect(itemName).toBeInTheDocument()
-      expect(itemName.className).toContain('text-[14px]')
+      expect(itemName.className).toContain('text-[13px]')
       expect(itemName.className).toContain('text-text-primary')
     })
 
@@ -284,7 +285,9 @@ describe('InventoryRow', () => {
       })
       renderWithProviders(<InventoryRow item={item} />)
 
-      const freezeButton = screen.getByRole('button', { name: /Freeze/i })
+      // Anchored: the item is in the freezer, so its StorageBadge reads
+      // "Freezer", which /Freeze/i also matches.
+      const freezeButton = screen.getByRole('button', { name: /^Freeze$/ })
       await user.click(freezeButton)
 
       expect(freezeMutate).toHaveBeenCalledWith(
@@ -304,7 +307,9 @@ describe('InventoryRow', () => {
       })
       renderWithProviders(<InventoryRow item={item} />)
 
-      const freezeButton = screen.getByRole('button', { name: /Freeze/i })
+      // Anchored: the item is in the freezer, so its StorageBadge reads
+      // "Freezer", which /Freeze/i also matches.
+      const freezeButton = screen.getByRole('button', { name: /^Freeze$/ })
       expect(freezeButton).toBeDisabled()
     })
 
@@ -323,7 +328,9 @@ describe('InventoryRow', () => {
       renderWithProviders(<InventoryRow item={item} />)
 
       const ateItButton = screen.getByRole('button', { name: /Ate it/i })
-      const freezeButton = screen.getByRole('button', { name: /Freeze/i })
+      // Anchored: the item is in the freezer, so its StorageBadge reads
+      // "Freezer", which /Freeze/i also matches.
+      const freezeButton = screen.getByRole('button', { name: /^Freeze$/ })
 
       expect(ateItButton).toBeDisabled()
       expect(freezeButton).toBeDisabled()
@@ -508,22 +515,25 @@ describe('InventoryRow', () => {
       })
       renderWithProviders(<InventoryRow item={item} />)
 
-      // Click "Ate it" button to trigger error
+      // Click "Ate it" button to trigger error. This test runs on fake timers,
+      // so waitFor cannot be used — its polling relies on real timers that are
+      // frozen here, and it would just burn its timeout. act() flushes the
+      // state updates synchronously instead.
       const ateItButton = screen.getByRole('button', { name: /ate it/i })
-      fireEvent.click(ateItButton)
+      act(() => {
+        fireEvent.click(ateItButton)
+      })
 
       // Error should be visible initially
-      await waitFor(() => {
-        expect(screen.getByRole('alert')).toBeInTheDocument()
-      })
+      expect(screen.getByRole('alert')).toBeInTheDocument()
 
       // Fast-forward 5 seconds
-      vi.advanceTimersByTime(5000)
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
 
       // Error should be dismissed
-      await waitFor(() => {
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-      })
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
       vi.useRealTimers()
     })

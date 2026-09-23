@@ -27,12 +27,14 @@ def upgrade() -> None:
     2. Add new columns
     3. Migrate data from old columns to new columns
     4. Drop old columns
-    5. Rename unique constraint
-    """
-    # Step 1: Rename table and update constraint
-    with op.batch_alter_table('user_recipe_ratings', schema=None) as batch_op:
-        batch_op.drop_constraint('uq_user_recipe_rating', type_='unique')
+    5. Add the unique constraint
 
+    Note: the initial schema created user_recipe_ratings with only a primary key
+    and two foreign keys — it never had a named unique constraint to drop. The
+    (user_id, recipe_id) uniqueness the model declares is introduced here for the
+    first time, as uq_user_recipe_relation in step 2.
+    """
+    # Step 1: Rename table
     op.rename_table('user_recipe_ratings', 'user_recipe_relations')
 
     # Step 2: Add new columns
@@ -86,9 +88,6 @@ def downgrade() -> None:
         batch_op.drop_column('is_liked')
         batch_op.drop_column('is_bookmarked')
 
-    # Rename table back
+    # Rename table back. The original user_recipe_ratings had no named unique
+    # constraint (see upgrade), so there is nothing to restore here.
     op.rename_table('user_recipe_relations', 'user_recipe_ratings')
-
-    # Restore original constraint
-    with op.batch_alter_table('user_recipe_ratings', schema=None) as batch_op:
-        batch_op.create_unique_constraint('uq_user_recipe_rating', ['user_id', 'recipe_id'])

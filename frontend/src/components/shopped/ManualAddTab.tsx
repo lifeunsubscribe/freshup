@@ -183,7 +183,16 @@ export default function ManualAddTab() {
         </div>
       )}
 
-      <form onSubmit={handleAddAnother}>
+      {/*
+        noValidate hands validation to validateForm() rather than the browser.
+        The fields carry required/min attributes, and native constraint
+        validation blocks submission before onSubmit runs — which made the
+        styled error banner below unreachable and left users with inconsistent
+        native bubbles instead. validateForm is also stricter: `required`
+        accepts a whitespace-only name, and only validateForm enforces the
+        1,000,000 quantity cap.
+      */}
+      <form onSubmit={handleAddAnother} noValidate>
         <div className="bg-white rounded-card border border-warm-border p-6">
           <h2 className="text-lg font-medium text-text-primary mb-4">
             Add item to pantry
@@ -328,23 +337,19 @@ export default function ManualAddTab() {
             />
           </div>
 
-          {/* Validation error */}
+          {/*
+            One banner for every error. The submit handler's catch already sets
+            validationError to "Failed to add item. Please try again.", and
+            react-query also flips isError on the same failure — so a separate
+            isError block rendered the identical sentence a second time, giving
+            screen readers two alerts for one problem.
+          */}
           {validationError && (
             <div
               className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-sm text-red-800"
               role="alert"
             >
               {validationError}
-            </div>
-          )}
-
-          {/* API error */}
-          {createInventoryMutation.isError && (
-            <div
-              className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-md text-sm text-red-800"
-              role="alert"
-            >
-              Failed to add item. Please try again.
             </div>
           )}
 

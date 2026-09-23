@@ -9,6 +9,15 @@ import { useRecipeList } from '../../api'
 vi.mock('../../api', () => ({
   useRecipeList: vi.fn(),
 }))
+// ConnectedRecipeCard (rendered inside) reads engagement state from React Query.
+// These tests mock the API layer rather than wrapping in a QueryClientProvider,
+// so the engagement hooks are stubbed the same way.
+vi.mock('../../api/hooks/useRecipeEngagement', () => ({
+  useMyRecipeRelations: () => ({ data: new Map() }),
+  useToggleBookmark: () => ({ mutate: vi.fn() }),
+  useToggleLike: () => ({ mutate: vi.fn() }),
+}))
+
 
 // Helper to render component with Router context
 const renderWithRouter = (ui: React.ReactElement) => {
@@ -80,14 +89,20 @@ describe('Recipes Page', () => {
     it('renders all carousel sections', () => {
       renderWithRouter(<Recipes />)
 
-      // Check for section headers (via SectionHeader component which wraps text)
-      expect(screen.getByText('Your favorites')).toBeInTheDocument()
-      expect(screen.getByText('Quick meals')).toBeInTheDocument()
-      expect(screen.getByText('Recently added')).toBeInTheDocument()
-      expect(screen.getByText('Italian')).toBeInTheDocument()
-      expect(screen.getByText('Mexican')).toBeInTheDocument()
-      expect(screen.getByText('Asian')).toBeInTheDocument()
-      expect(screen.getByText('Vegan')).toBeInTheDocument()
+      // Query the carousel <h2>s specifically: each section label also appears
+      // as a SectionNav button, so a bare getByText matches two elements.
+      // SectionHeader appends the design system's olive period, so the
+      // accessible name carries a trailing ".".
+      const sectionHeading = (label: string) =>
+        screen.getByRole('heading', { name: `${label}.` })
+
+      expect(sectionHeading('Your favorites')).toBeInTheDocument()
+      expect(sectionHeading('Quick meals')).toBeInTheDocument()
+      expect(sectionHeading('Recently added')).toBeInTheDocument()
+      expect(sectionHeading('Italian')).toBeInTheDocument()
+      expect(sectionHeading('Mexican')).toBeInTheDocument()
+      expect(sectionHeading('Asian')).toBeInTheDocument()
+      expect(sectionHeading('Vegan')).toBeInTheDocument()
     })
 
     it('renders section navigation with all sections', () => {
@@ -395,7 +410,9 @@ describe('Recipes Page', () => {
   describe('accessibility', () => {
     it('page title is rendered as heading', () => {
       renderWithRouter(<Recipes />)
-      const heading = screen.getByRole('heading', { name: 'Recipes' })
+      // PageTitle appends the signature olive period, so the accessible name
+      // is "Recipes.", not "Recipes".
+      const heading = screen.getByRole('heading', { name: 'Recipes.' })
       expect(heading).toBeInTheDocument()
     })
 

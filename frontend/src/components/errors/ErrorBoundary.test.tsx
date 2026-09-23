@@ -78,16 +78,18 @@ describe('ErrorBoundary', () => {
 
     expect(screen.getByText('Error: Test error message')).toBeInTheDocument();
 
-    // Click reset - this will reset the error boundary but children still throw
-    // So we need to provide non-throwing children after reset
-    await user.click(screen.getByText('Reset'));
-
-    // After reset, rerender with non-throwing children
+    // Swap in non-throwing children BEFORE resetting. Clicking Reset first
+    // clears hasError and immediately re-renders the still-throwing children,
+    // so the boundary catches again and the later rerender never gets a chance
+    // to show normal content. While hasError is true the children are not
+    // rendered at all, so updating them first is safe.
     rerender(
       <ErrorBoundary fallback={(error, resetError) => <FallbackWithReset error={error} resetError={resetError} />}>
         <ThrowError shouldThrow={false} />
       </ErrorBoundary>
     );
+
+    await user.click(screen.getByText('Reset'));
 
     expect(screen.getByText('Normal content')).toBeInTheDocument();
   });

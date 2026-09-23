@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import RecipeCard from './RecipeCard'
@@ -50,9 +50,10 @@ describe('RecipeCard', () => {
       )
       const image = screen.getByAltText('Sweet Potato Chickpea Curry')
 
-      // Simulate image load error
-      const errorEvent = new Event('error', { bubbles: true })
-      image.dispatchEvent(errorEvent)
+      // fireEvent.error, not a hand-built Event: React routes onError through
+      // its synthetic event system and the resulting setState has to run inside
+      // act(). A raw dispatchEvent never reaches the handler.
+      fireEvent.error(image)
 
       // Should show "No image" placeholder after error
       expect(screen.getByText('No image')).toBeInTheDocument()
@@ -85,64 +86,118 @@ describe('RecipeCard', () => {
     })
   })
 
-  describe('favorite heart', () => {
-    it('renders heart icon as outline when not favorited', () => {
-      renderWithRouter(<RecipeCard recipe={mockRecipe} isFavorited={false} />)
-      const button = screen.getByRole('button', { name: 'Add to favorites' })
-      expect(button).toBeInTheDocument()
+  describe('like button', () => {
+    it('renders as unpressed when not liked', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isLiked={false} />)
+      const button = screen.getByRole('button', { name: 'Like recipe' })
+      expect(button).toHaveAttribute('aria-pressed', 'false')
     })
 
-    it('renders heart icon as filled when favorited', () => {
-      renderWithRouter(<RecipeCard recipe={mockRecipe} isFavorited={true} />)
-      const button = screen.getByRole('button', { name: 'Remove from favorites' })
-      expect(button).toBeInTheDocument()
+    it('renders as pressed when liked', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isLiked={true} />)
+      const button = screen.getByRole('button', { name: 'Unlike recipe' })
+      expect(button).toHaveAttribute('aria-pressed', 'true')
     })
 
-    it('calls onFavoriteToggle when heart is clicked', async () => {
+    it('calls onLikeToggle when clicked', async () => {
       const user = userEvent.setup()
-      const onFavoriteToggle = vi.fn()
-      renderWithRouter(
-        <RecipeCard recipe={mockRecipe} onFavoriteToggle={onFavoriteToggle} />
-      )
-      const button = screen.getByRole('button', { name: 'Add to favorites' })
-      await user.click(button)
-      expect(onFavoriteToggle).toHaveBeenCalledTimes(1)
+      const onLikeToggle = vi.fn()
+      renderWithRouter(<RecipeCard recipe={mockRecipe} onLikeToggle={onLikeToggle} />)
+      await user.click(screen.getByRole('button', { name: 'Like recipe' }))
+      expect(onLikeToggle).toHaveBeenCalledTimes(1)
     })
 
-    it('prevents navigation when heart is clicked', async () => {
+    it('does not navigate when clicked', async () => {
       const user = userEvent.setup()
-      const onFavoriteToggle = vi.fn()
-      renderWithRouter(
-        <RecipeCard recipe={mockRecipe} onFavoriteToggle={onFavoriteToggle} />
-      )
-      const button = screen.getByRole('button', { name: 'Add to favorites' })
-      await user.click(button)
-      // Navigation would change pathname, but it should remain at test root
+      renderWithRouter(<RecipeCard recipe={mockRecipe} onLikeToggle={vi.fn()} />)
+      await user.click(screen.getByRole('button', { name: 'Like recipe' }))
       expect(window.location.pathname).toBe('/')
     })
 
-    it('calls onFavoriteToggle when Enter key is pressed on heart button', async () => {
+    it('calls onLikeToggle on Enter', async () => {
       const user = userEvent.setup()
-      const onFavoriteToggle = vi.fn()
-      renderWithRouter(
-        <RecipeCard recipe={mockRecipe} onFavoriteToggle={onFavoriteToggle} />
-      )
-      const button = screen.getByRole('button', { name: 'Add to favorites' })
-      button.focus()
+      const onLikeToggle = vi.fn()
+      renderWithRouter(<RecipeCard recipe={mockRecipe} onLikeToggle={onLikeToggle} />)
+      screen.getByRole('button', { name: 'Like recipe' }).focus()
       await user.keyboard('{Enter}')
-      expect(onFavoriteToggle).toHaveBeenCalledTimes(1)
+      expect(onLikeToggle).toHaveBeenCalledTimes(1)
     })
 
-    it('calls onFavoriteToggle when Space key is pressed on heart button', async () => {
+    it('calls onLikeToggle on Space', async () => {
       const user = userEvent.setup()
-      const onFavoriteToggle = vi.fn()
-      renderWithRouter(
-        <RecipeCard recipe={mockRecipe} onFavoriteToggle={onFavoriteToggle} />
-      )
-      const button = screen.getByRole('button', { name: 'Add to favorites' })
-      button.focus()
+      const onLikeToggle = vi.fn()
+      renderWithRouter(<RecipeCard recipe={mockRecipe} onLikeToggle={onLikeToggle} />)
+      screen.getByRole('button', { name: 'Like recipe' }).focus()
       await user.keyboard(' ')
-      expect(onFavoriteToggle).toHaveBeenCalledTimes(1)
+      expect(onLikeToggle).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('bookmark button', () => {
+    it('renders as unpressed when not bookmarked', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isBookmarked={false} />)
+      const button = screen.getByRole('button', { name: 'Bookmark recipe' })
+      expect(button).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('renders as pressed when bookmarked', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isBookmarked={true} />)
+      const button = screen.getByRole('button', { name: 'Remove bookmark' })
+      expect(button).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('calls onBookmarkToggle when clicked', async () => {
+      const user = userEvent.setup()
+      const onBookmarkToggle = vi.fn()
+      renderWithRouter(
+        <RecipeCard recipe={mockRecipe} onBookmarkToggle={onBookmarkToggle} />
+      )
+      await user.click(screen.getByRole('button', { name: 'Bookmark recipe' }))
+      expect(onBookmarkToggle).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not navigate when clicked', async () => {
+      const user = userEvent.setup()
+      renderWithRouter(<RecipeCard recipe={mockRecipe} onBookmarkToggle={vi.fn()} />)
+      await user.click(screen.getByRole('button', { name: 'Bookmark recipe' }))
+      expect(window.location.pathname).toBe('/')
+    })
+
+    it('calls onBookmarkToggle on Enter', async () => {
+      const user = userEvent.setup()
+      const onBookmarkToggle = vi.fn()
+      renderWithRouter(
+        <RecipeCard recipe={mockRecipe} onBookmarkToggle={onBookmarkToggle} />
+      )
+      screen.getByRole('button', { name: 'Bookmark recipe' }).focus()
+      await user.keyboard('{Enter}')
+      expect(onBookmarkToggle).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('bookmark and like are independent', () => {
+    it('shows both controls with their own state', () => {
+      renderWithRouter(
+        <RecipeCard recipe={mockRecipe} isLiked={true} isBookmarked={false} />
+      )
+      expect(screen.getByRole('button', { name: 'Unlike recipe' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Bookmark recipe' })).toBeInTheDocument()
+    })
+
+    it('clicking like does not invoke the bookmark handler', async () => {
+      const user = userEvent.setup()
+      const onLikeToggle = vi.fn()
+      const onBookmarkToggle = vi.fn()
+      renderWithRouter(
+        <RecipeCard
+          recipe={mockRecipe}
+          onLikeToggle={onLikeToggle}
+          onBookmarkToggle={onBookmarkToggle}
+        />
+      )
+      await user.click(screen.getByRole('button', { name: 'Like recipe' }))
+      expect(onLikeToggle).toHaveBeenCalledTimes(1)
+      expect(onBookmarkToggle).not.toHaveBeenCalled()
     })
   })
 
@@ -164,8 +219,10 @@ describe('RecipeCard', () => {
 
     it('displays metadata with separators in correct format', () => {
       renderWithRouter(<RecipeCard recipe={mockRecipe} servings={4} />)
-      // Check for the pattern: "25 min · 4 srv · mexican"
-      const metadataText = screen.getByText(/25 min/).textContent
+      // Check for the pattern: "25 min · 4 srv · mexican".
+      // Each field is its own <span>, so getByText returns just that span.
+      // Read the row that contains them.
+      const metadataText = screen.getByText(/25 min/).parentElement?.textContent
       expect(metadataText).toContain('25 min')
       expect(metadataText).toContain('4 srv')
       expect(metadataText).toContain('mexican')

@@ -68,17 +68,16 @@ describe('Pill', () => {
       render(<Pill>Test</Pill>)
       const pill = screen.getByText('Test')
 
-      // Should have inline-block display
+      // Design system: 10px "Tiny labels", 6px radius (tailwind.config.js
+      // defines text-tiny = 10px and rounded-pill = 6px). The component was
+      // moved onto those tokens; this test still asserted the literal
+      // px-3/text-sm/rounded-[6px] it used beforehand.
       expect(pill.className).toContain('inline-block')
-      // Should have padding: px-3 py-1
-      expect(pill.className).toContain('px-3')
+      expect(pill.className).toContain('px-2.5')
       expect(pill.className).toContain('py-1')
-      // Should have text-sm
-      expect(pill.className).toContain('text-sm')
-      // Should have font-medium
+      expect(pill.className).toContain('text-tiny')
       expect(pill.className).toContain('font-medium')
-      // Should have 6px border radius
-      expect(pill.className).toContain('rounded-[6px]')
+      expect(pill.className).toContain('rounded-pill')
     })
 
     it('applies common styles to all variants', () => {
@@ -89,11 +88,11 @@ describe('Pill', () => {
         const pill = screen.getByText(variant)
 
         expect(pill.className).toContain('inline-block')
-        expect(pill.className).toContain('px-3')
+        expect(pill.className).toContain('px-2.5')
         expect(pill.className).toContain('py-1')
-        expect(pill.className).toContain('text-sm')
+        expect(pill.className).toContain('text-tiny')
         expect(pill.className).toContain('font-medium')
-        expect(pill.className).toContain('rounded-[6px]')
+        expect(pill.className).toContain('rounded-pill')
 
         container.remove()
       })
@@ -101,12 +100,16 @@ describe('Pill', () => {
   })
 
   it('renders complex children with nested elements', () => {
-    render(
+    const { container } = render(
       <Pill>
         <span>Complex</span> Content
       </Pill>
     )
-    expect(screen.getByText(/Complex Content/i)).toBeInTheDocument()
+    // "Complex" sits in a nested <span> and " Content" is a sibling text node,
+    // so getByText cannot match across them. Assert on the pill's combined
+    // text instead, which is what the reader actually sees.
+    const pill = container.querySelector('span')
+    expect(pill).toHaveTextContent('Complex Content')
   })
 
   it('renders empty children', () => {
