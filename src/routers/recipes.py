@@ -1218,7 +1218,7 @@ def get_cook_history(
             UserCookEvent.user_id == current_user.id,
             UserCookEvent.recipe_id == recipe_id,
         )
-        .order_by(UserCookEvent.cooked_at.desc())
+        .order_by(UserCookEvent.cooked_at.desc(), UserCookEvent.id.desc())
         .all()
     )
 
