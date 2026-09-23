@@ -18,7 +18,7 @@
 | 2A | Ollama integration layer | Complete |
 | 2C | Web scrapers (HelloFresh, Kitchen Sanctuary) | Complete |
 | 2B / 2D | Card OCR pipeline, URL import & photo upload | Not started |
-| 2.5A | Data model & migration | **Partial** — `UserRecipeRelation`, `Menu`, `MenuRecipe`, `is_persisted` done; `UserCookEvent` and `UserRecipeView` never built |
+| 2.5A | Data model & migration | Complete — `UserRecipeRelation`, `Menu`, `MenuRecipe`, `is_persisted`, `UserCookEvent`, and `UserRecipeView` all built |
 | 2.5B | Scraper browse-then-persist | Complete |
 | 2.5C | Feed engine | Complete (substitutes available signals for the missing cook/view events) |
 | 2.5D | Menu system | Complete |
