@@ -1013,3 +1013,21 @@ def test_create_entry_omitted_planned_servings_falls_back_to_base_servings(
 
     assert response.status_code == 201
     assert response.json()["planned_servings"] == recipe.base_servings
+
+
+def test_opt_out_db_commit_failure_returns_400(
+    client, db_session, auth_headers, opted_in_entry, monkeypatch
+):
+    """A SQLAlchemyError on db.commit during opt-out is re-raised as ValidationError
+    and mapped to HTTP 400 by the router — not leaked as a 500.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    monkeypatch.setattr(db_session, "commit", lambda: (_ for _ in ()).throw(SQLAlchemyError("simulated commit failure")))
+
+    response = client.put(
+        f"/plan/entries/{opted_in_entry.id}/opt-out",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400

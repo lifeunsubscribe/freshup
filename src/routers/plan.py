@@ -192,6 +192,12 @@ def opt_out_entry(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
+    except ValidationError as e:
+        logger.warning(f"Validation error during opt-out: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     except Exception as e:
         logger.error(f"Unexpected error during opt-out: {e}")
         raise HTTPException(
