@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine, Engine, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 from typing import Generator, Optional
 
@@ -23,6 +23,14 @@ def init_engine(database_url: str) -> Engine:
         connect_args["check_same_thread"] = False
 
     _engine = create_engine(database_url, connect_args=connect_args)
+
+    if database_url.startswith("sqlite"):
+        @event.listens_for(_engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, _connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
     _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
     return _engine
 

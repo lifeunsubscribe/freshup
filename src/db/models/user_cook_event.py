@@ -28,14 +28,20 @@ class UserCookEvent(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
+        ForeignKey("users.id", name="fk_user_cook_events_user_id_users", ondelete="CASCADE"),
+        index=True,
     )
     recipe_id: Mapped[UUID] = mapped_column(
-        ForeignKey("recipes.id", ondelete="CASCADE"), index=True
+        ForeignKey("recipes.id", name="fk_user_cook_events_recipe_id_recipes", ondelete="CASCADE"),
+        index=True,
     )
     cooked_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     meal_plan_entry_id: Mapped[Optional[UUID]] = mapped_column(
-        ForeignKey("meal_plan_entries.id", ondelete="SET NULL"),
+        ForeignKey(
+            "meal_plan_entries.id",
+            name="fk_user_cook_events_meal_plan_entry_id_meal_plan_entries",
+            ondelete="SET NULL",
+        ),
         nullable=True,
         index=True,
     )

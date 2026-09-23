@@ -30,10 +30,12 @@ class UserRecipeView(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
+        ForeignKey("users.id", name="fk_user_recipe_views_user_id_users", ondelete="CASCADE"),
+        index=True,
     )
     recipe_id: Mapped[UUID] = mapped_column(
-        ForeignKey("recipes.id", ondelete="CASCADE"), index=True
+        ForeignKey("recipes.id", name="fk_user_recipe_views_recipe_id_recipes", ondelete="CASCADE"),
+        index=True,
     )
     viewed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
