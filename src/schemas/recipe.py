@@ -4,8 +4,9 @@ Pydantic schemas for recipe endpoints.
 Defines request/response models for recipe CRUD operations.
 """
 
+from datetime import datetime
 from uuid import UUID
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from src.db.models.recipe import SourceType
@@ -387,3 +388,50 @@ class AdHocRecipeCreate(BaseModel):
         """
         field_name = info.field_name
         return validate_string_list(field_name, v)
+
+
+# Valid source values for POST /recipes/{id}/view
+ViewSource = Literal["browse", "detail", "search", "feed", "menu"]
+
+
+class CookEventCreate(BaseModel):
+    """
+    Request body for POST /recipes/{id}/cook.
+
+    Both fields are optional — an empty body is valid and means a cook
+    event with no notes and no associated meal plan entry.
+    """
+
+    notes: Optional[str] = Field(
+        default=None, max_length=500, description="Optional cook notes"
+    )
+    meal_plan_entry_id: Optional[UUID] = Field(
+        default=None, description="Optional meal plan entry that prompted this cook"
+    )
+
+
+class CookEventResponse(BaseModel):
+    """Response schema for a UserCookEvent record."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    recipe_id: UUID
+    cooked_at: datetime
+    meal_plan_entry_id: Optional[UUID]
+    notes: Optional[str]
+
+
+class RecipeViewCreate(BaseModel):
+    """
+    Request body for POST /recipes/{id}/view.
+
+    source must be one of the five allowed surface names; any other value
+    is rejected with 422. An absent (null) source is also accepted.
+    """
+
+    source: Optional[ViewSource] = Field(
+        default=None,
+        description="Surface where the view originated: browse, detail, search, feed, or menu",
+    )

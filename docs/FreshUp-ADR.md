@@ -38,9 +38,7 @@
 
 | Blocked feature | Missing backend |
 |---|---|
-| "I cooked this" button | `UserCookEvent` model, `POST /recipes/{id}/cook`, `GET /recipes/{id}/cook-history` |
 | Rating gated on having cooked | `UserCookEvent` (the gate has no data to check) |
-| "Viewed but not cooked" feed row | `UserRecipeView` model, `POST /recipes/{id}/view` |
 | Add-to-plan from a recipe card | An endpoint that creates a `MealPlanEntry` for a given date and meal slot; `/plan` exposes only draft-generate, week, and confirm |
 | Per-meal opt-out | `PUT /plan/entries/{id}/opt-out` |
 
