@@ -10,7 +10,7 @@
 
 ## 0. Current Implementation Status
 
-*Last reviewed: 2026-09-18. This section is a status snapshot, not a design decision — update it when a phase closes.*
+*Last reviewed: 2026-09-26. This section is a status snapshot, not a design decision — update it when a phase closes.*
 
 | Phase | Area | Status |
 |---|---|---|
@@ -20,10 +20,10 @@
 | 2B / 2D | Card OCR pipeline, URL import & photo upload | Not started |
 | 2.5A | Data model & migration | Complete — `UserRecipeRelation`, `Menu`, `MenuRecipe`, `is_persisted`, `UserCookEvent`, and `UserRecipeView` all built |
 | 2.5B | Scraper browse-then-persist | Complete |
-| 2.5C | Feed engine | Complete (substitutes available signals for the missing cook/view events) |
+| 2.5C | Feed engine | Complete, but still scores on `UserRecipeRelation` and `times_cooked` only. `UserCookEvent` and `UserRecipeView` now exist; wiring the viewed-but-not-cooked signal into `feed_service` is outstanding. |
 | 2.5D | Menu system | Complete |
-| 2.5E | Meal plan draft & schedule | **Partial** — draft/week/confirm done; per-meal opt-out endpoint missing |
-| 2.5F | Frontend: recipe engagement UI | **Partial** — bookmark/like quick actions done; "I cooked this" and add-to-plan blocked (see below) |
+| 2.5E | Meal plan draft & schedule | Complete — draft/week/confirm, `POST /plan/entries` (#517), and `PUT /plan/entries/{id}/opt-out` (#518) |
+| 2.5F | Frontend: recipe engagement UI | **Partial** — bookmark/like quick actions done. The backend for "I cooked this", view tracking and add-to-plan now exists (#519, #520, #517), so those are unblocked UI work rather than blocked. |
 | 2.5G–I | Frontend: home feed, menus, plan page | Not started |
 | 3 | Smart meal planning | Not started |
 | 4A | Costco digital receipt pipeline | Complete |
@@ -34,13 +34,17 @@
 
 **Where the seam is:** most of Phase 2.5's backend works and is tested — feed engine, menus, weekly auto-draft, and now the bookmark/like engagement toggles. The frontend lags: recipe cards carry bookmark and like quick actions, but `frontend/src/pages/Plan.tsx` is still a placeholder reading "Coming in Phase 3", and there is no home feed or menus UI.
 
-**What blocks the rest of 2.5F** — all of it traces to plan sections 1.5/1.6 never being implemented:
+**Remaining 2.5F work.** The backend gaps that used to block this are closed — plan sections 1.5/1.6 are implemented and the plan endpoints exist:
 
-| Blocked feature | Missing backend |
-|---|---|
-| Rating gated on having cooked | `UserCookEvent` (the gate has no data to check) |
-| Add-to-plan from a recipe card | An endpoint that creates a `MealPlanEntry` for a given date and meal slot; `/plan` exposes only draft-generate, week, and confirm |
-| Per-meal opt-out | `PUT /plan/entries/{id}/opt-out` |
+| Feature | Backend | Frontend |
+|---|---|---|
+| "I cooked this" button | `POST /recipes/{id}/cook`, `GET /recipes/{id}/cook-history` (#520) | not built |
+| Viewed-but-not-cooked feed signal | `POST /recipes/{id}/view` (#520); `feed_service` does not consume it yet | not built |
+| Add-to-plan from a recipe card | `POST /plan/entries` (#517) | not built |
+| Per-meal opt-out | `PUT /plan/entries/{id}/opt-out` (#518) | not built |
+| Rating gated on having cooked | **open — issue #508**; `UserCookEvent` data now exists for the gate to check | not built |
+
+Only the rating gate still needs backend work.
 
 **A caution about `POST /recipes/{id}/rate`:** it is a whole-relation upsert — it writes every field of `UserRecipeRelationCreate` onto the row, so a request setting one field silently clears the others. Use it only to submit a complete relation. Bookmark and like have dedicated single-field endpoints for exactly this reason; anything added later that flips one flag should follow that pattern rather than reusing `/rate`.
 
