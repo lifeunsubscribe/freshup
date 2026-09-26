@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from src.db.database import Base, get_db
 from src.db import models  # noqa: F401  — registers models with Base.metadata
@@ -528,6 +528,52 @@ class TestCookHistory:
         ids = [e["id"] for e in response.json()]
         assert ids[0] == str(newer.id), "newest event should come first"
         assert ids[1] == str(older.id)
+
+    def test_ordering_is_stable_for_same_timestamp_events(
+        self, client, auth_headers, recipe, db_session, test_user
+    ):
+        """
+        Two cooks in the same second still come back in a deterministic order.
+
+        `cooked_at` has second resolution and is set by a server default, so
+        cooking twice in quick succession — which the endpoint explicitly
+        supports — produces two rows with an identical timestamp. Ordering by
+        `cooked_at` alone leaves those two in whatever order the database
+        happens to return, so "newest first" is unenforced for exactly the
+        repeat-cook case. The `id` tiebreaker in the query is what makes it
+        deterministic; without it this test is flaky rather than failing.
+        """
+        from datetime import datetime, timezone
+
+        same_moment = datetime(2024, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
+        # Ascending ids so the tiebreaker has a defined expected winner.
+        first = UserCookEvent(
+            id=UUID("00000000-0000-4000-8000-000000000001"),
+            user_id=test_user.id,
+            recipe_id=recipe.id,
+            cooked_at=same_moment,
+        )
+        second = UserCookEvent(
+            id=UUID("00000000-0000-4000-8000-000000000002"),
+            user_id=test_user.id,
+            recipe_id=recipe.id,
+            cooked_at=same_moment,
+        )
+        db_session.add(first)
+        db_session.add(second)
+        db_session.commit()
+
+        # Repeat the call: an unstable sort can return either order per query,
+        # so a single call could pass by luck.
+        for _ in range(3):
+            response = client.get(
+                f"/recipes/{recipe.id}/cook-history", headers=auth_headers
+            )
+            assert response.status_code == 200
+            ids = [e["id"] for e in response.json()]
+            assert ids == [str(second.id), str(first.id)], (
+                "same-second events must fall back to a stable id tiebreaker"
+            )
 
     def test_does_not_leak_other_users_events(
         self, client, auth_headers, recipe, db_session
