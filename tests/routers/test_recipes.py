@@ -2995,3 +2995,61 @@ class TestPersistenceTrigger:
         # Verify recipe was NOT persisted (due to simulated failure)
         db_session.refresh(recipe)
         assert recipe.is_persisted is False
+
+
+class TestRecipeDetailIncludesIngredients:
+    """GET /recipes/{id} returns the recipe's ingredients; the list view does not."""
+
+    def _recipe_with_ingredients(self, db_session):
+        from src.db.models.recipe_ingredient import RecipeIngredient
+
+        recipe = Recipe(
+            name="Lomo Saltado",
+            source_type="hellofresh_web",
+            steps=["Cook it"],
+            base_servings=2,
+            tags=[],
+            created_by=None,
+        )
+        db_session.add(recipe)
+        db_session.flush()
+        db_session.add_all([
+            RecipeIngredient(recipe_id=recipe.id, ingredient_name="Bavette Steak", quantity=10, unit="ounce", is_optional=False),
+            RecipeIngredient(recipe_id=recipe.id, ingredient_name="Red Onion", quantity=0.5, unit="", is_optional=False),
+        ])
+        db_session.commit()
+        return recipe
+
+    def test_detail_returns_ingredients(self, client, auth_headers, db_session):
+        recipe = self._recipe_with_ingredients(db_session)
+
+        response = client.get(f"/recipes/{recipe.id}", headers=auth_headers)
+
+        assert response.status_code == 200
+        ingredients = response.json()["ingredients"]
+        assert {(i["ingredient_name"], i["quantity"], i["unit"]) for i in ingredients} == {
+            ("Bavette Steak", 10.0, "ounce"),
+            ("Red Onion", 0.5, ""),
+        }
+        assert all(i["recipe_id"] == str(recipe.id) for i in ingredients)
+
+    def test_detail_of_a_recipe_without_ingredients_is_an_empty_list(self, client, auth_headers):
+        created = client.post(
+            "/recipes",
+            json={"name": "Empty", "source_type": "manual"},
+            headers=auth_headers,
+        )
+        assert created.status_code == 201
+        assert created.json()["ingredients"] == []
+
+        response = client.get(f"/recipes/{created.json()['id']}", headers=auth_headers)
+
+        assert response.json()["ingredients"] == []
+
+    def test_list_view_stays_lightweight(self, client, auth_headers, db_session):
+        self._recipe_with_ingredients(db_session)
+
+        response = client.get("/recipes", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert all("ingredients" not in item for item in response.json())

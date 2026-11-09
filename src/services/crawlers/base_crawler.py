@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 # Polite User-Agent header for crawler identification
 USER_AGENT = "FreshUp-Crawler/1.0 (+https://github.com/freshup/freshup)"
 
+# Seconds to wait for a site's robots.txt before falling back to fail-open
+ROBOTS_TXT_TIMEOUT = 10
+
 
 class RateLimiter:
     """
@@ -147,6 +150,28 @@ class RobotsTxtParser:
 
         return crawl_delay
 
+    def get_sitemaps(self, url: str) -> list[str]:
+        """
+        Get the Sitemap URLs a site declares in its robots.txt.
+
+        Sites do not agree on where the sitemap lives (/sitemap.xml,
+        /sitemap_index.xml, ...). robots.txt is where they say, so ask it
+        before guessing.
+
+        Args:
+            url: Any URL on the site
+
+        Returns:
+            Declared sitemap URLs, or an empty list if none are declared
+        """
+        parsed = urlparse(url)
+        domain = parsed.netloc
+
+        if domain not in self._parsers:
+            self._fetch_robots_txt(domain, parsed.scheme)
+
+        return list(self._parsers[domain].site_maps() or [])
+
     def _fetch_robots_txt(self, domain: str, scheme: str = "https") -> None:
         """
         Fetch and parse robots.txt for the given domain.
@@ -160,8 +185,27 @@ class RobotsTxtParser:
         parser.set_url(robots_url)
 
         try:
-            parser.read()
-            logger.info(f"Successfully fetched robots.txt from {robots_url}")
+            # Fetch with our own User-Agent rather than RobotFileParser.read().
+            # read() goes out as "Python-urllib/3.x", which some CDNs answer with
+            # 403 — and read() silently turns a 403 into "disallow everything",
+            # so a site that permits us looked like one that forbids us.
+            response = requests.get(
+                robots_url,
+                headers={"User-Agent": self.user_agent},
+                timeout=ROBOTS_TXT_TIMEOUT,
+            )
+            if response.status_code in (401, 403):
+                # The site refuses to show us its rules: treat as disallowed.
+                parser.disallow_all = True
+                logger.warning(f"robots.txt at {robots_url} returned {response.status_code}; treating {domain} as disallowed")
+            elif 400 <= response.status_code < 500:
+                # No robots.txt published: everything is allowed.
+                parser.allow_all = True
+                logger.info(f"No robots.txt at {robots_url} ({response.status_code}); crawling allowed")
+            else:
+                response.raise_for_status()
+                parser.parse(response.text.splitlines())
+                logger.info(f"Successfully fetched robots.txt from {robots_url}")
         except Exception as e:
             # INTENTIONAL broad catch: Fail-open policy for robots.txt
             # We want to continue crawling even if robots.txt fetch fails for ANY reason

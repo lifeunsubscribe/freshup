@@ -10,7 +10,7 @@ import time
 import logging
 from unittest.mock import patch, MagicMock
 
-from src.services.crawlers.hellofresh_crawler import HelloFreshCrawler
+from src.services.crawlers.hellofresh_crawler import HelloFreshCrawler, classify_hellofresh_url
 
 
 # Configure logging to see rate limiting messages
@@ -133,66 +133,71 @@ class TestHelloFreshCrawlerUnit:
         assert crawler.rate_limiter.default_delay == custom_delay
 
     def test_extract_urls_from_html(self):
-        """Test URL extraction from HTML content."""
+        """Recipe links are extracted and normalized; listing links are dropped."""
         crawler = HelloFreshCrawler()
 
-        # Sample HTML with recipe links
         html = """
         <html>
             <body>
-                <a href="/recipes/quick-chicken-tacos">Quick Chicken Tacos</a>
-                <a href="https://www.hellofresh.com/recipes/creamy-garlic-pasta">Creamy Garlic Pasta</a>
-                <a href="/recipes/veggie-stir-fry?variant=123">Veggie Stir Fry</a>
+                <a href="/recipes/quick-chicken-tacos-5f1a2b3c4d5e6f7a8b9c0d1e">Quick Chicken Tacos</a>
+                <a href="https://www.hellofresh.com/recipes/creamy-garlic-pasta-5f1a2b3c4d5e6f7a8b9c0d2f">Creamy Garlic Pasta</a>
+                <a href="/recipes/veggie-stir-fry-5f1a2b3c4d5e6f7a8b9c0d3a?variant=123">Veggie Stir Fry</a>
                 <a href="/about">About Us</a>
-                <a href="/recipes/beef-tacos#reviews">Beef Tacos</a>
+                <a href="/recipes/beef-tacos-5f1a2b3c4d5e6f7a8b9c0d4b#reviews">Beef Tacos</a>
+                <a href="/recipes/pasta-recipes">Pasta Recipes</a>
+                <a href="/recipes/hall-of-fame">Hall of Fame</a>
             </body>
         </html>
         """
 
         urls = crawler._extract_recipe_urls_from_html(html)
 
-        # Should extract 4 recipe URLs (excluding /about)
+        # 4 recipes; /about and the two listing pages are not recipes
         assert len(urls) == 4
 
-        # Check that URLs are absolute and normalized
         for url in urls:
             assert url.startswith("https://www.hellofresh.com/recipes/")
             assert "?" not in url, "Query params should be stripped"
             assert "#" not in url, "Fragments should be stripped"
+            assert classify_hellofresh_url(url) == "recipe"
 
     @patch('defusedxml.ElementTree.fromstring')
     @patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._configure_from_robots_txt')
     def test_discover_from_sitemap_success(self, mock_robots_config, mock_fromstring):
-        """Test successful sitemap parsing."""
+        """A plain sitemap yields its recipe pages and nothing else."""
         crawler = HelloFreshCrawler()
 
-        # Mock XML response
         mock_root = MagicMock()
         mock_fromstring.return_value = mock_root
 
-        # Mock sitemap structure (regular sitemap, not index)
+        # Regular sitemap, not an index
         mock_root.findall.side_effect = [
             [],  # No sitemap index elements
             [  # URL elements
-                MagicMock(find=lambda x, ns: MagicMock(text="https://www.hellofresh.com/recipes/chicken-tacos")),
-                MagicMock(find=lambda x, ns: MagicMock(text="https://www.hellofresh.com/recipes/beef-stir-fry")),
+                MagicMock(find=lambda x, ns: MagicMock(text="https://www.hellofresh.com/recipes/chicken-tacos-5f1a2b3c4d5e6f7a8b9c0d1e")),
+                MagicMock(find=lambda x, ns: MagicMock(text="https://www.hellofresh.com/recipes/beef-stir-fry-5f1a2b3c4d5e6f7a8b9c0d2f")),
+                MagicMock(find=lambda x, ns: MagicMock(text="https://www.hellofresh.com/recipes/taco-recipes")),  # A listing
                 MagicMock(find=lambda x, ns: MagicMock(text="https://www.hellofresh.com/about")),  # Not a recipe
             ]
         ]
 
-        # Mock HTTP response
         with patch.object(crawler.session, 'get') as mock_get:
             mock_response = MagicMock()
             mock_response.content = b"<xml>fake sitemap</xml>"
             mock_get.return_value = mock_response
 
-            # Mock robots.txt check
             crawler.robots_parser.can_fetch = MagicMock(return_value=True)
+            crawler.robots_parser.get_sitemaps = MagicMock(return_value=[])
 
             urls = crawler._discover_from_sitemap()
 
-            # Should extract 2 recipe URLs (excluding /about)
-            assert len(urls) >= 0  # Depending on mock setup
+            assert urls == [
+                "https://www.hellofresh.com/recipes/beef-stir-fry-5f1a2b3c4d5e6f7a8b9c0d2f",
+                "https://www.hellofresh.com/recipes/chicken-tacos-5f1a2b3c4d5e6f7a8b9c0d1e",
+            ]
+            # robots.txt declared nothing, so the first conventional location was tried and worked
+            mock_get.assert_called_once()
+            assert mock_get.call_args[0][0] == "https://www.hellofresh.com/sitemap_index.xml"
 
     def test_rate_limiter_set_domain_delay(self):
         """Test setting custom delay for a domain."""
@@ -367,8 +372,8 @@ class TestBaseCrawlerUtilities:
 
         parser = RobotsTxtParser()
 
-        # Mock RobotFileParser.read() to raise an exception (simulating fetch failure)
-        with patch.object(RobotFileParser, 'read', side_effect=Exception("Network error")):
+        # Mock the robots.txt download to raise an exception (simulating fetch failure)
+        with patch('src.services.crawlers.base_crawler.requests.get', side_effect=Exception("Network error")):
             # This should not raise an exception
             can_fetch_result = parser.can_fetch("https://example.com/page")
 
@@ -385,8 +390,8 @@ class TestBaseCrawlerUtilities:
 
         parser = RobotsTxtParser()
 
-        # Mock RobotFileParser.read() to raise an exception
-        with patch.object(RobotFileParser, 'read', side_effect=Exception("Network error")):
+        # Mock the robots.txt download to raise an exception
+        with patch('src.services.crawlers.base_crawler.requests.get', side_effect=Exception("Network error")):
             crawl_delay = parser.get_crawl_delay("https://example.com/page")
 
             # Should return None (no crawl delay)
@@ -399,8 +404,8 @@ class TestBaseCrawlerUtilities:
 
         parser = RobotsTxtParser()
 
-        # Mock RobotFileParser.read() to raise an exception
-        with patch.object(RobotFileParser, 'read', side_effect=Exception("Network error")) as mock_read:
+        # Mock the robots.txt download to raise an exception
+        with patch('src.services.crawlers.base_crawler.requests.get', side_effect=Exception("Network error")) as mock_read:
             # First call - should attempt fetch
             parser.can_fetch("https://example.com/page1")
             assert mock_read.call_count == 1
@@ -419,8 +424,8 @@ class TestBaseCrawlerUtilities:
 
         parser = RobotsTxtParser()
 
-        # Mock RobotFileParser.read() to raise an exception
-        with patch.object(RobotFileParser, 'read', side_effect=Exception("Timeout")):
+        # Mock the robots.txt download to raise an exception
+        with patch('src.services.crawlers.base_crawler.requests.get', side_effect=Exception("Timeout")):
             # Multiple calls should return consistent results
             url1 = "https://example.com/page1"
             url2 = "https://example.com/admin"
@@ -435,3 +440,188 @@ class TestBaseCrawlerUtilities:
             assert parser.get_crawl_delay(url1) is None
             assert parser.get_crawl_delay(url2) is None
             assert parser.get_crawl_delay(url3) is None
+
+
+SITEMAP_NS = 'xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"'
+RECIPE_A = "https://www.hellofresh.com/recipes/lomo-saltado-67fccc45e22258bf0284050d"
+RECIPE_B = "https://www.hellofresh.com/recipes/one-pan-orzotto-68d653919ed4d6794189e8ad"
+
+
+def _xml_response(body: str) -> MagicMock:
+    response = MagicMock()
+    response.content = body.encode()
+    return response
+
+
+def _urlset(*urls: str) -> str:
+    return f"<urlset {SITEMAP_NS}>" + "".join(f"<url><loc>{u}</loc></url>" for u in urls) + "</urlset>"
+
+
+def _sitemap_index(*urls: str) -> str:
+    return f"<sitemapindex {SITEMAP_NS}>" + "".join(f"<sitemap><loc>{u}</loc></sitemap>" for u in urls) + "</sitemapindex>"
+
+
+class TestClassifyHelloFreshUrl:
+    """Telling recipe pages apart from the listings that link to them."""
+
+    @pytest.mark.parametrize("url", [
+        RECIPE_A,
+        RECIPE_A + "/",
+        "https://www.hellofresh.com/recipes/10-mm-bbq-cheddar-ranch-chicken-wrap-68d65b2f681e58ed6e5b5107",
+    ])
+    def test_recipe_pages(self, url):
+        assert classify_hellofresh_url(url) == "recipe"
+
+    @pytest.mark.parametrize("url", [
+        "https://www.hellofresh.com/recipes",
+        "https://www.hellofresh.com/recipes/",
+        "https://www.hellofresh.com/recipes/pasta-recipes",
+        "https://www.hellofresh.com/recipes/hall-of-fame",
+        "https://www.hellofresh.com/recipes/vegetarian-recipes/apple",
+        # An id-shaped segment is only a recipe when it ends the path
+        "https://www.hellofresh.com/recipes/lomo-saltado-67fccc45e22258bf0284050d/reviews",
+        # 23 hex characters is not an id
+        "https://www.hellofresh.com/recipes/lomo-saltado-67fccc45e22258bf0284050",
+    ])
+    def test_collection_pages(self, url):
+        assert classify_hellofresh_url(url) == "collection"
+
+    @pytest.mark.parametrize("url", [
+        "https://www.hellofresh.com/",
+        "https://www.hellofresh.com/about",
+        "https://www.hellofresh.com/eat/austin-food-delivery",
+    ])
+    def test_other_pages(self, url):
+        assert classify_hellofresh_url(url) == "other"
+
+
+@patch('src.services.crawlers.hellofresh_crawler.HelloFreshCrawler._configure_from_robots_txt')
+class TestSitemapEntryPoints:
+    """Sitemaps are found through robots.txt, not by assuming /sitemap.xml."""
+
+    def _crawler(self, declared):
+        crawler = HelloFreshCrawler(rate_limit_delay=0)
+        crawler.robots_parser.can_fetch = MagicMock(return_value=True)
+        crawler.robots_parser.get_sitemaps = MagicMock(return_value=declared)
+        return crawler
+
+    def test_reads_only_the_declared_recipe_sitemaps(self, mock_robots_config):
+        base = "https://www.hellofresh.com"
+        crawler = self._crawler([
+            f"{base}/sitemap_index.xml",
+            f"{base}/sitemap_transactional_pages.xml",
+            f"{base}/sitemap_recipe_collections.xml",
+            f"{base}/sitemap_recipe_pages.xml",
+        ])
+        pages = {
+            f"{base}/sitemap_recipe_collections.xml": _urlset(f"{base}/recipes/pasta-recipes"),
+            f"{base}/sitemap_recipe_pages.xml": _urlset(RECIPE_A, RECIPE_B),
+        }
+
+        with patch.object(crawler.session, 'get', side_effect=lambda url, timeout: _xml_response(pages[url])) as mock_get:
+            urls = crawler._discover_from_sitemap()
+
+        assert urls == sorted([RECIPE_A, RECIPE_B])
+        assert [c[0][0] for c in mock_get.call_args_list] == list(pages)
+
+    def test_follows_an_index_and_reads_each_sitemap_once(self, mock_robots_config):
+        base = "https://www.hellofresh.com"
+        # Only the index is declared; it lists a recipe sitemap twice and a non-recipe one
+        crawler = self._crawler([f"{base}/sitemap_index.xml"])
+        pages = {
+            f"{base}/sitemap_index.xml": _sitemap_index(
+                f"{base}/sitemap_recipe_pages.xml",
+                f"{base}/sitemap_others.xml",
+                f"{base}/sitemap_recipe_pages.xml",
+            ),
+            f"{base}/sitemap_recipe_pages.xml": _urlset(RECIPE_A),
+        }
+
+        with patch.object(crawler.session, 'get', side_effect=lambda url, timeout: _xml_response(pages[url])) as mock_get:
+            urls = crawler._discover_from_sitemap()
+
+        assert urls == [RECIPE_A]
+        assert [c[0][0] for c in mock_get.call_args_list] == list(pages)
+
+    def test_ignores_sitemaps_declared_on_another_host(self, mock_robots_config):
+        crawler = self._crawler(["https://cdn.example.net/sitemap_recipe_pages.xml"])
+        fallback = "https://www.hellofresh.com/sitemap_index.xml"
+
+        with patch.object(crawler.session, 'get', return_value=_xml_response(_urlset(RECIPE_A))) as mock_get:
+            urls = crawler._discover_from_sitemap()
+
+        assert urls == [RECIPE_A]
+        assert mock_get.call_args[0][0] == fallback
+
+    def test_one_unreadable_sitemap_does_not_lose_the_others(self, mock_robots_config):
+        import requests
+        base = "https://www.hellofresh.com"
+        crawler = self._crawler([f"{base}/sitemap_recipe_collections.xml", f"{base}/sitemap_recipe_pages.xml"])
+
+        def fake_get(url, timeout):
+            if url.endswith("collections.xml"):
+                raise requests.exceptions.ConnectionError("boom")
+            return _xml_response(_urlset(RECIPE_A))
+
+        with patch.object(crawler.session, 'get', side_effect=fake_get):
+            assert crawler._discover_from_sitemap() == [RECIPE_A]
+
+    def test_raises_when_no_sitemap_can_be_read(self, mock_robots_config):
+        import requests
+        crawler = self._crawler([])
+
+        with patch.object(crawler.session, 'get', side_effect=requests.exceptions.ConnectionError("boom")):
+            with pytest.raises(requests.exceptions.ConnectionError):
+                crawler._discover_from_sitemap()
+
+
+class TestRobotsTxtFetch:
+    """robots.txt is fetched as FreshUp, and a refusal is not mistaken for a rule."""
+
+    def _response(self, status_code, text=""):
+        response = MagicMock()
+        response.status_code = status_code
+        response.text = text
+        return response
+
+    def test_fetched_with_our_user_agent(self):
+        from src.services.crawlers.base_crawler import RobotsTxtParser
+
+        parser = RobotsTxtParser()
+        with patch('src.services.crawlers.base_crawler.requests.get', return_value=self._response(200, "User-agent: *\nDisallow: /private/\n")) as mock_get:
+            assert parser.can_fetch("https://example.com/recipes/x") is True
+            assert parser.can_fetch("https://example.com/private/x") is False
+
+        mock_get.assert_called_once()
+        assert mock_get.call_args[0][0] == "https://example.com/robots.txt"
+        assert mock_get.call_args[1]["headers"]["User-Agent"].startswith("FreshUp-Crawler")
+
+    def test_declared_sitemaps_are_exposed(self):
+        from src.services.crawlers.base_crawler import RobotsTxtParser
+
+        body = "User-agent: *\nDisallow: /wp-admin/\n\nSitemap: https://example.com/sitemap_index.xml\n"
+        parser = RobotsTxtParser()
+        with patch('src.services.crawlers.base_crawler.requests.get', return_value=self._response(200, body)):
+            assert parser.get_sitemaps("https://example.com/") == ["https://example.com/sitemap_index.xml"]
+
+    def test_no_declared_sitemaps_is_an_empty_list(self):
+        from src.services.crawlers.base_crawler import RobotsTxtParser
+
+        parser = RobotsTxtParser()
+        with patch('src.services.crawlers.base_crawler.requests.get', return_value=self._response(200, "User-agent: *\nDisallow:\n")):
+            assert parser.get_sitemaps("https://example.com/") == []
+
+    @pytest.mark.parametrize("status_code", [401, 403])
+    def test_refused_robots_txt_means_disallowed(self, status_code):
+        from src.services.crawlers.base_crawler import RobotsTxtParser
+
+        parser = RobotsTxtParser()
+        with patch('src.services.crawlers.base_crawler.requests.get', return_value=self._response(status_code)):
+            assert parser.can_fetch("https://example.com/recipes/x") is False
+
+    def test_missing_robots_txt_means_allowed(self):
+        from src.services.crawlers.base_crawler import RobotsTxtParser
+
+        parser = RobotsTxtParser()
+        with patch('src.services.crawlers.base_crawler.requests.get', return_value=self._response(404)):
+            assert parser.can_fetch("https://example.com/recipes/x") is True
