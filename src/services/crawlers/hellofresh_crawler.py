@@ -6,10 +6,11 @@ category crawl fallback. Includes rate limiting and robots.txt compliance.
 """
 
 import logging
+import re
 import ssl
 import requests.exceptions
 import defusedxml.ElementTree as ET  # Use defusedxml for defense-in-depth XXE protection
-from typing import Optional
+from typing import Literal, Optional
 from xml.etree.ElementTree import Element
 from urllib.parse import urljoin, urlparse
 
@@ -26,6 +27,44 @@ logger = logging.getLogger(__name__)
 
 # HelloFresh base URL
 HELLOFRESH_BASE_URL = "https://www.hellofresh.com"
+
+# Seconds to wait for a sitemap. The recipe sitemap is far larger than a normal page.
+SITEMAP_TIMEOUT = 30
+
+# Where to look for a sitemap when robots.txt does not declare one
+FALLBACK_SITEMAP_PATHS = ("/sitemap_index.xml", "/sitemap.xml")
+
+# A recipe page is /recipes/<slug>-<id>, where <id> is a 24-character hex id.
+# Everything else under /recipes/ is a listing: a cuisine, an ingredient, a collection.
+_RECIPE_PATH = re.compile(r"^/recipes/[^/]+-[0-9a-f]{24}/?$")
+
+UrlKind = Literal["recipe", "collection", "other"]
+
+
+def classify_hellofresh_url(url: str) -> UrlKind:
+    """
+    Say what kind of HelloFresh page a URL points at.
+
+    Args:
+        url: Absolute HelloFresh URL
+
+    Returns:
+        "recipe" for a single recipe page (the only kind that can be imported),
+        "collection" for a listing of recipes (cuisine, ingredient, hall of fame),
+        "other" for anything outside /recipes.
+
+    Example:
+        >>> classify_hellofresh_url("https://www.hellofresh.com/recipes/lomo-saltado-67fccc45e22258bf0284050d")
+        'recipe'
+        >>> classify_hellofresh_url("https://www.hellofresh.com/recipes/pasta-recipes")
+        'collection'
+    """
+    path = urlparse(url).path
+    if _RECIPE_PATH.match(path):
+        return "recipe"
+    if path.rstrip("/") == "/recipes" or path.startswith("/recipes/"):
+        return "collection"
+    return "other"
 
 
 class HelloFreshCrawler:
@@ -221,33 +260,88 @@ class HelloFreshCrawler:
 
     def _discover_from_sitemap(self) -> list[str]:
         """
-        Discover recipe URLs from sitemap.xml.
+        Discover recipe URLs from HelloFresh's sitemaps.
 
-        Parses the sitemap.xml file and extracts URLs containing '/recipes/'.
+        Starts from the sitemaps the site declares in robots.txt, and only guesses
+        at conventional locations if it declares none. Returns recipe pages only;
+        collection pages listed alongside them are dropped.
 
         Returns:
-            List of recipe URLs found in sitemap
+            Sorted list of recipe URLs found
 
         Raises:
-            Exception: If sitemap fetch or parsing fails
+            requests.exceptions.RequestException: If no sitemap could be fetched
+            ValueError: If no sitemap could be parsed
         """
-        sitemap_url = urljoin(self.base_url, "/sitemap.xml")
+        declared = [
+            u for u in self.robots_parser.get_sitemaps(self.base_url)
+            if urlparse(u).netloc == self.domain
+        ]
+        if declared:
+            # Go straight to the recipe sitemaps when the site names them
+            entry_points = [u for u in declared if 'recipe' in u.lower()] or declared
+        else:
+            entry_points = [urljoin(self.base_url, path) for path in FALLBACK_SITEMAP_PATHS]
 
-        # Check robots.txt before fetching
+        recipe_urls: set[str] = set()
+        fetched: set[str] = set()
+        succeeded = False
+        last_error: Optional[Exception] = None
+
+        for sitemap_url in entry_points:
+            try:
+                recipe_urls.update(self._collect_from_sitemap(sitemap_url, fetched))
+                succeeded = True
+            except (requests.exceptions.RequestException, ValueError) as e:
+                logger.warning(f"Could not read sitemap {sitemap_url}: {e}")
+                last_error = e
+                continue
+
+            # Guessed locations are alternatives to each other: stop at the first that works
+            if not declared:
+                break
+
+        if not succeeded and last_error is not None:
+            raise last_error
+
+        return sorted(recipe_urls)
+
+    def _collect_from_sitemap(self, sitemap_url: str, fetched: set[str]) -> list[str]:
+        """
+        Fetch one sitemap and return the recipe URLs in it.
+
+        Follows a sitemap index into the sitemaps it lists whose name mentions
+        recipes. `fetched` records what has already been read, because a site can
+        list the same sitemap both in robots.txt and in its index.
+
+        Args:
+            sitemap_url: Sitemap or sitemap index to fetch
+            fetched: Sitemap URLs already read during this discovery (updated in place)
+
+        Returns:
+            Recipe URLs found
+
+        Raises:
+            requests.exceptions.RequestException: If the fetch fails
+            ValueError: If the response is empty or is not valid XML
+        """
+        if sitemap_url in fetched:
+            return []
+        fetched.add(sitemap_url)
+
         if not self.robots_parser.can_fetch(sitemap_url):
-            raise Exception(f"robots.txt disallows access to {sitemap_url}")
+            logger.warning(f"robots.txt disallows {sitemap_url}")
+            return []
 
-        # Rate limit
         self.rate_limiter.wait_if_needed(self.domain)
 
         logger.info(f"Fetching sitemap from {sitemap_url}")
-        response = self.session.get(sitemap_url, timeout=10)
+        response = self.session.get(sitemap_url, timeout=SITEMAP_TIMEOUT)
         response.raise_for_status()
 
-        # Parse XML with error handling for invalid/empty content
         try:
             if not response.content:
-                raise ValueError("Sitemap response is empty")
+                raise ValueError(f"Sitemap response is empty: {sitemap_url}")
             root = ET.fromstring(response.content)
         except ET.ParseError as e:
             raise ValueError(f"Failed to parse sitemap XML from {sitemap_url}: {e}")
@@ -255,49 +349,19 @@ class HelloFreshCrawler:
             # Catch encoding errors specifically - these are external data issues
             raise ValueError(f"Encoding error processing sitemap from {sitemap_url}: {e}")
 
-        # Handle sitemap index (sitemaps that link to other sitemaps)
-        recipe_urls = []
-
-        # Define sitemap XML namespace for parsing
         namespace = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
 
-        # Check if this is a sitemap index (references other sitemaps)
+        # A sitemap index lists other sitemaps rather than pages
         sitemap_elements = root.findall('.//ns:sitemap', namespace)
+        if not sitemap_elements:
+            return self._extract_urls_from_sitemap(root, namespace)
 
-        if sitemap_elements:
-            # This is a sitemap index, fetch recipe sitemap
-            for sitemap_elem in sitemap_elements:
-                loc = sitemap_elem.find('ns:loc', namespace)
-                if loc is not None and loc.text and 'recipe' in loc.text.lower():
-                    recipe_sitemap_url = loc.text
-                    logger.info(f"Found recipe sitemap: {recipe_sitemap_url}")
-
-                    # Fetch recipe sitemap
-                    if self.robots_parser.can_fetch(recipe_sitemap_url):
-                        self.rate_limiter.wait_if_needed(self.domain)
-                        recipe_response = self.session.get(recipe_sitemap_url, timeout=10)
-                        recipe_response.raise_for_status()
-
-                        # Parse recipe sitemap with error handling
-                        try:
-                            if not recipe_response.content:
-                                raise ValueError(f"Recipe sitemap response is empty: {recipe_sitemap_url}")
-                            recipe_root = ET.fromstring(recipe_response.content)
-                        except ET.ParseError as e:
-                            raise ValueError(f"Failed to parse recipe sitemap XML from {recipe_sitemap_url}: {e}")
-                        except (UnicodeDecodeError, UnicodeError) as e:
-                            # Catch encoding errors specifically - these are external data issues
-                            raise ValueError(f"Encoding error processing recipe sitemap from {recipe_sitemap_url}: {e}")
-                        urls = self._extract_urls_from_sitemap(recipe_root, namespace)
-                        recipe_urls.extend(urls)
-                    else:
-                        logger.warning(f"robots.txt disallows {recipe_sitemap_url}")
-        else:
-            # This is a regular sitemap, extract URLs directly
-            recipe_urls = self._extract_urls_from_sitemap(root, namespace)
-
-        # Remove duplicates that may occur when multiple sub-sitemaps contain the same URLs
-        recipe_urls = list(set(recipe_urls))
+        recipe_urls: list[str] = []
+        for sitemap_elem in sitemap_elements:
+            loc = sitemap_elem.find('ns:loc', namespace)
+            if loc is not None and loc.text and 'recipe' in loc.text.lower():
+                logger.info(f"Found recipe sitemap: {loc.text}")
+                recipe_urls.extend(self._collect_from_sitemap(loc.text, fetched))
         return recipe_urls
 
     def _extract_urls_from_sitemap(self, root: Element, namespace: dict) -> list[str]:
@@ -309,7 +373,7 @@ class HelloFreshCrawler:
             namespace: XML namespace dictionary
 
         Returns:
-            List of recipe URLs
+            List of recipe URLs (collection and non-recipe pages are dropped)
         """
         urls = []
         url_elements = root.findall('.//ns:url', namespace)
@@ -318,11 +382,10 @@ class HelloFreshCrawler:
             loc = url_elem.find('ns:loc', namespace)
             if loc is not None and loc.text:
                 url = loc.text
-                # Filter for recipe URLs (HelloFresh uses /recipes/ or /recipe/ in paths)
-                if '/recipes/' in url or '/recipe/' in url:
+                if classify_hellofresh_url(url) == "recipe":
                     urls.append(url)
 
-        logger.debug(f"Extracted {len(urls)} recipe URLs from sitemap")
+        logger.debug(f"Extracted {len(urls)} recipe URLs from {len(url_elements)} sitemap entries")
         return urls
 
     def _discover_from_paginated_categories(self, max_pages: Optional[int] = None) -> list[str]:
@@ -399,8 +462,8 @@ class HelloFreshCrawler:
         """
         Extract recipe URLs from HTML content.
 
-        Uses regex to find recipe links. In production, consider using
-        BeautifulSoup for more robust HTML parsing.
+        Uses regex to find links under /recipes/, then keeps only those that
+        point at a single recipe (see classify_hellofresh_url).
 
         Args:
             html: HTML content to parse
@@ -430,6 +493,10 @@ class HelloFreshCrawler:
 
             # Normalize: remove query params and fragments for deduplication
             url = url.split('?')[0].split('#')[0]
+
+            # A listing page links to other listings as well as to recipes
+            if classify_hellofresh_url(url) != "recipe":
+                continue
 
             # Deduplicate URLs
             if url not in seen:

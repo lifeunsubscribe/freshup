@@ -658,3 +658,43 @@ class TestReDoSProtection:
         for input_str, expected_qty in test_cases:
             qty, remaining = _extract_quantity(input_str)
             assert qty == pytest.approx(expected_qty), f"Failed for: {input_str}"
+
+
+class TestHelloFreshIngredientFormat:
+    """HelloFresh writes counts as "unit" and repeats units in brackets."""
+
+    @pytest.mark.parametrize("raw, quantity, name", [
+        ("½ unit Red Onion", 0.5, "Red Onion"),
+        ("6 unit Potatoes", 6.0, "Potatoes"),
+        ("2 units Scallions", 2.0, "Scallions"),
+    ])
+    def test_unit_as_a_count_word_is_dropped(self, raw, quantity, name):
+        result = parse_ingredient(raw)
+
+        assert result["quantity"] == quantity
+        assert result["unit"] == ""
+        assert result["ingredient_name"] == name
+
+    def test_a_word_starting_with_unit_is_part_of_the_name(self):
+        result = parse_ingredient("1 united states flag")
+
+        assert result["ingredient_name"] == "united states flag"
+
+    @pytest.mark.parametrize("raw, quantity, unit, name", [
+        ("¼ teaspoon (tsp) Sugar", 0.25, "teaspoon", "Sugar"),
+        ("1 tablespoon (tbsp) Butter", 1.0, "tablespoon", "Butter"),
+        ("teaspoon (tsp) Salt", 0.0, "teaspoon", "Salt"),
+    ])
+    def test_bracketed_unit_abbreviation_is_dropped(self, raw, quantity, unit, name):
+        result = parse_ingredient(raw)
+
+        assert result["quantity"] == quantity
+        assert result["unit"] == unit
+        assert result["ingredient_name"] == name
+
+    def test_other_brackets_after_a_unit_are_kept(self):
+        result = parse_ingredient("1 cup (optional) cheese")
+
+        assert result["unit"] == "cup"
+        assert result["ingredient_name"] == "(optional) cheese"
+        assert result["is_optional"] is True

@@ -169,6 +169,9 @@ class RecipeResponse(BaseModel):
     created_by: Optional[UUID]
     notes: Optional[str]
     is_persisted: bool
+    # A recipe is not usable without its ingredients, and the frontend recipe page
+    # reads them from here. The list view (RecipeListResponse) stays lightweight.
+    ingredients: list["RecipeIngredientResponse"] = Field(default_factory=list)
 
 
 class RecipeListResponse(BaseModel):
@@ -264,6 +267,10 @@ class RecipeIngredientResponse(BaseModel):
     variation_diet: Optional[str]
     is_optional: bool
     step_index: Optional[int]
+
+
+# RecipeResponse refers to RecipeIngredientResponse before it is defined
+RecipeResponse.model_rebuild()
 
 
 class UserRecipeRelationCreate(BaseModel):

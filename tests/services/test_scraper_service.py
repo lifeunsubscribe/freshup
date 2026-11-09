@@ -79,7 +79,7 @@ class TestScrapeRecipe:
             scrape_recipe("   ")
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_successful_scrape_hellofresh(self, mock_requests_get, mock_scrape_html):
         """Test successful scraping of HelloFresh URL."""
         # Mock the HTTP response
@@ -138,7 +138,7 @@ class TestScrapeRecipe:
         )
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_successful_scrape_kitchen_sanctuary(self, mock_requests_get, mock_scrape_html):
         """Test successful scraping of Kitchen Sanctuary URL."""
         # Mock the HTTP response
@@ -170,7 +170,7 @@ class TestScrapeRecipe:
         assert result.servings == 8  # Extracted from "8 servings" string
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_wild_mode_fallback_for_unsupported_site(self, mock_requests_get, mock_scrape_html):
         """Test that wild_mode is attempted for unsupported sites."""
         # Mock HTTP response
@@ -208,7 +208,7 @@ class TestScrapeRecipe:
         assert mock_scrape_html.call_args_list[1][1]["wild_mode"] is True
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_unsupported_site_error_when_wild_mode_fails(self, mock_requests_get, mock_scrape_html):
         """Test that UnsupportedSiteError is raised when wild_mode also fails."""
         # Mock HTTP response
@@ -223,7 +223,7 @@ class TestScrapeRecipe:
         with pytest.raises(UnsupportedSiteError, match="Site not supported"):
             scrape_recipe(url)
 
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_network_error_on_connection_failure(self, mock_requests_get):
         """Test that NetworkError is raised on connection failures with sanitized message."""
         mock_requests_get.side_effect = requests.exceptions.ConnectionError("Failed to connect")
@@ -232,7 +232,7 @@ class TestScrapeRecipe:
         with pytest.raises(NetworkError, match="Unable to connect to the recipe source"):
             scrape_recipe(url)
 
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_network_error_on_timeout(self, mock_requests_get):
         """Test that NetworkError is raised on timeout with sanitized message."""
         mock_requests_get.side_effect = requests.exceptions.Timeout("Request timed out")
@@ -241,7 +241,7 @@ class TestScrapeRecipe:
         with pytest.raises(NetworkError, match="Unable to connect to the recipe source.*timed out"):
             scrape_recipe(url)
 
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     @patch('src.services.scraper_service.get_settings')
     def test_uses_configured_timeout(self, mock_get_settings, mock_requests_get):
         """Test that the configured timeout value is used for HTTP requests (sanitized message)."""
@@ -272,7 +272,7 @@ class TestScrapeRecipe:
         assert call_args[1]['allow_redirects'] is False
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_sets_user_agent_header(self, mock_requests_get, mock_scrape_html):
         """Test that User-Agent header is set for all HTTP requests."""
         # Mock HTTP response
@@ -304,7 +304,7 @@ class TestScrapeRecipe:
         assert 'github.com/freshup/freshup' in call_args[1]['headers']['User-Agent']
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_parse_error_on_data_extraction_failure(self, mock_requests_get, mock_scrape_html):
         """Test that ParseError is raised when data extraction fails."""
         # Mock HTTP response
@@ -335,7 +335,7 @@ class TestScrapeRecipe:
         assert result.ingredients == []
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_scraper_error_on_generic_failure(self, mock_requests_get, mock_scrape_html):
         """Test that ScraperError is raised on generic exceptions with sanitized message."""
         # Mock HTTP response
@@ -348,7 +348,7 @@ class TestScrapeRecipe:
             scrape_recipe(url)
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_handles_missing_optional_fields(self, mock_requests_get, mock_scrape_html):
         """Test that missing optional fields are handled gracefully."""
         # Mock HTTP response
@@ -380,7 +380,7 @@ class TestScrapeRecipe:
         assert result.servings is None
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_instructions_string_split_into_list(self, mock_requests_get, mock_scrape_html):
         """Test that instruction strings are split into lists."""
         # Mock HTTP response
@@ -410,7 +410,7 @@ class TestScrapeRecipe:
         assert result.instructions[2] == "Step 3: Finish"
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_yields_string_extraction(self, mock_requests_get, mock_scrape_html):
         """Test that servings are extracted from yields strings."""
         # Mock HTTP response
@@ -436,7 +436,7 @@ class TestScrapeRecipe:
         assert result.servings == 6
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_url_whitespace_trimming(self, mock_requests_get, mock_scrape_html):
         """Test that URL whitespace is trimmed."""
         # Mock HTTP response
@@ -624,7 +624,7 @@ class TestSsrfProtection:
         with pytest.raises(ScraperError, match="Invalid URL: missing hostname"):
             scrape_recipe("https://")
 
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_allows_valid_public_urls(self, mock_requests_get):
         """Test that valid public URLs are allowed through SSRF checks."""
         # Mock requests to simulate network errors (we only test SSRF validation)
@@ -755,7 +755,7 @@ class TestSecurityLogging:
         assert caplog.records[0].levelname == "WARNING"
         assert "Invalid URL scheme rejected: file" in caplog.records[0].message
 
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_logs_network_timeout_error(self, mock_requests_get, caplog):
         """Test that network timeout errors are logged with technical details."""
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
@@ -774,7 +774,7 @@ class TestSecurityLogging:
         assert "Request timeout for URL" in timeout_log.message
         assert "timeout=30.0s" in timeout_log.message
 
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_logs_network_connection_error(self, mock_requests_get, caplog):
         """Test that network connection errors are logged with technical details."""
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
@@ -794,7 +794,7 @@ class TestSecurityLogging:
         assert "Connection refused" in connection_log.message
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_logs_parse_error_in_wild_mode(self, mock_requests_get, mock_scrape_html, caplog):
         """Test that parse errors in wild_mode are logged with technical details."""
         caplog.set_level(logging.WARNING, logger="src.services.scraper_service")
@@ -821,7 +821,7 @@ class TestSecurityLogging:
         assert "Invalid JSON-LD schema" in parse_log.message
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_logs_unexpected_scraper_error(self, mock_requests_get, mock_scrape_html, caplog):
         """Test that unexpected scraper errors are logged with technical details."""
         caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
@@ -844,7 +844,7 @@ class TestSecurityLogging:
         assert "Unexpected parsing failure" in error_log.message
 
     @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
-    @patch('src.services.scraper_service.requests.get')
+    @patch('src.services.scraper_service._http_get')
     def test_logs_data_extraction_failure(self, mock_requests_get, mock_scrape_html, caplog):
         """Test that data extraction failures are logged with technical details."""
         caplog.set_level(logging.ERROR, logger="src.services.scraper_service")
@@ -919,3 +919,184 @@ class TestSecurityLogging:
         assert "Unexpected error during URL validation:" in error_log.message
         assert "RuntimeError" in error_log.message
         assert "Unexpected parsing error" in error_log.message
+
+
+class TestPinnedHostnameFetch:
+    """
+    The fetch connects to the IP it validated but must do TLS for the hostname.
+
+    Regression cover for imports failing on every HTTPS site: requesting
+    https://<ip>/ sends no SNI and checks the certificate against the IP.
+    """
+
+    @staticmethod
+    def _parsed_recipe() -> Mock:
+        """A stand-in for what recipe_scrapers returns for a fetched page."""
+        scraper = Mock()
+        scraper.title.return_value = "Soup"
+        scraper.ingredients.return_value = ["1 cup water"]
+        scraper.instructions.return_value = "Boil the water."
+        scraper.prep_time.return_value = 5
+        scraper.cook_time.return_value = 10
+        scraper.total_time.return_value = 15
+        scraper.yields.return_value = "2 servings"
+        scraper.nutrients.return_value = {}
+        scraper.image.return_value = "https://www.example.com/soup.jpg"
+        scraper.author.return_value = "Someone"
+        scraper.site_name.return_value = "Example"
+        return scraper
+
+    @patch("src.services.scraper_service.recipe_scrapers.scrape_html")
+    @patch("src.services.scraper_service._http_get")
+    @patch("src.services.scraper_service.socket.getaddrinfo")
+    def test_hostname_url_pins_tls_to_the_hostname(self, mock_getaddrinfo, mock_http_get, mock_scrape_html):
+        from src.services.scraper_service import scrape_recipe
+
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
+        mock_http_get.return_value = Mock(status_code=200, content=b"<html></html>")
+
+        mock_scrape_html.return_value = self._parsed_recipe()
+
+        scrape_recipe("https://www.example.com/recipes/soup")
+
+        assert mock_http_get.call_args[0][0] == "https://93.184.216.34/recipes/soup"
+        assert mock_http_get.call_args[1]["tls_hostname"] == "www.example.com"
+        assert mock_http_get.call_args[1]["headers"]["Host"] == "www.example.com"
+        assert mock_http_get.call_args[1]["verify"] is True
+
+    @patch("src.services.scraper_service.recipe_scrapers.scrape_html")
+    @patch("src.services.scraper_service._http_get")
+    def test_literal_ip_url_is_not_pinned(self, mock_http_get, mock_scrape_html):
+        from src.services.scraper_service import scrape_recipe
+
+        mock_http_get.return_value = Mock(status_code=200, content=b"<html></html>")
+
+        mock_scrape_html.return_value = self._parsed_recipe()
+
+        scrape_recipe("https://93.184.216.34/recipes/soup")
+
+        assert mock_http_get.call_args[1]["tls_hostname"] is None
+
+    def test_adapter_sends_sni_and_checks_the_certificate_for_the_hostname(self):
+        from src.services.scraper_service import _PinnedHostnameAdapter
+
+        adapter = _PinnedHostnameAdapter("www.example.com")
+        pool_settings = adapter.poolmanager.connection_pool_kw
+
+        assert pool_settings["server_hostname"] == "www.example.com"
+        assert pool_settings["assert_hostname"] == "www.example.com"
+
+    def test_adapter_does_not_share_its_ssl_context(self):
+        import requests.adapters
+        from src.services.scraper_service import _PinnedHostnameAdapter
+
+        context = _PinnedHostnameAdapter("www.example.com").poolmanager.connection_pool_kw["ssl_context"]
+
+        assert context is not requests.adapters._preloaded_ssl_context
+        assert context is not _PinnedHostnameAdapter("www.example.com").poolmanager.connection_pool_kw["ssl_context"]
+
+    def test_http_get_mounts_the_adapter_only_when_pinning(self):
+        from src.services.scraper_service import _http_get, _PinnedHostnameAdapter
+
+        mounted = {}
+
+        def fake_get(self, url, **kwargs):
+            mounted[url] = type(self.get_adapter(url))
+            return Mock(status_code=200)
+
+        with patch("requests.Session.get", fake_get):
+            _http_get("https://93.184.216.34/a", tls_hostname="www.example.com", timeout=5)
+            _http_get("https://www.example.com/b", timeout=5)
+
+        assert mounted["https://93.184.216.34/a"] is _PinnedHostnameAdapter
+        assert mounted["https://www.example.com/b"] is not _PinnedHostnameAdapter
+
+
+class TestScrapedDataCleanup:
+    """Fixing up what recipe-scrapers returns before it is stored."""
+
+    @staticmethod
+    def _scraper(h1=None, **fields) -> Mock:
+        scraper = Mock()
+        heading = Mock()
+        heading.get_text.return_value = h1
+        scraper.soup.find.return_value = heading if h1 is not None else None
+        for name, value in fields.items():
+            if isinstance(value, Exception):
+                getattr(scraper, name).side_effect = value
+            else:
+                getattr(scraper, name).return_value = value
+        return scraper
+
+    def test_title_loses_a_glued_on_tagline(self):
+        from src.services.scraper_service import _clean_title
+
+        scraper = self._scraper(h1="Peruvian-Style Lomo Saltado")
+        title = "Peruvian-Style Lomo Saltado Enjoy a multi-dish culinary tour of a new destination!"
+
+        assert _clean_title(title, scraper) == "Peruvian-Style Lomo Saltado"
+
+    @pytest.mark.parametrize("h1", [
+        "Chicken Tikka Masala",      # Same as the title: nothing to trim
+        "Our Favourite Curries",     # Unrelated heading
+        "Chick",                     # Shared letters, but not whole words
+        "",
+        None,                        # Page has no <h1>
+    ])
+    def test_title_is_kept_when_the_heading_is_not_its_beginning(self, h1):
+        from src.services.scraper_service import _clean_title
+
+        assert _clean_title("Chicken Tikka Masala", self._scraper(h1=h1)) == "Chicken Tikka Masala"
+
+    def test_title_survives_a_page_that_cannot_be_inspected(self):
+        from src.services.scraper_service import _clean_title
+
+        scraper = Mock()
+        scraper.soup.find.side_effect = RuntimeError("no soup")
+
+        assert _clean_title("Soup", scraper) == "Soup"
+        assert _clean_title(None, scraper) is None
+
+    def test_tags_come_from_category_cuisine_and_keywords(self):
+        from src.services.scraper_service import _extract_tags
+
+        scraper = self._scraper(category="Main Course", cuisine="Latin American", keywords=["Steak", " stir-fry ", "steak"])
+
+        assert _extract_tags(scraper) == ["main course", "latin american", "steak", "stir-fry"]
+
+    def test_tags_split_comma_separated_values_and_skip_missing_fields(self):
+        from src.services.scraper_service import _extract_tags
+
+        scraper = self._scraper(category="Dinner, Main Course", cuisine=Exception("not declared"), keywords=None)
+
+        assert _extract_tags(scraper) == ["dinner", "main course"]
+
+    def test_tags_are_capped(self):
+        from src.services.scraper_service import _extract_tags, MAX_SCRAPED_TAGS
+
+        scraper = self._scraper(category=None, cuisine=None, keywords=[f"keyword {n}" for n in range(40)])
+
+        assert len(_extract_tags(scraper)) == MAX_SCRAPED_TAGS
+
+    def test_hellofresh_times_are_split_from_the_declared_total(self):
+        from src.services.scraper_service import _reconcile_hellofresh_times
+
+        scraper = Mock()
+        scraper.schema.total_time.return_value = 45
+
+        # Extracted as prep=45 (really the total) and cook=10 (really the hands-on time)
+        assert _reconcile_hellofresh_times(scraper, 45, 10) == (10, 35)
+
+    @pytest.mark.parametrize("declared_total, prep, cook", [
+        (45, 15, 30),      # Already consistent
+        (45, 45, None),    # Nothing to split with
+        (45, 45, 60),      # "Cook" longer than the total: not the known pattern
+        (None, 45, 10),    # Page declares no total
+    ])
+    def test_hellofresh_times_are_left_alone_otherwise(self, declared_total, prep, cook):
+        from src.services.scraper_service import _reconcile_hellofresh_times
+
+        scraper = Mock()
+        scraper.schema.total_time.return_value = declared_total
+
+        assert _reconcile_hellofresh_times(scraper, prep, cook) == (prep, cook)
