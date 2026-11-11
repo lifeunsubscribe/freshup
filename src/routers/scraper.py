@@ -24,6 +24,7 @@ for crawler etiquette, not abuse prevention.
 """
 
 import asyncio
+import json
 import logging
 from typing import Literal
 from urllib.parse import urlparse
@@ -225,7 +226,7 @@ async def import_html(
     content_length_header = request.headers.get("content-length")
     if content_length_header:
         try:
-            if int(content_length_header) > MAX_HTML_BYTES:
+            if int(content_length_header) > MAX_HTML_BYTES + 64 * 1024:
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     detail="HTML body exceeds 5 MB limit"
@@ -251,15 +252,26 @@ async def import_html(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail="HTML body exceeds 5 MB limit"
             )
-        if not source_url:
+        if not isinstance(source_url, str) or not (1 <= len(source_url) <= 2048):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Multipart 'source_url' field is required"
+                detail="Multipart 'source_url' field is required and must be at most 2048 characters"
             )
     else:
-        # JSON body — use ImportHtmlRequest for type/length validation
+        # JSON body — stream with cap to prevent unbounded buffering under chunked encoding
+        _raw_chunks: list[bytes] = []
+        _raw_size = 0
+        _stream_cap = MAX_HTML_BYTES + 64 * 1024
+        async for _chunk in request.stream():
+            _raw_size += len(_chunk)
+            if _raw_size > _stream_cap:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="HTML body exceeds 5 MB limit"
+                )
+            _raw_chunks.append(_chunk)
         try:
-            body = await request.json()
+            body = json.loads(b"".join(_raw_chunks))
         except Exception:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
