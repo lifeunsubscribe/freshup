@@ -1,7 +1,7 @@
 """add source_health_checks table
 
 Revision ID: rk3mshza1txb
-Revises: qk2lrgyz0swx
+Revises: 233fdf1bfa0c
 Create Date: 2026-11-11 00:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'rk3mshza1txb'
-down_revision: Union[str, None] = 'qk2lrgyz0swx'
+down_revision: Union[str, None] = '233fdf1bfa0c'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

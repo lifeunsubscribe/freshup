@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, DateTime, func
+from sqlalchemy import String, Integer, DateTime, Index, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.database import Base
@@ -17,6 +17,11 @@ class SourceHealthCheck(Base):
     All rows are retained; the endpoint reads the latest per source.
     """
     __tablename__ = "source_health_checks"
+    # Declared here as well as in the migration: the latest-per-source query
+    # orders by checked_at within a source (ADR Section 13, rule 5).
+    __table_args__ = (
+        Index("ix_source_health_checks_source_type_checked_at", "source_type", "checked_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     source_type: Mapped[str] = mapped_column(String(50), index=True)
