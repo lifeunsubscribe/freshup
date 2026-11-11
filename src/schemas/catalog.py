@@ -5,9 +5,14 @@ Represents the data surface of a parsed collection page: recipe cards
 (summary-level only) and sub-collection pointers. Neither type carries
 full recipe details; a card is promoted to a full Recipe only when the
 user opens it (import-on-demand).
+
+API response schemas (CollectionSummary, CardResponse, CollectionDetail) are
+the shapes returned by the /catalog endpoints added in #525.
 """
 
+from datetime import datetime
 from typing import Optional
+from uuid import UUID
 from pydantic import BaseModel, Field
 
 
@@ -58,3 +63,59 @@ class CollectionPage(BaseModel):
     children: list[CollectionChild] = Field(
         default_factory=list, description="Sub-collections linked from this page"
     )
+
+
+# ---------------------------------------------------------------------------
+# API response schemas — used by /catalog endpoints (#525)
+# ---------------------------------------------------------------------------
+
+
+class CollectionSummary(BaseModel):
+    """Summary of one collection as returned by the list endpoint."""
+
+    slug: str
+    name: str
+    card_count: int = Field(description="Number of recipe cards currently stored for this collection")
+    last_fetched_at: Optional[datetime] = Field(
+        default=None, description="When the collection page was last fetched; null = never fetched"
+    )
+
+    model_config = {"from_attributes": True}
+
+
+class CardResponse(BaseModel):
+    """A recipe card as stored in the catalog, with persistence state."""
+
+    id: UUID
+    name: str
+    headline: Optional[str] = None
+    image_url: Optional[str] = None
+    prep_time_minutes: Optional[int] = None
+    rating: Optional[float] = None
+    rating_count: Optional[int] = None
+    recipe_url: str
+    recipe_id: Optional[UUID] = Field(
+        default=None, description="Set once the card has been imported as a full Recipe"
+    )
+    is_persisted: bool = Field(
+        description="True when the linked Recipe is persisted (bookmarked); false when card is unimported or the imported recipe is unpersisted"
+    )
+
+    model_config = {"from_attributes": True}
+
+
+class CollectionDetail(BaseModel):
+    """Full detail for one collection: metadata, children and recipe cards."""
+
+    slug: str
+    name: str
+    source_type: str
+    last_fetched_at: Optional[datetime] = None
+    children: list[CollectionSummary] = Field(default_factory=list)
+    cards: list[CardResponse] = Field(default_factory=list)
+    fetch_error: Optional[str] = Field(
+        default=None,
+        description="Sanitized message when the latest fetch attempt failed but stored cards are available",
+    )
+
+    model_config = {"from_attributes": True}

@@ -9,6 +9,7 @@
 # - feed.py (2.5C - personalized recipe feed)
 # - plan.py (2.5E - meal plan endpoints)
 # - sources.py (2A - source health check endpoint)
+# - catalog.py (2.5B - collection browse endpoints)
 
 from src.routers.auth import router as auth_router
 from src.routers.users import router as users_router
@@ -24,5 +25,6 @@ from src.routers.feed import router as feed_router
 from src.routers.menus import router as menus_router
 from src.routers.plan import router as plan_router
 from src.routers.sources import router as sources_router
+from src.routers.catalog import router as catalog_router
 
-__all__ = ["auth_router", "users_router", "substitutions_router", "inventory_router", "recipes_router", "grocery_router", "prepared_foods_router", "scraper_router", "tasks_router", "receipts_router", "feed_router", "menus_router", "plan_router", "sources_router"]
+__all__ = ["auth_router", "users_router", "substitutions_router", "inventory_router", "recipes_router", "grocery_router", "prepared_foods_router", "scraper_router", "tasks_router", "receipts_router", "feed_router", "menus_router", "plan_router", "sources_router", "catalog_router"]
