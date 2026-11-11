@@ -42,9 +42,7 @@
 | Viewed-but-not-cooked feed signal | `POST /recipes/{id}/view` (#520); `feed_service` does not consume it yet | not built |
 | Add-to-plan from a recipe card | `POST /plan/entries` (#517) | not built |
 | Per-meal opt-out | `PUT /plan/entries/{id}/opt-out` (#518) | not built |
-| Rating gated on having cooked | **open — issue #508**; `UserCookEvent` data now exists for the gate to check | not built |
-
-Only the rating gate still needs backend work.
+All remaining 2.5F gaps are now frontend-only work.
 
 **A caution about `POST /recipes/{id}/rate`:** it is a whole-relation upsert — it writes every field of `UserRecipeRelationCreate` onto the row, so a request setting one field silently clears the others. Use it only to submit a complete relation. Bookmark and like have dedicated single-field endpoints for exactly this reason; anything added later that flips one flag should follow that pattern rather than reusing `/rate`.
 

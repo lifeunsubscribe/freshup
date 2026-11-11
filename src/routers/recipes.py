@@ -847,6 +847,24 @@ def rate_recipe(
             detail="Recipe not found"
         )
 
+    # Credibility gate: a numeric rating requires at least one cook event from
+    # this user for this recipe.  Null ratings (bookmark/like/comment-only
+    # requests) are not gated — only the numeric field is restricted.
+    if rating_data.rating is not None:
+        has_cooked = (
+            db.query(UserCookEvent)
+            .filter(
+                UserCookEvent.user_id == current_user.id,
+                UserCookEvent.recipe_id == recipe_id,
+            )
+            .first()
+        ) is not None
+        if not has_cooked:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Rate after cooking",
+            )
+
     # Check if user already has a relation for this recipe
     existing_relation = (
         db.query(UserRecipeRelation)

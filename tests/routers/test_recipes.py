@@ -1275,7 +1275,20 @@ class TestRecipeRatings:
         db_session.refresh(recipe)
         return recipe
 
-    def test_create_rating_success(self, client, auth_headers, test_recipe, test_user, db_session):
+    @pytest.fixture
+    def cook_event(self, db_session, test_user, test_recipe):
+        """Pre-create a cook event so numeric ratings are allowed by the gate."""
+        from src.db.models.user_cook_event import UserCookEvent
+        event = UserCookEvent(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=test_recipe.id,
+        )
+        db_session.add(event)
+        db_session.commit()
+        return event
+
+    def test_create_rating_success(self, client, auth_headers, test_recipe, cook_event, test_user, db_session):
         """Test creating a new rating for a recipe."""
         rating_data = {
             "rating": 4.5,
@@ -1316,7 +1329,7 @@ class TestRecipeRatings:
         assert data["is_bookmarked"] is True
         assert data["rating_comment"] is None
 
-    def test_update_rating_upsert(self, client, auth_headers, test_recipe, test_user, db_session):
+    def test_update_rating_upsert(self, client, auth_headers, test_recipe, cook_event, test_user, db_session):
         """Test updating an existing rating (upsert behavior)."""
         # Create initial rating
         rating_data = {
@@ -1427,7 +1440,7 @@ class TestRecipeRatings:
         detail = response.json()["detail"]
         assert any("rating" in str(error).lower() or "0.0" in str(error) or "5.0" in str(error) for error in detail)
 
-    def test_create_rating_boundary_values(self, client, auth_headers, test_recipe, db_session):
+    def test_create_rating_boundary_values(self, client, auth_headers, test_recipe, cook_event, db_session):
         """Test creating ratings with boundary values (0.0 and 5.0)."""
         # Test 0.0 (minimum valid)
         rating_data = {"rating": 0.0, "is_bookmarked": False}
