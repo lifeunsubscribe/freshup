@@ -282,10 +282,33 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
         # Raise sanitized user-facing message (no HTTP details, no server info)
         raise NetworkError("Unable to retrieve the recipe page. Please verify the URL is accessible and try again.")
 
+    return parse_recipe_html(html_content, url)
+
+
+def parse_recipe_html(html: bytes, url: str) -> ScrapedRecipeData:
+    """
+    Parse recipe data from HTML bytes without making any network requests.
+
+    Extracts structured recipe data using the recipe-scrapers library.
+    Called by scrape_recipe (after fetching) and import_recipe_from_html
+    (for pages saved by the user's browser).
+
+    Args:
+        html: Raw HTML bytes of the recipe page
+        url: Source URL of the recipe (used for schema detection and source_type)
+
+    Returns:
+        ScrapedRecipeData with normalized recipe information
+
+    Raises:
+        UnsupportedSiteError: If site is not supported and wild_mode fails
+        ParseError: If recipe data cannot be parsed
+        ScraperError: For other scraping errors
+    """
     try:
         # Attempt to scrape the recipe
         scraper = recipe_scrapers.scrape_html(
-            html=html_content,
+            html=html,
             org_url=url,
             wild_mode=False  # Try site-specific scraper first
         )
@@ -293,7 +316,7 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
         # Site not supported - try wild_mode (JSON-LD extraction)
         try:
             scraper = recipe_scrapers.scrape_html(
-                html=html_content,
+                html=html,
                 org_url=url,
                 wild_mode=True
             )

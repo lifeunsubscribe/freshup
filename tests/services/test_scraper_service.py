@@ -21,6 +21,7 @@ import logging
 
 from src.services.scraper_service import (
     scrape_recipe,
+    parse_recipe_html,
     _detect_source_type,
     ScraperError,
     NetworkError,
@@ -919,3 +920,153 @@ class TestSecurityLogging:
         assert "Unexpected error during URL validation:" in error_log.message
         assert "RuntimeError" in error_log.message
         assert "Unexpected parsing error" in error_log.message
+
+
+class TestParseRecipeHtml:
+    """Tests for parse_recipe_html function (no network calls)."""
+
+    def _make_mock_scraper(self, title="Test Recipe", ingredients=None, instructions=None):
+        """Build a minimal mock recipe_scrapers scraper object."""
+        scraper = Mock()
+        scraper.title.return_value = title
+        scraper.ingredients.return_value = ingredients or ["1 cup flour", "2 eggs"]
+        if instructions is None:
+            scraper.instructions.return_value = "Step 1.\nStep 2."
+        else:
+            scraper.instructions.return_value = instructions
+        scraper.prep_time.return_value = 10
+        scraper.cook_time.return_value = 20
+        scraper.total_time.return_value = 30
+        scraper.yields.return_value = 4
+        scraper.image.return_value = "https://example.com/img.jpg"
+        scraper.nutrients.return_value = {"calories": "400"}
+        scraper.author.return_value = "Test Author"
+        scraper.site_name.return_value = "Test Site"
+        return scraper
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    def test_returns_scraped_recipe_data(self, mock_scrape_html):
+        """parse_recipe_html returns a ScrapedRecipeData for valid HTML."""
+        mock_scrape_html.return_value = self._make_mock_scraper()
+
+        html = b"<html><body>recipe</body></html>"
+        url = "https://www.kitchensanctuary.com/chicken-curry"
+        result = parse_recipe_html(html, url)
+
+        assert isinstance(result, ScrapedRecipeData)
+        assert result.source_url == url
+        assert result.source_type == "kitchen_sanctuary"
+        assert result.title == "Test Recipe"
+        assert len(result.ingredients) == 2
+        assert result.prep_time_minutes == 10
+        assert result.servings == 4
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    def test_produces_same_result_as_scrape_recipe_for_same_html(self, mock_scrape_html):
+        """parse_recipe_html and scrape_recipe produce identical ScrapedRecipeData for the same HTML."""
+        mock_scraper = self._make_mock_scraper(
+            title="Chicken Curry",
+            ingredients=["500g chicken", "1 can coconut milk"],
+            instructions="Fry chicken.\nAdd sauce.",
+        )
+        # Both calls receive the same scraper object
+        mock_scrape_html.return_value = mock_scraper
+
+        html = b"<html><body>chicken curry</body></html>"
+        url = "https://www.kitchensanctuary.com/chicken-curry"
+
+        result_direct = parse_recipe_html(html, url)
+
+        # Reset and re-configure mock for scrape_recipe (which also fetches HTML)
+        with patch('src.services.scraper_service.requests.get') as mock_get:
+            mock_response = Mock()
+            mock_response.content = html
+            mock_response.status_code = 200
+            mock_get.return_value = mock_response
+
+            result_via_scrape = scrape_recipe(url)
+
+        assert result_direct.source_url == result_via_scrape.source_url
+        assert result_direct.source_type == result_via_scrape.source_type
+        assert result_direct.title == result_via_scrape.title
+        assert result_direct.ingredients == result_via_scrape.ingredients
+        assert result_direct.instructions == result_via_scrape.instructions
+        assert result_direct.servings == result_via_scrape.servings
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    def test_scrape_recipe_delegates_to_parse_recipe_html(self, mock_scrape_html):
+        """scrape_recipe fetches HTML then calls parse_recipe_html (not duplicating extraction)."""
+        mock_scrape_html.return_value = self._make_mock_scraper()
+
+        html_content = b"<html>recipe page</html>"
+
+        with patch('src.services.scraper_service.requests.get') as mock_get:
+            mock_response = Mock()
+            mock_response.content = html_content
+            mock_response.status_code = 200
+            mock_get.return_value = mock_response
+
+            with patch('src.services.scraper_service.parse_recipe_html', wraps=parse_recipe_html) as mock_parse:
+                url = "https://www.hellofresh.com/recipes/test"
+                scrape_recipe(url)
+
+                mock_parse.assert_called_once_with(html_content, url)
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    def test_raises_unsupported_site_error_when_wild_mode_fails(self, mock_scrape_html):
+        """parse_recipe_html raises UnsupportedSiteError when both modes fail."""
+        mock_scrape_html.side_effect = [
+            WebsiteNotImplementedError("Not supported"),
+            WebsiteNotImplementedError("Wild mode also failed"),
+        ]
+
+        with pytest.raises(UnsupportedSiteError, match="Site not supported"):
+            parse_recipe_html(b"<html></html>", "https://www.unsupported.com/recipe")
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    def test_raises_parse_error_when_wild_mode_raises_generic_exception(self, mock_scrape_html):
+        """parse_recipe_html raises ParseError when wild_mode raises a non-WebsiteNotImplementedError."""
+        mock_scrape_html.side_effect = [
+            WebsiteNotImplementedError("Not supported"),
+            RuntimeError("Unexpected parser failure"),
+        ]
+
+        with pytest.raises(ParseError, match="Unable to extract recipe information"):
+            parse_recipe_html(b"<html></html>", "https://www.kitchensanctuary.com/recipe")
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    def test_raises_scraper_error_on_generic_scrape_failure(self, mock_scrape_html):
+        """parse_recipe_html raises ScraperError on generic exceptions from scrape_html."""
+        mock_scrape_html.side_effect = RuntimeError("Generic failure")
+
+        with pytest.raises(ScraperError, match="Unable to process the recipe page"):
+            parse_recipe_html(b"<html></html>", "https://www.hellofresh.com/recipes/test")
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    def test_uses_wild_mode_fallback(self, mock_scrape_html):
+        """parse_recipe_html falls back to wild_mode when first attempt fails."""
+        fallback_scraper = self._make_mock_scraper(title="Wild Mode Recipe")
+        mock_scrape_html.side_effect = [
+            WebsiteNotImplementedError("Not supported"),
+            fallback_scraper,
+        ]
+
+        result = parse_recipe_html(b"<html></html>", "https://www.example.com/recipe")
+
+        assert result.title == "Wild Mode Recipe"
+        assert mock_scrape_html.call_count == 2
+        assert mock_scrape_html.call_args_list[1][1]["wild_mode"] is True
+
+    @patch('src.services.scraper_service.recipe_scrapers.scrape_html')
+    def test_does_not_call_requests_get(self, mock_scrape_html):
+        """parse_recipe_html makes no HTTP requests."""
+        mock_scrape_html.return_value = self._make_mock_scraper()
+
+        with patch('src.services.scraper_service.requests.get') as mock_get:
+            mock_get.side_effect = RuntimeError("Should not make network calls")
+
+            # Must not raise despite requests.get being rigged to fail
+            result = parse_recipe_html(b"<html></html>", "https://www.kitchensanctuary.com/recipe")
+
+        assert isinstance(result, ScrapedRecipeData)
+        mock_get.assert_not_called()
