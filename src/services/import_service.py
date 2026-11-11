@@ -193,14 +193,19 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
         # Handle unparseable ingredients (qty=0 from parser)
         # Use sentinel value as workaround for validation requiring qty > 0
         quantity = parsed['quantity']
+        unit = parsed['unit'] or ''
+        ingredient_name = parsed['ingredient_name'] or raw_ingredient
         if quantity == 0.0:
             quantity = UNPARSEABLE_QUANTITY_SENTINEL
-            warnings.append(f"Unparseable ingredient (using sentinel qty): {raw_ingredient}")
+            # "teaspoon Salt" with no number is the source saying "some salt":
+            # a unit without an amount tells the cook nothing, so drop it.
+            unit = ''
+            warnings.append(f"No amount given for: {ingredient_name}")
 
         parsed_ingredients.append({
-            'ingredient_name': parsed['ingredient_name'] or raw_ingredient,
+            'ingredient_name': ingredient_name,
             'quantity': quantity,
-            'unit': parsed['unit'] or '',
+            'unit': unit,
             'is_optional': parsed['is_optional'],
         })
 

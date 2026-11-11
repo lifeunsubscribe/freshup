@@ -238,8 +238,7 @@ class TestImportRecipeFromUrl:
         # Assertions
         assert result.status == ImportStatus.success
         assert len(result.warnings) == 1
-        assert "Unparseable ingredient" in result.warnings[0]
-        assert "Salt to taste" in result.warnings[0]
+        assert result.warnings[0] == "No amount given for: Salt to taste"
 
         # Verify ingredient was created with sentinel value
         ingredients = [obj for obj in created_objects if isinstance(obj, RecipeIngredient)]
@@ -891,3 +890,33 @@ class TestImportRecipeFromHtml:
 
         assert 'recipe' in captured
         assert captured['recipe'].is_persisted is False
+
+
+class TestAmountlessIngredientUnit:
+    """An ingredient with a unit but no number keeps its name and loses the unit."""
+
+    @patch('src.services.import_service.scrape_recipe')
+    def test_unit_without_amount_is_dropped(self, mock_scrape_recipe):
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        mock_scrape_recipe.return_value = ScrapedRecipeData(
+            source_url="https://www.hellofresh.com/recipes/soup-67fccc45e22258bf0284050d",
+            source_type="hellofresh_web",
+            title="Soup",
+            ingredients=["teaspoon (tsp) Salt", "¼ teaspoon (tsp) Sugar", "½ unit Red Onion"],
+            instructions=["Cook it"],
+        )
+        created = []
+        mock_db.add.side_effect = created.append
+
+        result = import_recipe_from_url("https://www.hellofresh.com/recipes/soup-67fccc45e22258bf0284050d", mock_db)
+
+        assert result.status == ImportStatus.success
+        assert result.warnings == ["No amount given for: Salt"]
+
+        stored = {i.ingredient_name: (i.quantity, i.unit) for i in created if isinstance(i, RecipeIngredient)}
+        assert stored == {
+            "Salt": (UNPARSEABLE_QUANTITY_SENTINEL, ""),
+            "Sugar": (0.25, "teaspoon"),
+            "Red Onion": (0.5, ""),
+        }

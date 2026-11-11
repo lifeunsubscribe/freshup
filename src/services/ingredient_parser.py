@@ -97,6 +97,10 @@ KNOWN_UNITS = {
     'inch', 'inches',  # dimensional measurements
 }
 
+# Words that mean "one whole item" rather than a measurement. HelloFresh writes
+# "1 unit Tomato"; the count is the quantity and there is no unit to record.
+COUNT_WORDS = {'unit', 'units'}
+
 # Markers indicating optional ingredients
 OPTIONAL_MARKERS = {
     'to taste',
@@ -232,6 +236,11 @@ def _extract_unit(text: str) -> tuple[str, str]:
     """
     text = text.strip()
 
+    # "1 unit Tomato": a bare count, so drop the word and record no unit
+    for word in COUNT_WORDS:
+        if re.match(r'^' + re.escape(word) + r'\b', text, re.IGNORECASE):
+            return "", text[len(word):].strip()
+
     # Try to match known units at the start of the text
     # Use word boundary to avoid partial matches
     for unit in sorted(KNOWN_UNITS, key=len, reverse=True):  # Longest first to avoid partial matches
@@ -239,10 +248,29 @@ def _extract_unit(text: str) -> tuple[str, str]:
         pattern = r'^' + re.escape(unit) + r'\b'
         if re.match(pattern, text, re.IGNORECASE):
             matched_unit = text[:len(unit)]
-            remaining = text[len(unit):].strip()
+            remaining = _strip_unit_abbreviation(text[len(unit):].strip())
             return matched_unit, remaining
 
     return "", text
+
+
+def _strip_unit_abbreviation(text: str) -> str:
+    """
+    Drop a bracketed repeat of the unit, as in "teaspoon (tsp) Sugar".
+
+    Only removes the brackets when they hold a known unit, so "(15 oz) can" or
+    "(optional)" are left for the rest of the parser.
+
+    Args:
+        text: Text following an extracted unit
+
+    Returns:
+        The text without a leading bracketed unit abbreviation
+    """
+    match = re.match(r'^\(([^()]{1,12})\)\s*', text)
+    if match and match.group(1).strip().lower() in KNOWN_UNITS:
+        return text[match.end():]
+    return text
 
 
 def _extract_preparation(text: str) -> tuple[str, str]:

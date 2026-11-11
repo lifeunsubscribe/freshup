@@ -13,6 +13,9 @@ import ipaddress
 import socket
 import logging
 import requests
+import requests.certs
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 import recipe_scrapers
 from recipe_scrapers._exceptions import WebsiteNotImplementedError
 
@@ -52,6 +55,158 @@ DOMAIN_TO_SOURCE_TYPE = {
     "kitchensanctuary.com": SourceType.kitchen_sanctuary.value,
     "www.kitchensanctuary.com": SourceType.kitchen_sanctuary.value,
 }
+
+
+class _PinnedHostnameAdapter(HTTPAdapter):
+    """
+    Lets a request connect to a pre-validated IP while TLS is done for the real hostname.
+
+    scrape_recipe() resolves the hostname once, checks the address is public, and
+    then connects to that exact address so a second DNS answer cannot redirect the
+    request to an internal host (DNS rebinding). Requesting "https://<ip>/..." on
+    its own breaks HTTPS, though: no SNI is sent and the certificate is checked
+    against the IP, so every real site fails the handshake. This adapter sends the
+    hostname as SNI and verifies the certificate against it instead.
+    """
+
+    def __init__(self, hostname: str, **kwargs):
+        self._hostname = hostname
+        super().__init__(**kwargs)
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        # A private SSL context: urllib3 switches off the context's own hostname
+        # check when assert_hostname is set (it does the comparison itself), and
+        # requests would otherwise hand it the context every session shares.
+        context = create_urllib3_context()
+        context.load_verify_locations(cafile=requests.certs.where())
+        pool_kwargs["ssl_context"] = context
+        pool_kwargs["server_hostname"] = self._hostname
+        pool_kwargs["assert_hostname"] = self._hostname
+        super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
+
+
+def _http_get(url: str, *, tls_hostname: Optional[str] = None, **kwargs) -> requests.Response:
+    """
+    GET a URL, optionally pinning TLS to a hostname that differs from the URL's host.
+
+    Args:
+        url: URL to request. May address the server by IP.
+        tls_hostname: When the URL addresses the server by IP, the hostname to use
+            for SNI and certificate verification. None means standard behaviour.
+        **kwargs: Passed through to requests (timeout, headers, allow_redirects, verify).
+
+    Returns:
+        The response
+    """
+    with requests.Session() as session:
+        if tls_hostname:
+            session.mount("https://", _PinnedHostnameAdapter(tls_hostname))
+        return session.get(url, **kwargs)
+
+
+# Upper bound on tags taken from a page; some sites stuff dozens of SEO keywords in
+MAX_SCRAPED_TAGS = 12
+
+
+def _clean_title(title: Optional[str], scraper) -> Optional[str]:
+    """
+    Trim a tagline that the page's structured data has glued onto the recipe name.
+
+    HelloFresh publishes "Peruvian-Style Lomo Saltado Enjoy a multi-dish culinary
+    tour of a new destination!" as the name. The page's own <h1> holds just the
+    name, so when the <h1> is how the scraped title begins, the <h1> wins.
+
+    Args:
+        title: Title as extracted by recipe-scrapers
+        scraper: The recipe-scrapers object for the page
+
+    Returns:
+        The shorter heading when it is a leading part of the title, else the title unchanged
+    """
+    if not title:
+        return title
+    try:
+        h1 = scraper.soup.find("h1")
+        heading = h1.get_text(" ", strip=True) if h1 else ""
+        if not isinstance(heading, str):
+            return title
+        heading = " ".join(heading.split())
+    except Exception:
+        return title
+
+    if not heading or len(heading) >= len(title):
+        return title
+    # Must be a leading run of whole words, not a coincidental shared prefix
+    if title.lower().startswith(heading.lower()) and title[len(heading)].isspace():
+        return heading
+    return title
+
+
+def _extract_tags(scraper) -> list[str]:
+    """
+    Build tags from the category, cuisine and keywords a page declares.
+
+    Args:
+        scraper: The recipe-scrapers object for the page
+
+    Returns:
+        Lowercased, de-duplicated tags in the order found (at most MAX_SCRAPED_TAGS)
+    """
+    tags: list[str] = []
+    for field in ("category", "cuisine", "keywords"):
+        try:
+            value = getattr(scraper, field)()
+        except Exception:
+            continue  # Most pages declare only some of these
+
+        if isinstance(value, str):
+            parts = value.split(",")
+        elif isinstance(value, (list, tuple)):
+            parts = value
+        else:
+            continue
+
+        for part in parts:
+            if not isinstance(part, str):
+                continue
+            tag = " ".join(part.split()).lower()
+            if tag and tag not in tags:
+                tags.append(tag)
+
+    return tags[:MAX_SCRAPED_TAGS]
+
+
+def _reconcile_hellofresh_times(
+    scraper, prep_time: Optional[int], cook_time: Optional[int]
+) -> tuple[Optional[int], Optional[int]]:
+    """
+    Correct HelloFresh prep and cook times so they add up to the real total.
+
+    HelloFresh's page data labels the total time "prepTime" and the hands-on time
+    "totalTime". recipe-scrapers reports those as prep and cook, which sums to more
+    than the meal takes (45 + 10 for a 45 minute recipe). The page's schema.org
+    totalTime is the true total, so when "prep" equals it, the other number is the
+    hands-on prep and the rest is cooking.
+
+    Args:
+        scraper: The recipe-scrapers object for the page
+        prep_time: Prep minutes as extracted
+        cook_time: Cook minutes as extracted
+
+    Returns:
+        (prep_minutes, cook_minutes), corrected when the pattern above is recognised
+    """
+    try:
+        declared_total = scraper.schema.total_time()
+    except Exception:
+        return prep_time, cook_time
+
+    if not all(isinstance(value, int) for value in (declared_total, prep_time, cook_time)):
+        return prep_time, cook_time
+
+    if prep_time == declared_total and 0 < cook_time < declared_total:
+        return cook_time, declared_total - cook_time
+    return prep_time, cook_time
 
 
 def _detect_source_type(url: str) -> str:
@@ -245,14 +400,25 @@ def scrape_recipe(url: str) -> ScrapedRecipeData:
 
             # Set Host header to preserve virtual hosting and User-Agent for reliability
             headers = {'Host': original_hostname, 'User-Agent': USER_AGENT}
+            # We connect to the IP, but TLS must still be negotiated for the name:
+            # only pin when the URL actually named a host (not a literal IP).
+            tls_hostname = original_hostname if validated_ip != original_hostname else None
         else:
             # Fallback to original URL if no validated IP
             request_url = url
             headers = {'User-Agent': USER_AGENT}
+            tls_hostname = None
 
         # Fetch the HTML content with timeout and disabled redirects
         # Redirects are disabled to prevent redirect-based SSRF bypasses
-        response = requests.get(request_url, timeout=timeout, headers=headers, allow_redirects=False, verify=True)
+        response = _http_get(
+            request_url,
+            tls_hostname=tls_hostname,
+            timeout=timeout,
+            headers=headers,
+            allow_redirects=False,
+            verify=True,
+        )
 
         # Check for redirect responses (3xx status codes)
         # Since allow_redirects=False, we need to explicitly handle these
@@ -409,6 +575,12 @@ def parse_recipe_html(html: bytes, url: str) -> ScrapedRecipeData:
             title = scraper.title()
         except Exception:
             pass
+        title = _clean_title(title, scraper)
+
+        if source_type == SourceType.hellofresh_web.value:
+            prep_time, cook_time = _reconcile_hellofresh_times(scraper, prep_time, cook_time)
+            if prep_time is not None and cook_time is not None:
+                total_time = prep_time + cook_time
 
         # Extract image URL
         image_url = None
@@ -443,7 +615,7 @@ def parse_recipe_html(html: bytes, url: str) -> ScrapedRecipeData:
             servings=servings,
             ingredients=ingredients,
             instructions=instructions,
-            tags=[],  # recipe-scrapers doesn't typically extract tags
+            tags=_extract_tags(scraper),
             nutrients=nutrients,
             author=author,
             site_name=site_name,

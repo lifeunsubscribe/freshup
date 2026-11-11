@@ -265,6 +265,9 @@ export interface RecipeIngredientResponse {
   ingredient_name: string;
   quantity: number;
   unit: string;
+  variation_group: string | null;
+  variation_diet: string | null;
+  is_optional: boolean;
   step_index: number | null;
 }
 
@@ -286,16 +289,17 @@ export interface RecipeResponse {
   id: string;
   name: string;
   source_type: string;
+  source_url: string | null;
   source_image: string | null;
   steps: string[];
   created_by: string | null;
-  created_at: string;
   notes: string | null;
   tags: string[];
   cook_time_minutes: number | null;
   prep_time_minutes: number | null;
   base_servings: number;
-  hellofresh_card_id: string | null;
+  times_cooked: number;
+  is_persisted: boolean;
   variation_groups: Record<string, unknown> | null;
   nutritional_info: Record<string, unknown> | null;
   ingredients: RecipeIngredientResponse[];

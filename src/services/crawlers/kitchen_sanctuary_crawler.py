@@ -198,7 +198,9 @@ class KitchenSanctuaryCrawler:
                 continue
 
         if not recipe_urls:
-            raise Exception("Failed to fetch sitemap from any known location")
+            # A crawler error, not a bare Exception: the API turns this into a clear
+            # "could not reach the source" response instead of an unexplained 500.
+            raise CrawlerNetworkError("Failed to fetch sitemap from any known location")
 
         # Remove duplicates
         recipe_urls = list(set(recipe_urls))
