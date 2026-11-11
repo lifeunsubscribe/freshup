@@ -812,7 +812,12 @@ def delete_recipe_ingredient(
     return None
 
 
-@router.post("/{recipe_id}/rate", response_model=UserRecipeRelationResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/{recipe_id}/rate",
+    response_model=UserRecipeRelationResponse,
+    status_code=status.HTTP_200_OK,
+    responses={403: {"description": "Caller has not cooked this recipe"}},
+)
 def rate_recipe(
     recipe_id: UUID,
     rating_data: UserRecipeRelationCreate,
@@ -836,6 +841,7 @@ def rate_recipe(
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(403): If a numeric rating is submitted and caller has no cook event for this recipe
         HTTPException(404): If recipe doesn't exist
         HTTPException(422): If rating value is out of range (0.0-5.0)
     """
@@ -846,6 +852,24 @@ def rate_recipe(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Recipe not found"
         )
+
+    # Credibility gate: a numeric rating requires at least one cook event from
+    # this user for this recipe.  Null ratings (bookmark/like/comment-only
+    # requests) are not gated — only the numeric field is restricted.
+    if rating_data.rating is not None:
+        has_cooked = (
+            db.query(UserCookEvent)
+            .filter(
+                UserCookEvent.user_id == current_user.id,
+                UserCookEvent.recipe_id == recipe_id,
+            )
+            .first()
+        ) is not None
+        if not has_cooked:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Rate after cooking",
+            )
 
     # Check if user already has a relation for this recipe
     existing_relation = (

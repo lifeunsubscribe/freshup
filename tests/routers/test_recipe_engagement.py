@@ -700,3 +700,165 @@ class TestViewEndpoint:
 
     def test_view_requires_auth(self, client, recipe):
         assert client.post(f"/recipes/{recipe.id}/view").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Rating gate tests
+# ---------------------------------------------------------------------------
+
+class TestRatingGate:
+    """
+    POST /recipes/{id}/rate — numeric rating is gated on having a cook event.
+
+    The gate is per-user and per-recipe.  Null ratings (bookmark/like/comment
+    without a numeric value) pass through without restriction.
+    """
+
+    def _cook(self, db_session, user, recipe):
+        """Insert a cook event for the given user/recipe."""
+        event = UserCookEvent(
+            id=uuid4(),
+            user_id=user.id,
+            recipe_id=recipe.id,
+        )
+        db_session.add(event)
+        db_session.commit()
+        return event
+
+    def test_gate_rating_without_cook_event_is_403(
+        self, client, auth_headers, recipe
+    ):
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json={"rating": 4.0},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Rate after cooking"
+
+    def test_gate_rating_after_cook_event_succeeds(
+        self, client, auth_headers, recipe, db_session, test_user
+    ):
+        self._cook(db_session, test_user, recipe)
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json={"rating": 4.0},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["rating"] == 4.0
+
+    def test_gate_rating_free_request_is_not_gated(
+        self, client, auth_headers, recipe
+    ):
+        """bookmark/like/comment-only requests pass through without a cook event."""
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json={"is_bookmarked": True, "is_liked": True, "rating_comment": "looks good"},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["rating"] is None
+        assert body["is_bookmarked"] is True
+
+    def test_gate_other_users_cook_event_does_not_unlock_rating(
+        self, client, auth_headers, recipe, db_session
+    ):
+        """A housemate's cook event must not satisfy the caller's gate."""
+        other = User(
+            id=uuid4(),
+            name="Other Cook",
+            email="othercook2@freshup.test",
+            hashed_password="x",
+            role=UserRole.member.value,
+        )
+        db_session.add(other)
+        db_session.commit()
+        self._cook(db_session, other, recipe)
+
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json={"rating": 3.5},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Rate after cooking"
+
+    def test_gate_no_relation_created_when_gate_rejects(
+        self, client, auth_headers, recipe, db_session, test_user
+    ):
+        """The relation table must be untouched when the gate fires."""
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json={"rating": 4.0},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 403
+        db_session.expire_all()
+        row = (
+            db_session.query(UserRecipeRelation)
+            .filter(
+                UserRecipeRelation.user_id == test_user.id,
+                UserRecipeRelation.recipe_id == recipe.id,
+            )
+            .first()
+        )
+        assert row is None, "gate rejection must not create a relation row"
+
+    def test_gate_rejects_update_when_no_cook_event_and_leaves_row_unmodified(
+        self, client, auth_headers, recipe, db_session, test_user
+    ):
+        """Gate on the UPDATE path: existing relation must not be modified when the gate fires."""
+        # Create a pre-existing relation with no numeric rating (bookmark-only)
+        existing = UserRecipeRelation(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=recipe.id,
+            is_bookmarked=True,
+            rating=None,
+        )
+        db_session.add(existing)
+        db_session.commit()
+        original_id = existing.id
+
+        # Attempt to add a numeric rating without a cook event — gate must fire
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json={"rating": 3.0, "is_bookmarked": True},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 403
+        db_session.expire_all()
+        row = (
+            db_session.query(UserRecipeRelation)
+            .filter(
+                UserRecipeRelation.user_id == test_user.id,
+                UserRecipeRelation.recipe_id == recipe.id,
+            )
+            .first()
+        )
+        assert row is not None, "pre-existing relation must not be deleted on gate rejection"
+        assert row.id == original_id
+        assert row.rating is None, "gate rejection must not update the rating field"
+        assert row.is_bookmarked is True, "gate rejection must not touch unrelated fields"
+
+    def test_gate_rejects_rating_of_zero(
+        self, client, auth_headers, recipe
+    ):
+        """rating=0.0 is a valid numeric value and must trigger the gate (is not None check)."""
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json={"rating": 0.0},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Rate after cooking"
