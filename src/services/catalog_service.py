@@ -63,7 +63,7 @@ class CollectionResult:
     collection: SourceCollection
     cards: list[SourceRecipeCard] = field(default_factory=list)
     children: list[SourceCollection] = field(default_factory=list)
-    children_card_counts: dict[str, int] = field(default_factory=dict)  # slug → count
+    children_card_counts: dict[str, int] = field(default_factory=dict)  # id → count
     fetch_error: Optional[str] = None
 
 
@@ -171,7 +171,11 @@ def upsert_collection_page(db: Session, page: CollectionPage, source_type: str =
 
     # Upsert cards by (source_type, recipe_url)
     upserted_cards: list[SourceRecipeCard] = []
+    seen_urls: set[str] = set()
     for card_data in page.cards:
+        if card_data.recipe_url in seen_urls:
+            continue
+        seen_urls.add(card_data.recipe_url)
         card = db.query(SourceRecipeCard).filter_by(
             source_type=source_type, recipe_url=card_data.recipe_url
         ).first()
@@ -204,7 +208,8 @@ def upsert_collection_page(db: Session, page: CollectionPage, source_type: str =
                 last_fetched_at=None,
             ))
         else:
-            child_row.parent_slug = page.slug
+            if child_row.parent_slug is not None:
+                child_row.parent_slug = page.slug
             child_row.name = child.name
 
     # Flush so card PKs are assigned before building join rows

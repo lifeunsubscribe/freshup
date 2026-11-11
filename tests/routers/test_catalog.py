@@ -250,9 +250,24 @@ class TestListCollections:
         response = client.get(f"/catalog/{HELLOFRESH_SOURCE}/collections", headers=member_headers)
         assert response.status_code == 200
 
+    def test_seed_network_error_returns_400(self, client, db_session, member_headers, monkeypatch):
+        monkeypatch.setattr(
+            "src.routers.catalog.catalog_service.seed_hellofresh_collections",
+            lambda db: (_ for _ in ()).throw(CrawlerNetworkError("unreachable")),
+        )
+        response = client.get(f"/catalog/{HELLOFRESH_SOURCE}/collections", headers=member_headers)
+        assert response.status_code == 400
+
+    def test_seed_parse_error_returns_400(self, client, db_session, member_headers, monkeypatch):
+        monkeypatch.setattr(
+            "src.routers.catalog.catalog_service.seed_hellofresh_collections",
+            lambda db: (_ for _ in ()).throw(CrawlerParseError("bad xml")),
+        )
+        response = client.get(f"/catalog/{HELLOFRESH_SOURCE}/collections", headers=member_headers)
+        assert response.status_code == 400
+
     def test_includes_card_count(self, client, db_session, member_headers, monkeypatch):
         _mock_seed(monkeypatch, db_session)
-        # Fetch vegetarian-recipes to populate cards
         response = client.get(f"/catalog/{HELLOFRESH_SOURCE}/collections", headers=member_headers)
         assert response.status_code == 200
         for item in response.json():
@@ -364,6 +379,13 @@ class TestCollectionDetail:
 
         mock_crawler.fetch_collection.assert_called_once()
         assert response.status_code == 200
+
+    def test_unknown_source_returns_404(self, client, member_headers):
+        response = client.get(
+            "/catalog/unknown_source/collections/some-slug",
+            headers=member_headers,
+        )
+        assert response.status_code == 404
 
     def test_unknown_slug_returns_404(self, client, member_headers):
         response = client.get(

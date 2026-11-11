@@ -14,18 +14,20 @@ Rate Limiting:
 """
 
 import logging
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.db.database import get_db
+from src.db.models.source_catalog import SourceCollection, SourceCollectionCard
 from src.db.models.user import User
 from src.middleware.auth import get_current_user
 from src.middleware.rate_limit import limiter
 from src.schemas.catalog import CardResponse, CollectionDetail, CollectionSummary
 from src.services import catalog_service
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
-from src.utils.sanitize import sanitize_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +82,6 @@ def list_collections(
     logger.debug("User %s listing collections for source %r", current_user.id, source)
 
     # Seed on first call when no rows exist for this source.
-    from sqlalchemy import func
-    from src.db.models.source_catalog import SourceCollection, SourceCollectionCard
-
     row_count = (
         db.query(func.count(SourceCollection.id))
         .filter_by(source_type=source)
@@ -91,6 +90,8 @@ def list_collections(
     if row_count == 0:
         try:
             catalog_service.seed_hellofresh_collections(db)
+        except IntegrityError:
+            db.rollback()
         except CrawlerNetworkError as exc:
             logger.warning("Sitemap seed failed for %r: %s", source, exc)
             raise HTTPException(
@@ -135,7 +136,7 @@ def get_collection(
     source: str,
     slug: str,
     request: Request,
-    fresh: bool = Query(
+    fresh: Optional[bool] = Query(
         default=None,
         description="true = always fetch; false = return stored without fetching. Omit for default staleness logic.",
     ),
