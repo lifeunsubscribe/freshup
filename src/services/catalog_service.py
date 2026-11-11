@@ -213,8 +213,10 @@ def upsert_collection_page(db: Session, page: CollectionPage, source_type: str =
                 last_fetched_at=None,
             ))
         else:
-            if child_row.parent_slug is not None:
-                child_row.parent_slug = page.slug
+            # The sitemap seed knows nothing about hierarchy, so a seeded row has
+            # parent_slug None. A page listing this slug as a child is the first
+            # thing that does know; take it.
+            child_row.parent_slug = page.slug
             child_row.name = child.name
 
     # Flush so card PKs are assigned before building join rows

@@ -326,23 +326,25 @@ class TestUpsertCollectionPage:
         ).count()
         assert total_cards == 1
 
-    def test_upsert_does_not_reparent_top_level_collection(self, db_session):
-        """A top-level child slug (parent_slug=None) keeps parent_slug=None after upsert."""
+    def test_upsert_adopts_a_seeded_collection_as_child(self, db_session):
+        """A collection known only from the sitemap (parent_slug=None) gets its parent from the first page that lists it."""
         _seed_collection(db_session, "vegetarian-recipes")
-        _seed_collection(db_session, "quick-meals")  # top-level, parent_slug=None
+        _seed_collection(db_session, "spinach")  # seeded flat: parent unknown
 
         page = CollectionPage(
             name="Vegetarian Recipes",
             slug="vegetarian-recipes",
             url="https://www.hellofresh.com/recipes/vegetarian-recipes",
             cards=[],
-            children=[CollectionChild(name="Quick Meals", slug="quick-meals")],
+            children=[CollectionChild(name="Spinach Recipes", slug="spinach")],
         )
         catalog_service.upsert_collection_page(db_session, page)
 
-        quick_meals = db_session.query(SourceCollection).filter_by(slug="quick-meals").first()
-        assert quick_meals.parent_slug is None
-
+        spinach = db_session.query(SourceCollection).filter_by(slug="spinach").first()
+        assert spinach.parent_slug == "vegetarian-recipes"
+        assert spinach.name == "Spinach Recipes"
+        top_level = [c.slug for c in db_session.query(SourceCollection).filter_by(parent_slug=None).all()]
+        assert top_level == ["vegetarian-recipes"]
 
 # ---------------------------------------------------------------------------
 # get_collection
