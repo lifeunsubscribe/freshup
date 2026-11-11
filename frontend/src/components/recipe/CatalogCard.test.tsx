@@ -121,7 +121,7 @@ describe('CatalogCard', () => {
       const card = screen.getByRole('button', { name: 'Lemon Herb Chicken' })
       await user.click(card)
       expect(mockMutate).toHaveBeenCalledWith(
-        { cardId: 'card-123', source: 'hellofresh', collectionSlug: 'my-collection' },
+        { cardId: 'card-123', source: 'hellofresh_web', collectionSlug: 'my-collection' },
         expect.objectContaining({ onSuccess: expect.any(Function) })
       )
     })

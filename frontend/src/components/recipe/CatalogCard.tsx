@@ -17,9 +17,8 @@ export default function CatalogCard({ card, collectionSlug, isNew = false }: Cat
   const { mutate: openCard, isPending, isError, error, reset } = useOpenCard()
 
   function handleOpen() {
-    // All current catalog cards are HelloFresh; CardResponse has no source field.
     openCard(
-      { cardId: card.id, source: 'hellofresh', collectionSlug },
+      { cardId: card.id, source: 'hellofresh_web', collectionSlug },
       {
         onSuccess: (recipe) => navigate(`/recipes/${recipe.id}`),
       }
@@ -54,6 +53,7 @@ export default function CatalogCard({ card, collectionSlug, isNew = false }: Cat
       aria-disabled={isPending}
       onClick={handleTap}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           handleTap()
