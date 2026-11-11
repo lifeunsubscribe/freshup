@@ -101,6 +101,7 @@ describe('Sheet', () => {
       // The outermost fixed wrapper is the scrim click target
       const wrapper = container.ownerDocument.body.querySelector('.fixed.inset-0') as HTMLElement
       expect(wrapper).not.toBeNull()
+      fireEvent.mouseDown(wrapper)
       fireEvent.click(wrapper)
       expect(onClose).toHaveBeenCalledTimes(1)
     })
@@ -113,6 +114,20 @@ describe('Sheet', () => {
         </Sheet>
       )
       fireEvent.click(screen.getByText('Panel content'))
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('does NOT call onClose when a drag starts on the panel and ends on the scrim', () => {
+      const onClose = vi.fn()
+      render(
+        <Sheet open onClose={onClose} title="Pantry check">
+          <p>Panel content</p>
+        </Sheet>
+      )
+      const panel = screen.getByRole('dialog')
+      const wrapper = panel.parentElement!
+      fireEvent.mouseDown(panel)
+      fireEvent.click(wrapper)
       expect(onClose).not.toHaveBeenCalled()
     })
 
@@ -186,6 +201,37 @@ describe('Sheet', () => {
       )
       expect(document.activeElement).toBe(trigger)
       trigger.remove()
+    })
+
+    it('Tab on the last focusable element wraps focus to the first', async () => {
+      const user = userEvent.setup()
+      render(
+        <Sheet open onClose={() => {}} title="Cook tonight">
+          <button>Panel button</button>
+        </Sheet>
+      )
+      // DOM order inside the dialog: Close button (header), Panel button (content)
+      const closeBtn = screen.getByRole('button', { name: 'Close' })
+      const panelBtn = screen.getByRole('button', { name: 'Panel button' })
+
+      panelBtn.focus()
+      await user.keyboard('{Tab}')
+      expect(document.activeElement).toBe(closeBtn)
+    })
+
+    it('Shift+Tab on the first focusable element wraps focus to the last', async () => {
+      const user = userEvent.setup()
+      render(
+        <Sheet open onClose={() => {}} title="Cook tonight">
+          <button>Panel button</button>
+        </Sheet>
+      )
+      const closeBtn = screen.getByRole('button', { name: 'Close' })
+      const panelBtn = screen.getByRole('button', { name: 'Panel button' })
+
+      closeBtn.focus()
+      await user.keyboard('{Shift>}{Tab}{/Shift}')
+      expect(document.activeElement).toBe(panelBtn)
     })
   })
 

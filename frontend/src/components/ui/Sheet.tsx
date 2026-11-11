@@ -24,13 +24,20 @@ export default function Sheet({ open, onClose, title, children, footer, ariaLabe
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
   const prevFocusRef = useRef<HTMLElement | null>(null)
+  const scrimPointerDownRef = useRef(false)
 
-  // Move focus into the sheet on open; return it to the trigger on close
+  // Move focus into the sheet on open; return it to the trigger on close or unmount
   useEffect(() => {
     if (open) {
       prevFocusRef.current = document.activeElement as HTMLElement
       const firstFocusable = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTORS)
       ;(firstFocusable ?? panelRef.current)?.focus()
+      return () => {
+        if (prevFocusRef.current) {
+          prevFocusRef.current.focus()
+          prevFocusRef.current = null
+        }
+      }
     } else if (prevFocusRef.current) {
       prevFocusRef.current.focus()
       prevFocusRef.current = null
@@ -83,7 +90,8 @@ export default function Sheet({ open, onClose, title, children, footer, ariaLabe
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center"
-      onClick={onClose}
+      onMouseDown={(e) => { scrimPointerDownRef.current = !panelRef.current?.contains(e.target as Node) }}
+      onClick={() => { if (scrimPointerDownRef.current) onClose() }}
     >
       {/* Scrim */}
       <div className="absolute inset-0 bg-text-primary/30" aria-hidden="true" />
