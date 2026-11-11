@@ -1,4 +1,6 @@
 import { useState, useCallback } from 'react'
+import { Link } from 'react-router-dom'
+import { Plus } from 'lucide-react'
 import PageContainer from '../components/layout/PageContainer'
 import PageTitle from '../components/ui/PageTitle'
 import SearchBar from '../components/recipe/SearchBar'
@@ -71,8 +73,18 @@ export default function Recipes() {
   return (
     <PageContainer>
       <div className="py-6 space-y-4">
-        {/* Page title */}
-        <PageTitle>Recipes</PageTitle>
+        {/* Page title + Add a recipe entry */}
+        <div className="flex items-center justify-between gap-3">
+          <PageTitle>Recipes</PageTitle>
+          <Link
+            to="/recipes/add"
+            className="shrink-0 h-11 px-4 rounded-button bg-olive text-white text-[14px] font-medium inline-flex items-center gap-2"
+            aria-label="Add a recipe"
+          >
+            <Plus size={18} />
+            Add a recipe
+          </Link>
+        </div>
 
         {/* Search bar */}
         <SearchBar value={searchQuery} onChange={handleSearchChange} />

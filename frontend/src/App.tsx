@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Home from './pages/Home'
 import Plan from './pages/Plan'
 import Recipes from './pages/Recipes'
+import AddRecipe from './pages/AddRecipe'
 import RecipeDetail from './pages/RecipeDetail'
 import Pantry from './pages/Pantry'
 import Grocery from './pages/Grocery'
@@ -47,6 +48,14 @@ function AppContent() {
           element={
             <ProtectedRoute>
               <Recipes />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recipes/add"
+          element={
+            <ProtectedRoute>
+              <AddRecipe />
             </ProtectedRoute>
           }
         />

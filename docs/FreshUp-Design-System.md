@@ -303,6 +303,7 @@ Description text
 | Home | `/` | Dashboard: tonight's dinner, quick actions, expiration alerts, grocery preview, ready to eat |
 | Recipe Browse | `/recipes` | Spotify-style carousels with sticky section nav. "Can make now" toggle. Search transitions to grid. |
 | Recipe Grid | `/recipes?filter=...` | Filtered 2-column grid. Entered via "See all" or search. |
+| Add a Recipe | `/recipes/add` | Add a recipe by URL or saved page; states: idle, fetching, preview, duplicate, error |
 | Recipe Detail | `/recipes/:id` | Tabbed view: Ingredients (default) → Cook & enjoy! → Nutrition |
 | Pantry | `/pantry` | Storage tabs, stat cards, expiring/low stock triage, collapsible category inventory |
 | Grocery List | `/grocery` | By-store (default) and flat list views. Shared/global reads. |

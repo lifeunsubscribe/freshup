@@ -520,6 +520,38 @@ export interface TransferRequest {
 }
 
 // ============================================================================
+// Scraper / Import Types
+// ============================================================================
+
+export interface ImportUrlRequest {
+  url: string;
+}
+
+/** Pasted page HTML: sends JSON to POST /scraper/import-html. */
+export interface ImportHtmlPastePayload {
+  html: string;
+  source_url: string;
+}
+
+/** Uploaded page file: sends multipart to POST /scraper/import-html. */
+export interface ImportHtmlFilePayload {
+  file: File;
+  source_url: string;
+}
+
+export type ImportHtmlRequest = ImportHtmlPastePayload | ImportHtmlFilePayload;
+
+export interface ImportResult {
+  status: 'success' | 'duplicate' | 'error';
+  /** Present for status=success (newly imported) and status=duplicate (existing). */
+  recipe_id?: string;
+  /** Error detail from the backend. Present for status=error. */
+  message?: string;
+  /** Ingredient names that had no parseable amount (sentinel 0.001). Present for status=success. */
+  warnings?: string[];
+}
+
+// ============================================================================
 // Substitution Types
 // ============================================================================
 
