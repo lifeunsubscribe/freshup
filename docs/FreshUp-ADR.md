@@ -42,9 +42,8 @@
 | Viewed-but-not-cooked feed signal | `POST /recipes/{id}/view` (#520); `feed_service` does not consume it yet | not built |
 | Add-to-plan from a recipe card | `POST /plan/entries` (#517) | not built |
 | Per-meal opt-out | `PUT /plan/entries/{id}/opt-out` (#518) | not built |
-| Rating gated on having cooked | **open — issue #508**; `UserCookEvent` data now exists for the gate to check | not built |
 
-Only the rating gate still needs backend work.
+All remaining 2.5F gaps are now frontend-only work.
 
 **A caution about `POST /recipes/{id}/rate`:** it is a whole-relation upsert — it writes every field of `UserRecipeRelationCreate` onto the row, so a request setting one field silently clears the others. Use it only to submit a complete relation. Bookmark and like have dedicated single-field endpoints for exactly this reason; anything added later that flips one flag should follow that pattern rather than reusing `/rate`.
 
@@ -580,6 +579,8 @@ Users interact with recipes through three semantically distinct actions:
 - **Bookmark** — "Save for later." Private utility. The user's personal queue of recipes to try. Bookmarked recipes can optionally be assigned to a Menu (see 5.13). Analogous to browser bookmarks or Spotify's "Save to Library."
 - **Like** — "I endorse this." Public-facing curation. Visible on the user's profile and used to curate a personal "menu" of recipes they stand behind. Analogous to Instagram likes or Spotify's public playlists.
 - **Rating** — Post-cook evaluation. **Only available after the user has logged at least one cook event for the recipe** (via `POST /recipes/{id}/cook`). Ratings include a 0–5 scale, optional photos (stored in MinIO), and optional text commentary (tips, modifications, warnings). Ratings are never available before cooking — this ensures they reflect actual experience, not aspiration.
+
+  **Legacy relation rows (pre-gate):** Any `UserRecipeRelation` rows that existed before the credibility gate was enforced (#508) may contain a numeric `rating` written without a cook event. Those rows are intentionally frozen in place — they are preserved as-is (not deleted, not migrated) but the owner can no longer update the `rating` field via `POST /recipes/{id}/rate` without first logging a cook event. This is deliberate: the gate applies uniformly on the write path regardless of whether a relation already exists.
 
 All three actions are independent. A user can bookmark without liking, like without bookmarking, and rate without either (as long as they've cooked the recipe). All three actions trigger recipe persistence (see 5.12).
 
