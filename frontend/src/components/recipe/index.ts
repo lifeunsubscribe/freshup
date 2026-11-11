@@ -1,4 +1,6 @@
 export { default as RecipeCard } from './RecipeCard'
 export { default as ConnectedRecipeCard } from './ConnectedRecipeCard'
+export { default as CatalogCard } from './CatalogCard'
 export type { RecipeCardProps } from './RecipeCard'
 export type { ConnectedRecipeCardProps } from './ConnectedRecipeCard'
+export type { CatalogCardProps } from './CatalogCard'
