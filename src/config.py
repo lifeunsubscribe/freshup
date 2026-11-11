@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # TTL for non-persisted recipes (days) - recipes older than this are pruned
     browse_cache_ttl_days: int = Field(default=7, gt=0)
 
+    # Source Health Check Configuration
+    # How often to re-check each source (hours); 0 means every loop iteration (testing only)
+    source_health_interval_hours: int = Field(default=24, ge=0)
+    # Canary URL used to verify the HelloFresh web scraper is still working
+    source_health_canary_hellofresh: str = "https://www.hellofresh.com/recipes/peruvian-style-lomo-saltado-67fccc45e22258bf0284050d"
+
 
 @lru_cache
 def get_settings() -> Settings:

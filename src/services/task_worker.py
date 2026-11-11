@@ -29,6 +29,7 @@ from src.schemas.receipt import ReceiptParseResult
 from src.services.llm.client import OllamaClient
 from src.services.llm.exceptions import LLMUnavailableError, LLMResponseError
 from src.services.llm.prompts.receipt import SYSTEM_PROMPT, create_user_prompt
+from src.services.source_health_service import run_due_checks
 from src.utils.sanitize import sanitize_exception_message
 
 logger = logging.getLogger(__name__)
@@ -406,6 +407,20 @@ async def background_task_worker() -> None:
                     f"Error in task worker iteration: {e}",
                     exc_info=True
                 )
+
+            # Run source health checks off the event loop to avoid blocking
+            try:
+                def _run_health_checks():
+                    SessionFactory = get_session_factory()
+                    with SessionFactory() as health_session:
+                        run_due_checks(health_session)
+
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, _run_health_checks)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Source health check iteration failed: {e}", exc_info=True)
 
             # Sleep until next poll interval
             await asyncio.sleep(settings.task_poll_interval_seconds)
