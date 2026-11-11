@@ -17,6 +17,7 @@ import defusedxml.ElementTree as ET
 import requests.exceptions
 
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from src.config import get_settings
@@ -403,7 +404,12 @@ def open_card(db: Session, card_id: UUID) -> Optional[OpenCardResult]:
         )
         if recipe is not None:
             card.recipe_id = recipe.id
-            db.commit()
+            try:
+                db.commit()
+            except SQLAlchemyError:
+                db.rollback()
+                card.recipe_id = None
+                raise ValueError("Failed to link card to recipe; please retry")
             return OpenCardResult(recipe=recipe, imported=True)
 
     # Import failed or recipe lookup returned None after a successful import (unexpected).

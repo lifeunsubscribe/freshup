@@ -575,6 +575,26 @@ class TestOpenCard:
         db_session.refresh(card)
         assert card.recipe_id == existing_recipe.id
 
+    def test_pruned_recipe_triggers_reimport(self, db_session):
+        """Card linked to a deleted recipe (stale recipe_id) falls through to re-import."""
+        stale_recipe_id = uuid4()
+        card = _make_card(db_session, recipe_id=stale_recipe_id)
+        new_recipe = _make_recipe(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_import_success(new_recipe.id),
+        ) as mock_import:
+            result = catalog_service.open_card(db_session, card.id)
+
+        mock_import.assert_called_once_with(card.recipe_url, db_session)
+        assert result is not None
+        assert result.imported is True
+        assert result.recipe.id == new_recipe.id
+
+        db_session.refresh(card)
+        assert card.recipe_id == new_recipe.id
+
     def test_import_error_raises_value_error_and_card_stays_unlinked(self, db_session):
         """Import error raises ValueError; card.recipe_id remains None."""
         card = _make_card(db_session)

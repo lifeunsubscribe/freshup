@@ -30,6 +30,7 @@ from src.schemas.catalog import CardResponse, CollectionDetail, CollectionSummar
 from src.schemas.recipe import RecipeResponse
 from src.services import catalog_service
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
+from src.utils.sanitize import sanitize_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +301,7 @@ def open_card(
         logger.warning("Import error for card %s: %s", card_id, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
+            detail=sanitize_exception_message(str(exc), max_length=250),
         )
 
     if open_result is None:
