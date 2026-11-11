@@ -23,10 +23,12 @@ Note: Service layer has separate polite delays (1 second between external reques
 for crawler etiquette, not abuse prevention.
 """
 
+import asyncio
 import logging
 from typing import Literal
 from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -219,6 +221,18 @@ async def import_html(
     """
     MAX_HTML_BYTES = 5 * 1024 * 1024  # 5 MB
 
+    # Early rejection on Content-Length header (avoids reading the body for oversized requests)
+    content_length_header = request.headers.get("content-length")
+    if content_length_header:
+        try:
+            if int(content_length_header) > MAX_HTML_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="HTML body exceeds 5 MB limit"
+                )
+        except ValueError:
+            pass  # Malformed header; fall through to per-read enforcement
+
     content_type = request.headers.get("content-type", "")
 
     if "multipart/form-data" in content_type:
@@ -230,14 +244,20 @@ async def import_html(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Multipart 'file' field is required"
             )
-        html_bytes = await file_field.read()
+        # Read at most MAX_HTML_BYTES+1 to detect oversize without buffering the full body
+        html_bytes = await file_field.read(MAX_HTML_BYTES + 1)
+        if len(html_bytes) > MAX_HTML_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="HTML body exceeds 5 MB limit"
+            )
         if not source_url:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Multipart 'source_url' field is required"
             )
     else:
-        # JSON body
+        # JSON body — use ImportHtmlRequest for type/length validation
         try:
             body = await request.json()
         except Exception:
@@ -250,19 +270,15 @@ async def import_html(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Request body must be a JSON object"
             )
-        source_url = body.get("source_url")
-        html_str = body.get("html", "")
-        if not source_url:
+        try:
+            validated = ImportHtmlRequest.model_validate(body)
+        except ValidationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="'source_url' field is required"
+                detail=exc.errors()
             )
-        if not isinstance(html_str, str) or not html_str:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="'html' field is required and cannot be empty"
-            )
-        html_bytes = html_str.encode("utf-8")
+        source_url = validated.source_url
+        html_bytes = validated.html.encode("utf-8")
 
     if not html_bytes:
         raise HTTPException(
@@ -288,7 +304,7 @@ async def import_html(
     logger.info(f"User {current_user.id} importing recipe from saved HTML page")
 
     try:
-        result = import_recipe_from_html(source_url, html_bytes, db)
+        result = await asyncio.to_thread(import_recipe_from_html, source_url, html_bytes, db)
         return result
     except ScraperError as e:
         logger.warning(f"Parse error during HTML import for user {current_user.id}: {type(e).__name__}: {e}")

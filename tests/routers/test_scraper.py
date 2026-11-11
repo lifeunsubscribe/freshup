@@ -974,7 +974,6 @@ class TestImportHtml:
 
         # requests.get was never called — if it were, RuntimeError would have propagated
         mock_get.assert_not_called()
-        # The endpoint should succeed (success or duplicate)
-        assert response.status_code in (200, 500)  # 500 only if db issue in test env
-        if response.status_code == 200:
-            assert response.json()["status"] in ("success", "duplicate")
+        # The endpoint must succeed (no network call means no scraper error)
+        assert response.status_code == 200
+        assert response.json()["status"] in ("success", "duplicate")

@@ -42,6 +42,14 @@ logger = logging.getLogger(__name__)
 UNPARSEABLE_QUANTITY_SENTINEL = 0.001
 
 
+def _safe_image_url(url: Optional[str]) -> Optional[str]:
+    """Return url only when its scheme is http or https; drop javascript: and data: URIs."""
+    if not url:
+        return None
+    scheme = urlparse(url).scheme.lower()
+    return url if scheme in ('http', 'https') else None
+
+
 def is_unparseable_quantity(quantity: float) -> bool:
     """
     Check if a quantity value represents an unparseable ingredient.
@@ -216,7 +224,7 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
             name=scraped_data.title or "Untitled Recipe",
             source_type=scraped_data.source_type,
             source_url=normalized_url,
-            source_image=scraped_data.image_url,
+            source_image=_safe_image_url(scraped_data.image_url),
             prep_time_minutes=scraped_data.prep_time_minutes,
             cook_time_minutes=scraped_data.cook_time_minutes,
             base_servings=scraped_data.servings or 4,
@@ -387,14 +395,17 @@ def import_recipe_from_html(url: str, html: bytes, db: Session) -> ImportResult:
         parsed = parse_ingredient(raw_ingredient)
 
         quantity = parsed['quantity']
+        unit = parsed['unit'] or ''
+        ingredient_name = parsed['ingredient_name'] or raw_ingredient
         if quantity == 0.0:
             quantity = UNPARSEABLE_QUANTITY_SENTINEL
-            warnings.append(f"Unparseable ingredient (using sentinel qty): {raw_ingredient}")
+            unit = ''
+            warnings.append(f"No amount given for: {ingredient_name}")
 
         parsed_ingredients.append({
-            'ingredient_name': parsed['ingredient_name'] or raw_ingredient,
+            'ingredient_name': ingredient_name,
             'quantity': quantity,
-            'unit': parsed['unit'] or '',
+            'unit': unit,
             'is_optional': parsed['is_optional'],
         })
 
@@ -404,7 +415,7 @@ def import_recipe_from_html(url: str, html: bytes, db: Session) -> ImportResult:
             name=scraped_data.title or "Untitled Recipe",
             source_type=scraped_data.source_type,
             source_url=normalized_url,
-            source_image=scraped_data.image_url,
+            source_image=_safe_image_url(scraped_data.image_url),
             prep_time_minutes=scraped_data.prep_time_minutes,
             cook_time_minutes=scraped_data.cook_time_minutes,
             base_servings=scraped_data.servings or 4,
