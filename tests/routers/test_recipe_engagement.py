@@ -811,3 +811,54 @@ class TestRatingGate:
             .first()
         )
         assert row is None, "gate rejection must not create a relation row"
+
+    def test_gate_rejects_update_when_no_cook_event_and_leaves_row_unmodified(
+        self, client, auth_headers, recipe, db_session, test_user
+    ):
+        """Gate on the UPDATE path: existing relation must not be modified when the gate fires."""
+        # Create a pre-existing relation with no numeric rating (bookmark-only)
+        existing = UserRecipeRelation(
+            id=uuid4(),
+            user_id=test_user.id,
+            recipe_id=recipe.id,
+            is_bookmarked=True,
+            rating=None,
+        )
+        db_session.add(existing)
+        db_session.commit()
+        original_id = existing.id
+
+        # Attempt to add a numeric rating without a cook event — gate must fire
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json={"rating": 3.0, "is_bookmarked": True},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 403
+        db_session.expire_all()
+        row = (
+            db_session.query(UserRecipeRelation)
+            .filter(
+                UserRecipeRelation.user_id == test_user.id,
+                UserRecipeRelation.recipe_id == recipe.id,
+            )
+            .first()
+        )
+        assert row is not None, "pre-existing relation must not be deleted on gate rejection"
+        assert row.id == original_id
+        assert row.rating is None, "gate rejection must not update the rating field"
+        assert row.is_bookmarked is True, "gate rejection must not touch unrelated fields"
+
+    def test_gate_rejects_rating_of_zero(
+        self, client, auth_headers, recipe
+    ):
+        """rating=0.0 is a valid numeric value and must trigger the gate (is not None check)."""
+        response = client.post(
+            f"/recipes/{recipe.id}/rate",
+            json={"rating": 0.0},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Rate after cooking"

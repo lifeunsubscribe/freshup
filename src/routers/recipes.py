@@ -812,7 +812,12 @@ def delete_recipe_ingredient(
     return None
 
 
-@router.post("/{recipe_id}/rate", response_model=UserRecipeRelationResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/{recipe_id}/rate",
+    response_model=UserRecipeRelationResponse,
+    status_code=status.HTTP_200_OK,
+    responses={403: {"description": "Caller has not cooked this recipe"}},
+)
 def rate_recipe(
     recipe_id: UUID,
     rating_data: UserRecipeRelationCreate,
@@ -836,6 +841,7 @@ def rate_recipe(
 
     Raises:
         HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(403): If a numeric rating is submitted and caller has no cook event for this recipe
         HTTPException(404): If recipe doesn't exist
         HTTPException(422): If rating value is out of range (0.0-5.0)
     """
