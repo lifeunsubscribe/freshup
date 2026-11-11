@@ -5,6 +5,7 @@ Discovers recipe URLs from HelloFresh via sitemap.xml with paginated
 category crawl fallback. Includes rate limiting and robots.txt compliance.
 """
 
+import json
 import logging
 import re
 import ssl
@@ -14,6 +15,7 @@ from typing import Literal, Optional
 from xml.etree.ElementTree import Element
 from urllib.parse import urljoin, urlparse
 
+from src.schemas.catalog import CollectionCard, CollectionChild, CollectionPage
 from src.services.crawlers.base_crawler import (
     RateLimiter,
     RobotsTxtParser,
@@ -37,6 +39,118 @@ FALLBACK_SITEMAP_PATHS = ("/sitemap_index.xml", "/sitemap.xml")
 # A recipe page is /recipes/<slug>-<id>, where <id> is a 24-character hex id.
 # Everything else under /recipes/ is a listing: a cuisine, an ingredient, a collection.
 _RECIPE_PATH = re.compile(r"^/recipes/[^/]+-[0-9a-f]{24}/?$")
+
+# CDN prefix for recipe card images on collection pages.
+# Usage: HF_IMAGE_PREFIX + imagePath (e.g. "/image/zucchini-cf443dcd.jpg")
+HF_IMAGE_PREFIX = "https://img.hellofresh.com/f_auto,fl_lossy,q_auto,w_600"
+
+# Matches a __NEXT_DATA__ script tag and captures its JSON content.
+_NEXT_DATA_RE = re.compile(
+    r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
+    re.DOTALL,
+)
+
+# Strips a trailing locale suffix such as "-en-US" from a HelloFresh recipe id.
+_LOCALE_SUFFIX_RE = re.compile(r'-[a-z]{2}-[A-Z]{2}$')
+
+# Parses an ISO 8601 duration of the form PTnM or PTnHnM.
+_ISO_DURATION_RE = re.compile(r'^PT(?:(\d+)H)?(?:(\d+)M)?$')
+
+
+def _strip_locale(id_str: str) -> str:
+    """Remove a trailing locale tag (e.g. ``-en-US``) from a recipe id."""
+    return _LOCALE_SUFFIX_RE.sub('', id_str)
+
+
+def _parse_prep_time(prep_time: Optional[str]) -> Optional[int]:
+    """
+    Convert an ISO 8601 duration string to minutes.
+
+    Handles ``PTnM`` and ``PTnHnM``.  Returns ``None`` when the input is
+    absent or does not match the expected pattern.
+    """
+    if not prep_time:
+        return None
+    m = _ISO_DURATION_RE.match(prep_time)
+    if not m:
+        return None
+    hours = int(m.group(1) or 0)
+    minutes = int(m.group(2) or 0)
+    return hours * 60 + minutes
+
+
+def parse_collection_page(html: str, url: str) -> CollectionPage:
+    """
+    Parse a HelloFresh collection page into its recipe cards and sub-collections.
+
+    Reads the ``__NEXT_DATA__`` JSON that Next.js embeds in the page; no
+    network calls are made.
+
+    Args:
+        html: Full HTML of the collection page.
+        url:  Absolute URL the page was fetched from (stored verbatim on the
+              returned object for traceability).
+
+    Returns:
+        A :class:`~src.schemas.catalog.CollectionPage` with up to 30 cards
+        and any number of children.
+
+    Raises:
+        CrawlerParseError: If ``__NEXT_DATA__`` is absent, not valid JSON, or
+            does not contain the expected ``ssrPayload.collection`` structure.
+    """
+    match = _NEXT_DATA_RE.search(html)
+    if not match:
+        raise CrawlerParseError(f"No __NEXT_DATA__ script tag found on {url}")
+
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError as exc:
+        raise CrawlerParseError(f"__NEXT_DATA__ is not valid JSON on {url}: {exc}") from exc
+
+    try:
+        collection = data["props"]["pageProps"]["ssrPayload"]["collection"]
+    except (KeyError, TypeError) as exc:
+        raise CrawlerParseError(
+            f"Expected props.pageProps.ssrPayload.collection not found on {url}: {exc}"
+        ) from exc
+
+    cards: list[CollectionCard] = []
+    for raw in collection.get("recipes", []):
+        recipe_url = raw.get("websiteUrl", "")
+        if classify_hellofresh_url(recipe_url) != "recipe":
+            logger.warning(
+                "Skipping recipe card with non-recipe websiteUrl %r on %s", recipe_url, url
+            )
+            continue
+
+        image_path = raw.get("imagePath") or ""
+        cards.append(
+            CollectionCard(
+                external_id=_strip_locale(raw.get("id", "")),
+                name=raw.get("name", ""),
+                headline=raw.get("headline") or None,
+                image_url=HF_IMAGE_PREFIX + image_path,
+                prep_time_minutes=_parse_prep_time(raw.get("prepTime")),
+                rating=raw.get("aggregateRating"),
+                rating_count=raw.get("aggregateRatingsCount"),
+                recipe_url=recipe_url,
+            )
+        )
+
+    children_docs = collection.get("children", {}).get("docs", [])
+    children = [
+        CollectionChild(name=c.get("name", ""), slug=c.get("slug", ""))
+        for c in children_docs
+    ]
+
+    return CollectionPage(
+        name=collection.get("name", ""),
+        slug=collection.get("slug", ""),
+        url=url,
+        cards=cards,
+        children=children,
+    )
 
 UrlKind = Literal["recipe", "collection", "other"]
 
@@ -127,6 +241,43 @@ class HelloFreshCrawler:
         if crawl_delay:
             self.rate_limiter.set_domain_delay(self.domain, crawl_delay)
             logger.info(f"Using Crawl-delay from robots.txt: {crawl_delay}s")
+
+    def fetch_collection(self, slug: str) -> CollectionPage:
+        """
+        Fetch and parse a HelloFresh collection page by its slug.
+
+        Builds the URL as ``{base_url}/recipes/{slug}``, checks robots.txt,
+        respects the rate limiter, then delegates parsing to
+        :func:`parse_collection_page`.
+
+        Args:
+            slug: Collection slug, e.g. ``"vegetarian-recipes"``.
+
+        Returns:
+            Parsed :class:`~src.schemas.catalog.CollectionPage`.
+
+        Raises:
+            CrawlerNetworkError: If robots.txt disallows the URL, or if the
+                HTTP request fails.
+            CrawlerParseError: If the response cannot be parsed as a valid
+                collection page.
+        """
+        url = f"{self.base_url}/recipes/{slug}"
+
+        if not self.robots_parser.can_fetch(url):
+            raise CrawlerNetworkError(f"robots.txt disallows fetching {url}")
+
+        self.rate_limiter.wait_if_needed(self.domain)
+
+        try:
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            raise CrawlerNetworkError(
+                f"Failed to fetch collection page {url}: {exc}"
+            ) from exc
+
+        return parse_collection_page(response.text, url)
 
     def _build_error_message_with_context(
         self,
