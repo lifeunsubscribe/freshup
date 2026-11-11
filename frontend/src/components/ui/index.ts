@@ -5,3 +5,6 @@ export { default as CategoryLabel } from './CategoryLabel'
 
 // Badge/Label components
 export { default as Pill } from './Pill'
+
+// Overlay components
+export { default as Sheet } from './Sheet'

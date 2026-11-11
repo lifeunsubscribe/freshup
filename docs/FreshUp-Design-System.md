@@ -280,6 +280,10 @@ Description text
 - Cards: horizontal scroll, `gap: 10px`, `overflow-x: auto`
 - Sticky section nav bar (below search) for jumping between carousels
 
+### 5.8 Sheet (Bottom Sheet)
+
+Shared overlay component (`components/ui/Sheet.tsx`). Portal-rendered, anchored to the bottom, rounded top corners (14px), scrim (`bg-text-primary/30`), title with olive period, close button, scrollable content area, optional sticky footer. Focus-trapped; body scroll locked while open.
+
 ---
 
 ## 6. Screen Architecture
