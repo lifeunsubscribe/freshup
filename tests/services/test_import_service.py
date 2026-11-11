@@ -748,8 +748,8 @@ class TestImportRecipeFromHtml:
 
     @patch('src.services.import_service.parse_ingredient')
     @patch('src.services.import_service.parse_recipe_html')
-    def test_successful_import_sets_is_persisted_true(self, mock_parse_html, mock_parse_ingredient):
-        """import_recipe_from_html creates a recipe with is_persisted=True."""
+    def test_successful_import_starts_unpersisted(self, mock_parse_html, mock_parse_ingredient):
+        """import_recipe_from_html creates browse-cache recipe (is_persisted=False) like link imports."""
         mock_db = Mock()
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
@@ -775,7 +775,7 @@ class TestImportRecipeFromHtml:
         assert result.status == ImportStatus.success
         assert result.error_message is None
         assert created_recipe is not None
-        assert created_recipe.is_persisted is True
+        assert created_recipe.is_persisted is False
 
     @patch('src.services.import_service.parse_recipe_html')
     def test_duplicate_url_returns_duplicate_status(self, mock_parse_html):

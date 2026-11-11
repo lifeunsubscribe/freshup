@@ -23,10 +23,10 @@ Written in Claude Code after reading the handoff against `main` at `933e9f9`. Th
 
 | Topic | Decision | Effect on the mockups |
 |---|---|---|
-| Kitchen Sanctuary recipes | A recipe imported from a saved page is stored as **persisted immediately**, even if nobody bookmarks it. A human fetched it; it is not thrown away by the browse-cache cleanup. | Screen 1 frames 4 and 9: for a saved page, "Save" is confirmation, not the thing that keeps it. `is_persisted` is no longer a proxy for "someone saved this" (see open question 3). |
+| Kitchen Sanctuary recipes | A recipe imported from a saved page is **browse cache like any other import** (`is_persisted = false`) until someone bookmarks it; unbookmarked imports are pruned by the cleanup job. (An earlier draft persisted them immediately; Sarah reversed that 2026-11-11.) | Screen 1 frames 4 and 9: "Save to library" is what keeps the recipe on both paths, and "Not this one" simply walks away. `is_persisted` still means "someone saved this". |
 | Sources | HelloFresh and Kitchen Sanctuary only, for now. The API already restricts imports to those two domains. | The "any other recipe site" row in the supported-sources sheet (screen 1, frame 2) should be dropped or marked as not yet. |
 | How HelloFresh fills the browse | **Collection-backed, with a catalog table.** A HelloFresh collection page serves 30 recipe cards (name, tagline, image, prep time, rating, URL) and lists its sub-collections, in one request and without touching a recipe page. Cards go in a catalog table separate from `Recipe`. Opening a card imports the full recipe on demand (one fetch) as an unpersisted recipe; bookmarking persists it. | This is the "opening a row brings in more" mechanism of screen 2. A pull is one collection-page fetch, cheap and bounded, so it is safe for any member (answers open question 1). Tail states map directly: *bringing in more* = fetching the collection page; *more arrived* = its cards; *caught up* = no sub-collections left; *could not bring in more* = fetch failed, which is also what source health reports. HelloFresh's own "load more" is a private API and `?page=` is disallowed by its robots.txt, so a row grows by walking sub-collections, not by paging. |
-| Preview before saving (recommendation, not yet confirmed) | No parse-only mode. Link path: import as an unpersisted recipe and show that as the preview; "Save" bookmarks it. Saved-page path: parse and persist, and show the result. | Answers open question 4 with one fetch per recipe and no new endpoint mode. |
+| Preview before saving | No parse-only mode. Both paths import as an unpersisted recipe and show that as the preview; "Save" bookmarks it. Confirmed 2026-11-11. | Answers open question 4 with one fetch per recipe and no new endpoint mode. |
 
 ### What this means for the gap table
 
@@ -134,11 +134,11 @@ Verified by reading the repo at `976d2d0`. "Not found" means a search turned up 
 | Mockup feature | In the repo at `976d2d0` | Gap | Status (2026-11-11) |
 |---|---|---|---|
 | Paste a link | `POST /scraper/import-url` exists | No frontend code calls any `/scraper` route yet | Closed |
-| Paste or upload a saved page | Not found in `src/routers/scraper.py` | Needs an endpoint that accepts page HTML (text or file) and runs the existing parser on it | Open; plus the rule that the result is persisted immediately |
+| Paste or upload a saved page | Not found in `src/routers/scraper.py` | Needs an endpoint that accepts page HTML (text or file) and runs the existing parser on it | Closed: `POST /scraper/import-html`, result is browse cache until bookmarked |
 | Preview before saving | Not checked whether `import-url` can parse without persisting | Needs a parse-only mode, or the preview is shown after an unsaved (`is_persisted = false`) import | Recommendation in section 0: no parse-only mode |
 | Opening a row brings in more, for any member | `import-batch`, `discover/{source}` and `discover-and-import/{source}` all call `require_coordinator` | **Permission change.** Either relax these for a bounded pull, or add a member-safe "bring in more for this row" endpoint | Closed: `GET /catalog/{source}/collections/{slug}` fetches on demand for any authenticated user (#525) |
 | Row subtitle ("Saved 6 times and cooked 31 times here") | `FeedRowSchema` has `title`, `recipes`, `browse_url` | Needs a reason or counts field per row | Open |
-| Saved versus not saved on cards | `RecipeCardSchema` has no `is_persisted` and no per-user bookmark state | Add both to the card schema | Open; `is_persisted` is true for every Kitchen Sanctuary recipe, so "saved" needs bookmark state |
+| Saved versus not saved on cards | `RecipeCardSchema` has no `is_persisted` and no per-user bookmark state | Add both to the card schema | Open; "saved" needs per-user bookmark state |
 | Source badge and "view original" | `RecipeCardSchema` has `source_type` but not `source_url` | Add `source_url` where the link is shown | Open |
 | Feed ranked by saves, likes and cooks | ADR section 0: feed scores on `UserRecipeRelation` and `times_cooked`; `UserCookEvent` and `UserRecipeView` are not wired in | Wire the cook and view signals into `feed_service` | Open |
 | Arrange rows (pin, reorder) | `Menu.sort_order` exists for menus; nothing found for browse rows | Needs per-user row order and pin storage | Open |
@@ -199,9 +199,9 @@ These came up at the end of the session. They change the product's shape and bel
    *Answered 2026-11-10: members may. The pull is one collection-page fetch (30 cards), not a batch of recipe imports, so it is cheap and bounded. See section 0.*
 2. Where does a cook's variation live: on the cook event, or on the user's relation to the recipe?
 3. Is "Saved by the household" built from `is_persisted`, from bookmarks, or from likes?
-   *Narrowed 2026-11-11: not from `is_persisted`, which is now true for every Kitchen Sanctuary recipe regardless of who wants it. Bookmarks or likes remain the choice.*
+   *Narrowed 2026-11-11: `is_persisted` again means "someone bookmarked this" on every path, so it is a usable household-level signal; bookmarks or likes remain the per-user choice.*
 4. Does the preview need a true parse-without-saving mode, or is an unpersisted import acceptable as the preview?
-   *Recommendation in section 0: the unpersisted import is the preview for links; for saved pages the persisted result is. Awaiting Sarah's yes.*
+   *Answered 2026-11-11: the unpersisted import is the preview on both paths.*
 5. Which food database backs the nutrition estimate, and what are the two sample amounts for oil and salt?
 
 ## 8. Suggested order of work

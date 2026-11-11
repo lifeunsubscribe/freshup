@@ -39,7 +39,6 @@ function PreviewPane({
   onDiscard,
   isSaving,
   saveError,
-  importKind,
 }: {
   recipeId: string
   warnings: string[]
@@ -47,7 +46,6 @@ function PreviewPane({
   onDiscard: () => void
   isSaving?: boolean
   saveError?: string | null
-  importKind: ImportKind
 }) {
   const { data: recipe, isLoading } = useRecipe(recipeId)
 
@@ -80,7 +78,7 @@ function PreviewPane({
           disabled={isSaving}
           className="h-12 px-4 rounded-button bg-white border border-warm-btn-border text-text-primary text-[15px] inline-flex items-center justify-center disabled:opacity-50"
         >
-          {importKind === 'url' ? 'Not this one' : 'Remove from library'}
+          Not this one
         </button>
         <button
           onClick={onSave}
@@ -262,16 +260,10 @@ export default function AddRecipe() {
     )
   }
 
-  // For the HTML import path the recipe is already persisted; remove it on discard.
+  // Both import paths leave an unbookmarked browse-cache row behind; the
+  // cleanup job prunes it, so discarding is just walking away.
   function handleDiscard() {
-    if (phase.kind !== 'preview' || phase.importKind === 'url') {
-      resetToIdle()
-      return
-    }
-    bookmarkMutation.mutate(
-      { recipeId: phase.recipeId, next: false },
-      { onSettled: resetToIdle }
-    )
+    resetToIdle()
   }
 
   function resetToIdle() {
@@ -360,7 +352,6 @@ export default function AddRecipe() {
             onDiscard={handleDiscard}
             isSaving={bookmarkMutation.isPending}
             saveError={saveError}
-            importKind={phase.importKind}
           />
         )}
 

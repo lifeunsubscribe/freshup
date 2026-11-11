@@ -321,15 +321,16 @@ def import_recipe_from_html(url: str, html: bytes, db: Session) -> ImportResult:
     """
     Import a recipe from pre-fetched HTML into the database.
 
-    Pipeline (same as import_recipe_from_url except step 2 and is_persisted):
+    Pipeline (same as import_recipe_from_url except step 2):
     1. Normalize and deduplicate against existing recipes by source_url
     2. Parse recipe data from HTML using parse_recipe_html (no network call)
     3. Parse ingredients using ingredient_parser
     4. Map to Recipe and RecipeIngredient records
     5. Save to database (Recipe + RecipeIngredient records)
 
-    Recipes imported this way are stored with is_persisted=True because a human
-    fetched the page, so the browse-cache pruning job must never remove them.
+    Like link imports, the recipe starts as browse cache (is_persisted=False):
+    it is the preview the user sees, becomes permanent only when someone
+    bookmarks it, and is otherwise pruned by the cleanup job.
 
     Args:
         url: Source URL of the recipe page (used for dedup and source_type detection)
@@ -422,8 +423,7 @@ def import_recipe_from_html(url: str, html: bytes, db: Session) -> ImportResult:
             steps=scraped_data.instructions,
             tags=scraped_data.tags,
             nutritional_info=scraped_data.nutrients,
-            # Human-fetched page: persisted immediately, pruning must not remove it
-            is_persisted=True,
+            is_persisted=False,  # Browse cache until bookmarked, same as link imports
             created_by=None,  # System-imported recipe, no owner
         )
 
