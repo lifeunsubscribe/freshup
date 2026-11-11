@@ -29,6 +29,7 @@ class CollectionCard(BaseModel):
 
     external_id: str = Field(
         ...,
+        min_length=1,
         description="HelloFresh recipe id with any locale suffix stripped (e.g. -en-US)",
     )
     name: str = Field(..., description="Recipe name")

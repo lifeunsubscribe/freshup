@@ -15,6 +15,8 @@ from typing import Literal, Optional
 from xml.etree.ElementTree import Element
 from urllib.parse import urljoin, urlparse
 
+from pydantic import ValidationError
+
 from src.schemas.catalog import CollectionCard, CollectionChild, CollectionPage
 from src.services.crawlers.base_crawler import (
     RateLimiter,
@@ -53,6 +55,9 @@ _NEXT_DATA_RE = re.compile(
 # Strips a trailing locale suffix such as "-en-US" from a HelloFresh recipe id.
 _LOCALE_SUFFIX_RE = re.compile(r'-[a-z]{2}-[A-Z]{2}$')
 
+# Validates a collection slug before URL interpolation; rejects path-traversal characters.
+_SLUG_RE = re.compile(r'^[a-zA-Z0-9][-a-zA-Z0-9_]*$')
+
 # Parses an ISO 8601 duration of the form PTnM or PTnHnM.
 _ISO_DURATION_RE = re.compile(r'^PT(?:(\d+)H)?(?:(\d+)M)?$')
 
@@ -74,6 +79,8 @@ def _parse_prep_time(prep_time: Optional[str]) -> Optional[int]:
     m = _ISO_DURATION_RE.match(prep_time)
     if not m:
         return None
+    if m.group(1) is None and m.group(2) is None:
+        return None
     hours = int(m.group(1) or 0)
     minutes = int(m.group(2) or 0)
     return hours * 60 + minutes
@@ -92,8 +99,8 @@ def parse_collection_page(html: str, url: str) -> CollectionPage:
               returned object for traceability).
 
     Returns:
-        A :class:`~src.schemas.catalog.CollectionPage` with up to 30 cards
-        and any number of children.
+        A :class:`~src.schemas.catalog.CollectionPage` with any number of cards
+        and children.
 
     Raises:
         CrawlerParseError: If ``__NEXT_DATA__`` is absent, not valid JSON, or
@@ -116,29 +123,43 @@ def parse_collection_page(html: str, url: str) -> CollectionPage:
         ) from exc
 
     cards: list[CollectionCard] = []
-    for raw in collection.get("recipes", []):
-        recipe_url = raw.get("websiteUrl", "")
+    for raw in (collection.get("recipes") or []):
+        recipe_url = raw.get("websiteUrl") or ""
         if classify_hellofresh_url(recipe_url) != "recipe":
             logger.warning(
                 "Skipping recipe card with non-recipe websiteUrl %r on %s", recipe_url, url
             )
             continue
 
-        image_path = raw.get("imagePath") or ""
-        cards.append(
-            CollectionCard(
-                external_id=_strip_locale(raw.get("id", "")),
-                name=raw.get("name", ""),
-                headline=raw.get("headline") or None,
-                image_url=HF_IMAGE_PREFIX + image_path,
-                prep_time_minutes=_parse_prep_time(raw.get("prepTime")),
-                rating=raw.get("aggregateRating"),
-                rating_count=raw.get("aggregateRatingsCount"),
-                recipe_url=recipe_url,
-            )
-        )
+        external_id = _strip_locale(raw.get("id") or "")
+        if not external_id:
+            logger.warning("Skipping recipe card with empty id on %s", url)
+            continue
 
-    children_docs = collection.get("children", {}).get("docs", [])
+        image_path = raw.get("imagePath") or ""
+        if not image_path:
+            logger.warning("Skipping recipe card %r with missing imagePath on %s", external_id, url)
+            continue
+
+        try:
+            cards.append(
+                CollectionCard(
+                    external_id=external_id,
+                    name=raw.get("name", ""),
+                    headline=raw.get("headline") or None,
+                    image_url=HF_IMAGE_PREFIX + image_path,
+                    prep_time_minutes=_parse_prep_time(raw.get("prepTime")),
+                    rating=raw.get("aggregateRating"),
+                    rating_count=raw.get("aggregateRatingsCount"),
+                    recipe_url=recipe_url,
+                )
+            )
+        except ValidationError as exc:
+            raise CrawlerParseError(
+                f"Invalid card data for {external_id!r} on {url}: {exc}"
+            ) from exc
+
+    children_docs = (collection.get("children") or {}).get("docs") or []
     children = [
         CollectionChild(name=c.get("name", ""), slug=c.get("slug", ""))
         for c in children_docs
@@ -262,6 +283,9 @@ class HelloFreshCrawler:
             CrawlerParseError: If the response cannot be parsed as a valid
                 collection page.
         """
+        if not _SLUG_RE.fullmatch(slug):
+            raise ValueError(f"Invalid collection slug: {slug!r}")
+
         url = f"{self.base_url}/recipes/{slug}"
 
         if not self.robots_parser.can_fetch(url):

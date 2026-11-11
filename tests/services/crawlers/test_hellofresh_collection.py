@@ -7,7 +7,7 @@ Covers parse_collection_page (pure function) and HelloFreshCrawler.fetch_collect
 
 import os
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from src.services.crawlers.hellofresh_crawler import (
     HelloFreshCrawler,
