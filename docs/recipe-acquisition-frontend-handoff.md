@@ -133,7 +133,7 @@ Verified by reading the repo at `976d2d0`. "Not found" means a search turned up 
 
 | Mockup feature | In the repo at `976d2d0` | Gap | Status (2026-11-11) |
 |---|---|---|---|
-| Paste a link | `POST /scraper/import-url` exists | No frontend code calls any `/scraper` route yet | Closed on the backend (`a2fc39a`); frontend caller still to build |
+| Paste a link | `POST /scraper/import-url` exists | No frontend code calls any `/scraper` route yet | Closed |
 | Paste or upload a saved page | Not found in `src/routers/scraper.py` | Needs an endpoint that accepts page HTML (text or file) and runs the existing parser on it | Open; plus the rule that the result is persisted immediately |
 | Preview before saving | Not checked whether `import-url` can parse without persisting | Needs a parse-only mode, or the preview is shown after an unsaved (`is_persisted = false`) import | Recommendation in section 0: no parse-only mode |
 | Opening a row brings in more, for any member | `import-batch`, `discover/{source}` and `discover-and-import/{source}` all call `require_coordinator` | **Permission change.** Either relax these for a bounded pull, or add a member-safe "bring in more for this row" endpoint | Closed: `GET /catalog/{source}/collections/{slug}` fetches on demand for any authenticated user (#525) |
