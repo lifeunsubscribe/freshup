@@ -82,10 +82,11 @@ export default function SavedPageInput({ onSubmitPaste, onSubmitFile, disabled, 
       <form onSubmit={handleSubmit} className="mt-4 space-y-3">
         {/* Source URL — required for both modes */}
         <div>
-          <label className="block text-[12px] uppercase tracking-[0.06em] text-text-tertiary mb-1.5">
+          <label htmlFor="saved-page-source-url" className="block text-[12px] uppercase tracking-[0.06em] text-text-tertiary mb-1.5">
             Source URL
           </label>
           <input
+            id="saved-page-source-url"
             type="url"
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
@@ -98,10 +99,11 @@ export default function SavedPageInput({ onSubmitPaste, onSubmitFile, disabled, 
 
         {mode === 'paste' ? (
           <div>
-            <label className="block text-[12px] uppercase tracking-[0.06em] text-text-tertiary mb-1.5">
+            <label htmlFor="saved-page-html" className="block text-[12px] uppercase tracking-[0.06em] text-text-tertiary mb-1.5">
               Paste the page HTML
             </label>
             <textarea
+              id="saved-page-html"
               value={html}
               onChange={(e) => setHtml(e.target.value)}
               placeholder="Paste the full page source here…"

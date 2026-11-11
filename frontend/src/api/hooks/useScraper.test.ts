@@ -46,6 +46,19 @@ function makeWrapper() {
   }
 }
 
+function makeWrapperWithSpy() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  const invalidateSpy = vi.spyOn(client, 'invalidateQueries')
+  return {
+    wrapper: function Wrapper({ children }: { children: ReactNode }) {
+      return createElement(QueryClientProvider, { client }, children)
+    },
+    invalidateSpy,
+  }
+}
+
 describe('useImportUrl', () => {
   beforeEach(() => {
     mockApiClient.mockReset()
@@ -232,5 +245,57 @@ describe('useImportHtml – file upload path', () => {
 
     // apiClient must not have been called for the file path
     expect(mockApiClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('invalidation behaviour', () => {
+  beforeEach(() => {
+    mockApiClient.mockReset()
+  })
+
+  it('invalidates recipe lists on status:success', async () => {
+    mockApiClient.mockResolvedValueOnce({ status: 'success', recipe_id: 'r1', warnings: [] })
+    const { wrapper, invalidateSpy } = makeWrapperWithSpy()
+    const { result } = renderHook(() => useImportUrl(), { wrapper })
+
+    await act(async () => { result.current.mutate({ url: 'https://example.com/recipe' }) })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['recipes', 'list'] }))
+  })
+
+  it('invalidates recipe lists on status:duplicate', async () => {
+    mockApiClient.mockResolvedValueOnce({ status: 'duplicate', recipe_id: 'r2' })
+    const { wrapper, invalidateSpy } = makeWrapperWithSpy()
+    const { result } = renderHook(() => useImportUrl(), { wrapper })
+
+    await act(async () => { result.current.mutate({ url: 'https://example.com/recipe' }) })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['recipes', 'list'] }))
+  })
+
+  it('does not invalidate recipe lists on status:error (URL path)', async () => {
+    mockApiClient.mockResolvedValueOnce({ status: 'error', message: 'The page timed out.' })
+    const { wrapper, invalidateSpy } = makeWrapperWithSpy()
+    const { result } = renderHook(() => useImportUrl(), { wrapper })
+
+    await act(async () => { result.current.mutate({ url: 'https://example.com/recipe' }) })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not invalidate recipe lists on status:error (HTML paste path)', async () => {
+    mockApiClient.mockResolvedValueOnce({ status: 'error', message: 'No recipe found.' })
+    const { wrapper, invalidateSpy } = makeWrapperWithSpy()
+    const { result } = renderHook(() => useImportHtml(), { wrapper })
+
+    await act(async () => {
+      result.current.mutate({ html: '<html>content</html>', source_url: 'https://www.kitchensanctuary.com/r' })
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(invalidateSpy).not.toHaveBeenCalled()
   })
 })

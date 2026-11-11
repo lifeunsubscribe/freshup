@@ -1,7 +1,15 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { apiClient, ApiException, getAuthToken, getApiBaseUrl } from '../client';
 import type { ImportUrlRequest, ImportHtmlRequest, ImportResult } from '../types';
 import { recipeKeys } from './useRecipes';
+
+// Only invalidate for status=success or status=duplicate — an error response
+// means nothing was persisted, so a refetch would be wasted.
+function invalidateRecipeListsOnImport(queryClient: QueryClient, result: ImportResult): void {
+  if (result.status !== 'error') {
+    queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
+  }
+}
 
 /**
  * Submit a URL for scraping. On success (or duplicate), invalidates the recipe
@@ -17,9 +25,7 @@ export function useImportUrl() {
         body: JSON.stringify({ url }),
       });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
-    },
+    onSuccess: (result) => invalidateRecipeListsOnImport(queryClient, result),
   });
 }
 
@@ -63,8 +69,6 @@ export function useImportHtml() {
 
       return response.json() as Promise<ImportResult>;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
-    },
+    onSuccess: (result) => invalidateRecipeListsOnImport(queryClient, result),
   });
 }

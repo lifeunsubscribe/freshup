@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Link as LinkIcon, ChevronLeft, Info, RotateCcw } from 'lucide-react'
 import PageContainer from '../components/layout/PageContainer'
@@ -9,20 +9,26 @@ import { useImportUrl, useImportHtml, useRecipe, useToggleBookmark } from '../ap
 import type { ImportResult } from '../api/types'
 
 // KitchenSanctuary blocks automated fetching — catch this client-side.
+// Use exact hostname match to avoid false positives like notkitchensanctuary.com.
 function isKitchenSanctuaryUrl(url: string): boolean {
   try {
-    return new URL(url).hostname.includes('kitchensanctuary.com')
+    const { hostname } = new URL(url)
+    return hostname === 'kitchensanctuary.com' || hostname.endsWith('.kitchensanctuary.com')
   } catch {
     return false
   }
 }
 
+type ImportKind = 'url' | 'html-paste' | 'html-file'
+
 type Phase =
   | { kind: 'idle' }
   | { kind: 'fetching'; url: string }
-  | { kind: 'preview'; recipeId: string; warnings: string[] }
+  | { kind: 'preview'; recipeId: string; warnings: string[]; importKind: ImportKind }
   | { kind: 'duplicate'; recipeId: string; url: string }
-  | { kind: 'error'; message: string; url: string }
+  | { kind: 'error'; message: string; url: string; importKind: 'url' }
+  | { kind: 'error'; message: string; url: string; importKind: 'html-paste'; html: string }
+  | { kind: 'error'; message: string; url: string; importKind: 'html-file'; file: File }
 
 // ── Preview inner component (needs its own hook calls) ───────────────────────
 
@@ -32,12 +38,16 @@ function PreviewPane({
   onSave,
   onDiscard,
   isSaving,
+  saveError,
+  importKind,
 }: {
   recipeId: string
   warnings: string[]
   onSave: () => void
   onDiscard: () => void
   isSaving?: boolean
+  saveError?: string | null
+  importKind: ImportKind
 }) {
   const { data: recipe, isLoading } = useRecipe(recipeId)
 
@@ -57,13 +67,20 @@ function PreviewPane({
     <>
       <ImportPreviewCard recipe={recipe} warnings={warnings} />
       <div className="h-4" />
+      {/* Save error banner */}
+      {saveError && (
+        <div className="mx-4 mb-2 p-3 rounded-card bg-mocha-light border border-mocha-border text-[13px] text-mocha-dark">
+          {saveError}
+        </div>
+      )}
       {/* Sticky action bar */}
       <div className="mt-auto px-4 py-3 bg-cream border-t border-warm-border flex gap-2">
         <button
           onClick={onDiscard}
-          className="h-12 px-4 rounded-button bg-white border border-warm-btn-border text-text-primary text-[15px] inline-flex items-center justify-center"
+          disabled={isSaving}
+          className="h-12 px-4 rounded-button bg-white border border-warm-btn-border text-text-primary text-[15px] inline-flex items-center justify-center disabled:opacity-50"
         >
-          Not this one
+          {importKind === 'url' ? 'Not this one' : 'Remove from library'}
         </button>
         <button
           onClick={onSave}
@@ -134,6 +151,9 @@ export default function AddRecipe() {
   const navigate = useNavigate()
   const [linkUrl, setLinkUrl] = useState('')
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  const [saveError, setSaveError] = useState<string | null>(null)
+  // Incremented on every resetToIdle so stale in-flight callbacks are ignored.
+  const generationRef = useRef(0)
 
   const importUrl = useImportUrl()
   const importHtml = useImportHtml()
@@ -144,31 +164,53 @@ export default function AddRecipe() {
 
   // ── Shared result handler ────────────────────────────────────────────────
 
-  function handleImportResult(result: ImportResult, url: string) {
+  function handleImportResult(
+    result: ImportResult,
+    url: string,
+    importKind: ImportKind,
+    html?: string,
+    file?: File,
+  ) {
     if (result.status === 'success' && result.recipe_id) {
-      setPhase({ kind: 'preview', recipeId: result.recipe_id, warnings: result.warnings ?? [] })
+      setPhase({ kind: 'preview', recipeId: result.recipe_id, warnings: result.warnings ?? [], importKind })
     } else if (result.status === 'duplicate' && result.recipe_id) {
       setPhase({ kind: 'duplicate', recipeId: result.recipe_id, url })
+    } else if (importKind === 'html-paste' && html != null) {
+      setPhase({ kind: 'error', message: result.message ?? 'The import did not complete.', url, importKind, html })
+    } else if (importKind === 'html-file' && file != null) {
+      setPhase({ kind: 'error', message: result.message ?? 'The import did not complete.', url, importKind, file })
     } else {
-      setPhase({ kind: 'error', message: result.message ?? 'The import did not complete.', url })
+      setPhase({ kind: 'error', message: result.message ?? 'The import did not complete.', url, importKind: 'url' })
     }
   }
 
-  function handleImportError(error: unknown, url: string) {
-    const msg =
-      error instanceof Error ? error.message : 'Something went wrong. Please try again.'
-    setPhase({ kind: 'error', message: msg, url })
+  function handleImportError(
+    error: unknown,
+    url: string,
+    importKind: ImportKind,
+    html?: string,
+    file?: File,
+  ) {
+    const msg = error instanceof Error ? error.message : 'Something went wrong. Please try again.'
+    if (importKind === 'html-paste' && html != null) {
+      setPhase({ kind: 'error', message: msg, url, importKind, html })
+    } else if (importKind === 'html-file' && file != null) {
+      setPhase({ kind: 'error', message: msg, url, importKind, file })
+    } else {
+      setPhase({ kind: 'error', message: msg, url, importKind: 'url' })
+    }
   }
 
   // ── Link submit ──────────────────────────────────────────────────────────
 
   function submitLink(url: string) {
+    const gen = ++generationRef.current
     setPhase({ kind: 'fetching', url })
     importUrl.mutate(
       { url },
       {
-        onSuccess: (result) => handleImportResult(result, url),
-        onError: (error) => handleImportError(error, url),
+        onSuccess: (result) => { if (generationRef.current === gen) handleImportResult(result, url, 'url') },
+        onError: (error) => { if (generationRef.current === gen) handleImportError(error, url, 'url') },
       }
     )
   }
@@ -181,23 +223,25 @@ export default function AddRecipe() {
   // ── Saved page submit ────────────────────────────────────────────────────
 
   function handleSavedPaste(html: string, sourceUrl: string) {
+    const gen = ++generationRef.current
     setPhase({ kind: 'fetching', url: sourceUrl })
     importHtml.mutate(
       { html, source_url: sourceUrl },
       {
-        onSuccess: (result) => handleImportResult(result, sourceUrl),
-        onError: (error) => handleImportError(error, sourceUrl),
+        onSuccess: (result) => { if (generationRef.current === gen) handleImportResult(result, sourceUrl, 'html-paste', html) },
+        onError: (error) => { if (generationRef.current === gen) handleImportError(error, sourceUrl, 'html-paste', html) },
       }
     )
   }
 
   function handleSavedFile(file: File, sourceUrl: string) {
+    const gen = ++generationRef.current
     setPhase({ kind: 'fetching', url: sourceUrl })
     importHtml.mutate(
       { file, source_url: sourceUrl },
       {
-        onSuccess: (result) => handleImportResult(result, sourceUrl),
-        onError: (error) => handleImportError(error, sourceUrl),
+        onSuccess: (result) => { if (generationRef.current === gen) handleImportResult(result, sourceUrl, 'html-file', undefined, file) },
+        onError: (error) => { if (generationRef.current === gen) handleImportError(error, sourceUrl, 'html-file', undefined, file) },
       }
     )
   }
@@ -206,14 +250,34 @@ export default function AddRecipe() {
 
   function handleSave() {
     if (phase.kind !== 'preview') return
+    setSaveError(null)
     bookmarkMutation.mutate(
       { recipeId: phase.recipeId, next: true },
-      { onSuccess: () => navigate(`/recipes/${phase.recipeId}`) }
+      {
+        onSuccess: () => navigate(`/recipes/${phase.recipeId}`),
+        onError: (error) => setSaveError(
+          error instanceof Error ? error.message : 'Could not save recipe. Please try again.'
+        ),
+      }
+    )
+  }
+
+  // For the HTML import path the recipe is already persisted; remove it on discard.
+  function handleDiscard() {
+    if (phase.kind !== 'preview' || phase.importKind === 'url') {
+      resetToIdle()
+      return
+    }
+    bookmarkMutation.mutate(
+      { recipeId: phase.recipeId, next: false },
+      { onSettled: resetToIdle }
     )
   }
 
   function resetToIdle() {
+    generationRef.current++
     setPhase({ kind: 'idle' })
+    setSaveError(null)
     importUrl.reset()
     importHtml.reset()
   }
@@ -293,8 +357,10 @@ export default function AddRecipe() {
             recipeId={phase.recipeId}
             warnings={phase.warnings}
             onSave={handleSave}
-            onDiscard={resetToIdle}
+            onDiscard={handleDiscard}
             isSaving={bookmarkMutation.isPending}
+            saveError={saveError}
+            importKind={phase.importKind}
           />
         )}
 
@@ -319,7 +385,15 @@ export default function AddRecipe() {
                 </div>
               </div>
               <button
-                onClick={() => submitLink(phase.url)}
+                onClick={() => {
+                  if (phase.importKind === 'url') {
+                    submitLink(phase.url)
+                  } else if (phase.importKind === 'html-paste') {
+                    handleSavedPaste(phase.html, phase.url)
+                  } else {
+                    handleSavedFile(phase.file, phase.url)
+                  }
+                }}
                 className="h-12 w-full mt-3 px-4 rounded-button bg-olive text-white text-[15px] font-medium inline-flex items-center justify-center gap-2"
               >
                 <RotateCcw size={16} />
@@ -427,15 +501,6 @@ export default function AddRecipe() {
                 </button>
               )}
             </form>
-
-            {/* Which sources work? */}
-            <a
-              href="#"
-              className="mx-4 inline-flex items-center gap-1.5 min-h-[44px] text-[13px] text-olive"
-            >
-              <Info size={16} />
-              Which sources work?
-            </a>
 
             {/* Saved-page section */}
             <div id="saved-page-section">

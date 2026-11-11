@@ -39,13 +39,19 @@ export default function ImportPreviewCard({ recipe, warnings }: ImportPreviewCar
     ingredients,
   } = recipe
 
-  // Derive hostname for the "From X · view original" attribution line.
+  // Derive hostname and validate protocol for the attribution link.
+  // Reject non-http(s) schemes (e.g. javascript:) which <input type="url"> accepts.
   let sourceHost = source_type === 'hellofresh_card' ? 'hellofresh.com' : ''
-  if (!sourceHost && source_url) {
+  let safeSourceUrl: string | null = null
+  if (source_url) {
     try {
-      sourceHost = new URL(source_url).hostname.replace(/^www\./, '')
+      const u = new URL(source_url)
+      if (!sourceHost) sourceHost = u.hostname.replace(/^www\./, '')
+      if (u.protocol === 'http:' || u.protocol === 'https:') {
+        safeSourceUrl = source_url
+      }
     } catch {
-      sourceHost = source_url
+      if (!sourceHost) sourceHost = source_url
     }
   }
 
@@ -152,9 +158,9 @@ export default function ImportPreviewCard({ recipe, warnings }: ImportPreviewCar
         )}
 
         {/* Source attribution */}
-        {sourceHost && source_url && (
+        {sourceHost && safeSourceUrl && (
           <a
-            href={source_url}
+            href={safeSourceUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 min-h-[44px] text-[12px] text-olive mt-1"

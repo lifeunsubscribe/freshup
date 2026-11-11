@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AddRecipe from './AddRecipe'
 import { renderWithProviders } from '../test/renderWithProviders'
@@ -412,6 +412,114 @@ describe('AddRecipe page', () => {
         },
         expect.any(Object)
       )
+    })
+
+    it('file upload mode submits via importHtml with file and source_url', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AddRecipe />)
+
+      await user.click(screen.getByRole('button', { name: /^upload$/i }))
+
+      const fileInput = screen.getByLabelText(/upload saved page file/i)
+      const file = new File(['<html>content</html>'], 'recipe.html', { type: 'text/html' })
+      await user.upload(fileInput, file)
+
+      const sourceUrlInput = screen.getByPlaceholderText(/https:\/\/www\.kitchensanctuary/i)
+      await user.type(sourceUrlInput, 'https://www.kitchensanctuary.com/recipe')
+
+      await user.click(screen.getByRole('button', { name: /read recipe/i }))
+
+      expect(mockImportHtmlMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file,
+          source_url: 'https://www.kitchensanctuary.com/recipe',
+        }),
+        expect.any(Object)
+      )
+    })
+  })
+
+  describe('cancel race', () => {
+    it('cancelling during fetch prevents in-flight callback from overwriting idle state', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AddRecipe />)
+
+      const input = screen.getByLabelText(/paste a link/i)
+      await user.type(input, 'https://www.hellofresh.com/recipes/test')
+      await user.click(screen.getByRole('button', { name: /fetch recipe/i }))
+
+      // Phase is now 'fetching' — capture callbacks before cancelling
+      expect(mockImportUrlMutate).toHaveBeenCalledOnce()
+      const { onSuccess } = mockImportUrlMutate.mock.calls[0][1]
+
+      // Cancel
+      const cancelBtn = await screen.findByRole('button', { name: /cancel/i })
+      await user.click(cancelBtn)
+
+      // Link input should be back (idle state)
+      expect(screen.getByLabelText(/paste a link/i)).toBeInTheDocument()
+
+      // Fire the stale in-flight callback
+      act(() => onSuccess({ status: 'success', recipe_id: 'recipe-123', warnings: [] }))
+
+      // Preview must NOT appear — we are still in idle
+      expect(screen.getByLabelText(/paste a link/i)).toBeInTheDocument()
+      expect(screen.queryByText('Sweet chili tofu bowls')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('saved-page error retry', () => {
+    it('retry on saved-page error calls importHtml, not importUrl', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AddRecipe />)
+
+      const sourceUrlInput = screen.getByPlaceholderText(/https:\/\/www\.kitchensanctuary/i)
+      await user.type(sourceUrlInput, 'https://www.kitchensanctuary.com/crispy-sesame')
+
+      const htmlTextarea = screen.getByPlaceholderText(/paste the full page source/i)
+      await user.type(htmlTextarea, '<html>content</html>')
+
+      await user.click(screen.getByRole('button', { name: /read recipe/i }))
+
+      expect(mockImportHtmlMutate).toHaveBeenCalledOnce()
+      const { onError } = mockImportHtmlMutate.mock.calls[0][1]
+      act(() => onError(new Error('Import failed')))
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument())
+
+      // Reset call history before retry
+      mockImportHtmlMutate.mockClear()
+      mockImportUrlMutate.mockClear()
+
+      await user.click(screen.getByRole('button', { name: /try again/i }))
+
+      expect(mockImportHtmlMutate).toHaveBeenCalledOnce()
+      expect(mockImportUrlMutate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('save failure', () => {
+    it('shows an error message when bookmark save fails', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AddRecipe />)
+
+      const input = screen.getByLabelText(/paste a link/i)
+      await user.type(input, 'https://www.hellofresh.com/recipes/test')
+      await user.click(screen.getByRole('button', { name: /fetch recipe/i }))
+
+      const { onSuccess: onImportSuccess } = mockImportUrlMutate.mock.calls[0][1]
+      act(() => onImportSuccess({ status: 'success', recipe_id: 'recipe-123', warnings: [] }))
+
+      await waitFor(() => screen.getByRole('button', { name: /save to library/i }))
+      await user.click(screen.getByRole('button', { name: /save to library/i }))
+
+      expect(mockBookmarkMutate).toHaveBeenCalledOnce()
+      const { onError } = mockBookmarkMutate.mock.calls[0][1]
+      act(() => onError(new Error('Network error')))
+
+      await waitFor(() => {
+        expect(screen.getByText(/network error/i)).toBeInTheDocument()
+      })
     })
   })
 })
