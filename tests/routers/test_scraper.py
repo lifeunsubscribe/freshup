@@ -887,6 +887,31 @@ class TestImportHtml:
 
         assert response.status_code == 413
 
+    def test_rejects_oversized_body_via_streaming_guard(self, client, member_headers):
+        """Chunked JSON body exceeding MAX_HTML_BYTES + 64 KB cap → 413 via streaming guard.
+
+        Sends a generator-backed body so httpx omits Content-Length, bypassing the
+        early Content-Length check and exercising the per-chunk streaming guard directly.
+        """
+        _stream_cap = 5 * 1024 * 1024 + 64 * 1024  # mirrors scraper._stream_cap
+        oversized = _stream_cap + 1
+
+        def _gen():
+            chunk = b"x" * 65536
+            sent = 0
+            while sent < oversized:
+                to_send = min(65536, oversized - sent)
+                yield chunk[:to_send]
+                sent += to_send
+
+        response = client.post(
+            "/scraper/import-html",
+            content=_gen(),
+            headers={**member_headers, "content-type": "application/json"},
+        )
+
+        assert response.status_code == 413
+
     def test_rejects_oversized_html_multipart(self, client, member_headers):
         """Multipart with file > 5 MB → 413."""
         big_html = b"x" * (5 * 1024 * 1024 + 1)
