@@ -30,6 +30,7 @@ from src.db.models.menu import Menu, MenuRecipe
 from src.db.models.processing_task import ProcessingTask, TaskType, TaskStatus
 from src.db.models.user_cook_event import UserCookEvent
 from src.db.models.user_recipe_view import UserRecipeView
+from src.db.models.source_catalog import SourceCollection, SourceRecipeCard, SourceCollectionCard
 
 __all__ = [
     "User",
@@ -68,4 +69,7 @@ __all__ = [
     "TaskStatus",
     "UserCookEvent",
     "UserRecipeView",
+    "SourceCollection",
+    "SourceRecipeCard",
+    "SourceCollectionCard",
 ]
