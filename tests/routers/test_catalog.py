@@ -274,6 +274,19 @@ class TestListCollections:
             assert "card_count" in item
             assert item["card_count"] == 0  # not yet fetched
 
+    def test_seed_integrity_error_rolls_back_and_returns_200(self, client, db_session, member_headers, monkeypatch):
+        """Concurrent seed race: IntegrityError is caught, session rolled back, endpoint still returns 200."""
+        from sqlalchemy.exc import IntegrityError
+
+        def fake_seed_raises(db):
+            raise IntegrityError("UNIQUE constraint", {}, Exception("unique violation"))
+
+        monkeypatch.setattr("src.routers.catalog.catalog_service.seed_hellofresh_collections", fake_seed_raises)
+
+        response = client.get(f"/catalog/{HELLOFRESH_SOURCE}/collections", headers=member_headers)
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)
+
 
 # ---------------------------------------------------------------------------
 # Detail — fetch on demand

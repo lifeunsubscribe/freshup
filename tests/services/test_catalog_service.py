@@ -300,6 +300,47 @@ class TestUpsertCollectionPage:
         assert collection.name == "Vegetarian Recipes"
         assert collection.last_fetched_at is not None
 
+    def test_duplicate_card_in_page_creates_one_row(self, db_session):
+        """A page listing the same recipe_url twice inserts one SourceRecipeCard, not two."""
+        _seed_collection(db_session)
+        dup_url = "https://www.hellofresh.com/recipes/dup-recipe-5a1b2c3d4e5f6a7b8c9d0e1f"
+        dup_card = CollectionCard(
+            external_id="5a1b2c3d4e5f6a7b8c9d0e1f",
+            name="Duplicate Recipe",
+            image_url="https://img.hellofresh.com/image/dup.jpg",
+            recipe_url=dup_url,
+        )
+        page = CollectionPage(
+            name="Vegetarian Recipes",
+            slug="vegetarian-recipes",
+            url="https://www.hellofresh.com/recipes/vegetarian-recipes",
+            cards=[dup_card, dup_card],
+            children=[],
+        )
+        catalog_service.upsert_collection_page(db_session, page)
+
+        total_cards = db_session.query(SourceRecipeCard).filter_by(
+            source_type=HELLOFRESH_SOURCE, recipe_url=dup_url
+        ).count()
+        assert total_cards == 1
+
+    def test_upsert_does_not_reparent_top_level_collection(self, db_session):
+        """A top-level child slug (parent_slug=None) keeps parent_slug=None after upsert."""
+        _seed_collection(db_session, "vegetarian-recipes")
+        _seed_collection(db_session, "quick-meals")  # top-level, parent_slug=None
+
+        page = CollectionPage(
+            name="Vegetarian Recipes",
+            slug="vegetarian-recipes",
+            url="https://www.hellofresh.com/recipes/vegetarian-recipes",
+            cards=[],
+            children=[CollectionChild(name="Quick Meals", slug="quick-meals")],
+        )
+        catalog_service.upsert_collection_page(db_session, page)
+
+        quick_meals = db_session.query(SourceCollection).filter_by(slug="quick-meals").first()
+        assert quick_meals.parent_slug is None
+
 
 # ---------------------------------------------------------------------------
 # get_collection
