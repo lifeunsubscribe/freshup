@@ -8,9 +8,13 @@
 #
 # Worktrees have no .venv and no frontend/node_modules of their own; both are
 # borrowed from the main checkout, found through `git worktree list`.
+#
+# The checkout under test is the one we are run from (the gate cd's into the
+# worktree), not the one this file lives in, so .rite/config may reference
+# this script by absolute path and older worktrees still get tested.
 set -u
 
-root=$(cd "$(dirname "$0")/.." && pwd)
+root=$(git rev-parse --show-toplevel 2>/dev/null || { cd "$(dirname "$0")/.." && pwd; })
 main=$(git -C "$root" worktree list --porcelain | sed -n 's/^worktree //p' | head -1)
 main=${main:-$root}
 
