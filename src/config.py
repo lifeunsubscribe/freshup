@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     # Canary URL used to verify the HelloFresh web scraper is still working
     source_health_canary_hellofresh: str = "https://www.hellofresh.com/recipes/peruvian-style-lomo-saltado-67fccc45e22258bf0284050d"
 
+    # Catalog Configuration
+    # How long before a fetched collection is considered stale and re-fetched on next request
+    catalog_refresh_hours: int = Field(default=24, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -148,8 +148,10 @@ freshup/
     ├── db/
     │   ├── database.py   # SQLAlchemy engine & session
     │   └── models/       # Entity models (Phase 1B)
-    ├── routers/          # API route handlers (Phase 1C-1G, 2.5C-E)
+    ├── routers/          # API route handlers (Phase 1C-1G, 2.5B, 2.5C-E)
+    │   └── catalog.py    # Collection browse endpoints (/catalog)
     └── services/         # Business logic layer
+        ├── catalog_service.py  # Collection seed, fetch, upsert
         └── storage_service.py  # MinIO/S3 abstraction
 ```
 
