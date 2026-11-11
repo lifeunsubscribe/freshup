@@ -1,5 +1,5 @@
 """
-Tests for catalog_service: seed, upsert_collection_page, and get_collection.
+Tests for catalog_service: seed, upsert_collection_page, get_collection, open_card.
 """
 
 import pytest
@@ -13,8 +13,10 @@ from sqlalchemy.pool import StaticPool
 
 from src.db.database import Base
 from src.db import models
+from src.db.models.recipe import Recipe
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard, SourceRecipeCard
 from src.schemas.catalog import CollectionCard, CollectionChild, CollectionPage
+from src.schemas.import_service import ImportResult, ImportStatus
 from src.services import catalog_service
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
 
@@ -454,3 +456,174 @@ class TestGetCollection:
         with patch("src.services.catalog_service._make_crawler", return_value=mock_crawler):
             with pytest.raises(CrawlerNetworkError):
                 catalog_service.get_collection(db_session, HELLOFRESH_SOURCE, "vegetarian-recipes")
+
+
+# ---------------------------------------------------------------------------
+# open_card
+# ---------------------------------------------------------------------------
+
+
+def _make_card(db, recipe_id=None) -> SourceRecipeCard:
+    """Insert a bare SourceRecipeCard and return it."""
+    card = SourceRecipeCard(
+        source_type=HELLOFRESH_SOURCE,
+        external_id="ext001",
+        name="Test Recipe",
+        recipe_url="https://www.hellofresh.com/recipes/test-recipe-aabbccdd1122334455667788",
+        recipe_id=recipe_id,
+    )
+    db.add(card)
+    db.commit()
+    db.refresh(card)
+    return card
+
+
+def _make_recipe(db, is_persisted=False) -> Recipe:
+    """Insert a minimal Recipe row and return it."""
+    recipe = Recipe(
+        name="Veggie Pasta",
+        source_type="hellofresh_web",
+        source_url="https://www.hellofresh.com/recipes/test-recipe-aabbccdd1122334455667788",
+        is_persisted=is_persisted,
+    )
+    db.add(recipe)
+    db.commit()
+    db.refresh(recipe)
+    return recipe
+
+
+def _import_success(recipe_id):
+    return ImportResult(
+        status=ImportStatus.success,
+        recipe_id=recipe_id,
+        warnings=[],
+        error_message=None,
+        source_url="https://www.hellofresh.com/recipes/test-recipe-aabbccdd1122334455667788",
+    )
+
+
+def _import_duplicate(recipe_id):
+    return ImportResult(
+        status=ImportStatus.duplicate,
+        recipe_id=recipe_id,
+        warnings=[],
+        error_message=None,
+        source_url="https://www.hellofresh.com/recipes/test-recipe-aabbccdd1122334455667788",
+    )
+
+
+def _import_error():
+    return ImportResult(
+        status=ImportStatus.error,
+        recipe_id=None,
+        warnings=[],
+        error_message="Scraping failed: connection refused",
+        source_url="https://www.hellofresh.com/recipes/test-recipe-aabbccdd1122334455667788",
+    )
+
+
+class TestOpenCard:
+    def test_unlinked_card_calls_import_links_and_returns_recipe(self, db_session):
+        """Opening an unlinked card imports the URL, links the card, and returns the recipe."""
+        recipe = _make_recipe(db_session)
+        card = _make_card(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_import_success(recipe.id),
+        ) as mock_import:
+            result = catalog_service.open_card(db_session, card.id)
+
+        mock_import.assert_called_once_with(card.recipe_url, db_session)
+        assert result is not None
+        assert result.imported is True
+        assert result.recipe.id == recipe.id
+
+        db_session.refresh(card)
+        assert card.recipe_id == recipe.id
+
+    def test_already_linked_card_skips_import(self, db_session):
+        """Opening a card whose recipe_id is already set does not call import."""
+        recipe = _make_recipe(db_session)
+        card = _make_card(db_session, recipe_id=recipe.id)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+        ) as mock_import:
+            result = catalog_service.open_card(db_session, card.id)
+
+        mock_import.assert_not_called()
+        assert result is not None
+        assert result.imported is False
+        assert result.recipe.id == recipe.id
+
+    def test_duplicate_import_links_card_to_existing_recipe(self, db_session):
+        """Duplicate import result links the card to the already-existing recipe."""
+        existing_recipe = _make_recipe(db_session)
+        card = _make_card(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_import_duplicate(existing_recipe.id),
+        ):
+            result = catalog_service.open_card(db_session, card.id)
+
+        assert result is not None
+        assert result.imported is True
+        assert result.recipe.id == existing_recipe.id
+
+        db_session.refresh(card)
+        assert card.recipe_id == existing_recipe.id
+
+    def test_pruned_recipe_triggers_reimport(self, db_session):
+        """Card linked to a deleted recipe (stale recipe_id) falls through to re-import."""
+        stale_recipe_id = uuid4()
+        card = _make_card(db_session, recipe_id=stale_recipe_id)
+        new_recipe = _make_recipe(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_import_success(new_recipe.id),
+        ) as mock_import:
+            result = catalog_service.open_card(db_session, card.id)
+
+        mock_import.assert_called_once_with(card.recipe_url, db_session)
+        assert result is not None
+        assert result.imported is True
+        assert result.recipe.id == new_recipe.id
+
+        db_session.refresh(card)
+        assert card.recipe_id == new_recipe.id
+
+    def test_import_error_raises_value_error_and_card_stays_unlinked(self, db_session):
+        """Import error raises ValueError; card.recipe_id remains None."""
+        card = _make_card(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_import_error(),
+        ):
+            with pytest.raises(ValueError):
+                catalog_service.open_card(db_session, card.id)
+
+        db_session.refresh(card)
+        assert card.recipe_id is None
+
+    def test_unknown_card_returns_none(self, db_session):
+        """Non-existent card_id returns None."""
+        result = catalog_service.open_card(db_session, uuid4())
+        assert result is None
+
+    def test_returned_recipe_is_not_persisted(self, db_session):
+        """The recipe returned by open_card has is_persisted=False (browse cache)."""
+        recipe = _make_recipe(db_session, is_persisted=False)
+        card = _make_card(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_import_success(recipe.id),
+        ):
+            result = catalog_service.open_card(db_session, card.id)
+
+        assert result is not None
+        assert result.recipe.is_persisted is False

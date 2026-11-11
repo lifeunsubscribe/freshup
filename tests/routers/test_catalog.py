@@ -22,10 +22,12 @@ from sqlalchemy.pool import StaticPool
 
 from src.db.database import Base, get_db
 from src.db import models
+from src.db.models.recipe import Recipe
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard, SourceRecipeCard
 from src.db.models.user import User, UserRole
 from src.services.auth_service import hash_password, create_access_token
 from src.schemas.catalog import CollectionCard, CollectionChild, CollectionPage
+from src.schemas.import_service import ImportResult, ImportStatus
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
 from src.routers import catalog as catalog_router_module
 
@@ -511,3 +513,144 @@ class TestCollectionDetail:
         assert len(children) == 2
         slugs = {c["slug"] for c in children}
         assert slugs == {"child-0", "child-1"}
+
+
+# ---------------------------------------------------------------------------
+# Open card
+# ---------------------------------------------------------------------------
+
+
+def _make_db_recipe(db, is_persisted=False) -> Recipe:
+    recipe = Recipe(
+        name="Veggie Pasta",
+        source_type="hellofresh_web",
+        source_url="https://www.hellofresh.com/recipes/test-recipe-aabbccdd1122334455667788",
+        is_persisted=is_persisted,
+    )
+    db.add(recipe)
+    db.commit()
+    db.refresh(recipe)
+    return recipe
+
+
+def _make_db_card(db, recipe_id=None) -> SourceRecipeCard:
+    card = SourceRecipeCard(
+        source_type=HELLOFRESH_SOURCE,
+        external_id="ext001",
+        name="Test Recipe",
+        recipe_url="https://www.hellofresh.com/recipes/test-recipe-aabbccdd1122334455667788",
+        recipe_id=recipe_id,
+    )
+    db.add(card)
+    db.commit()
+    db.refresh(card)
+    return card
+
+
+def _success_result(recipe_id):
+    return ImportResult(
+        status=ImportStatus.success,
+        recipe_id=recipe_id,
+        warnings=[],
+        error_message=None,
+        source_url="https://www.hellofresh.com/recipes/test-recipe-aabbccdd1122334455667788",
+    )
+
+
+def _error_result():
+    return ImportResult(
+        status=ImportStatus.error,
+        recipe_id=None,
+        warnings=[],
+        error_message="Scraping failed: connection refused",
+        source_url="https://www.hellofresh.com/recipes/test-recipe-aabbccdd1122334455667788",
+    )
+
+
+class TestOpenCard:
+    def test_unlinked_card_imports_and_returns_recipe_with_ingredients(
+        self, client, db_session, member_headers
+    ):
+        """Opening an unlinked card calls import, links it, and returns a recipe with ingredients key."""
+        recipe = _make_db_recipe(db_session)
+        card = _make_db_card(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_success_result(recipe.id),
+        ):
+            response = client.post(f"/catalog/cards/{card.id}/open", headers=member_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(recipe.id)
+        assert "ingredients" in data
+        assert response.headers.get("x-freshup-imported") == "true"
+
+    def test_opening_again_skips_import_and_returns_same_recipe_id(
+        self, client, db_session, member_headers
+    ):
+        """Second open returns the already-linked recipe without calling import."""
+        recipe = _make_db_recipe(db_session)
+        card = _make_db_card(db_session, recipe_id=recipe.id)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+        ) as mock_import:
+            response = client.post(f"/catalog/cards/{card.id}/open", headers=member_headers)
+
+        mock_import.assert_not_called()
+        assert response.status_code == 200
+        assert response.json()["id"] == str(recipe.id)
+        assert response.headers.get("x-freshup-imported") == "false"
+
+    def test_import_error_returns_502_and_card_stays_unlinked(
+        self, client, db_session, member_headers
+    ):
+        """Import error → 502; card.recipe_id remains None."""
+        card = _make_db_card(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_error_result(),
+        ):
+            response = client.post(f"/catalog/cards/{card.id}/open", headers=member_headers)
+
+        assert response.status_code == 502
+        db_session.refresh(card)
+        assert card.recipe_id is None
+
+    def test_returned_recipe_has_is_persisted_false(
+        self, client, db_session, member_headers
+    ):
+        """The opened recipe has is_persisted=False (browse cache semantics)."""
+        recipe = _make_db_recipe(db_session, is_persisted=False)
+        card = _make_db_card(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_success_result(recipe.id),
+        ):
+            response = client.post(f"/catalog/cards/{card.id}/open", headers=member_headers)
+
+        assert response.status_code == 200
+        assert response.json()["is_persisted"] is False
+
+    def test_unknown_card_returns_404(self, client, member_headers):
+        """Non-existent card_id → 404."""
+        from uuid import uuid4
+        response = client.post(f"/catalog/cards/{uuid4()}/open", headers=member_headers)
+        assert response.status_code == 404
+
+    def test_member_token_allowed(self, client, db_session, member_headers):
+        """Member (non-coordinator) can open a card."""
+        recipe = _make_db_recipe(db_session)
+        card = _make_db_card(db_session, recipe_id=recipe.id)
+        response = client.post(f"/catalog/cards/{card.id}/open", headers=member_headers)
+        assert response.status_code == 200
+
+    def test_unauthenticated_returns_401(self, client, db_session):
+        """Missing auth token → 401."""
+        card = _make_db_card(db_session)
+        response = client.post(f"/catalog/cards/{card.id}/open")
+        assert response.status_code == 401

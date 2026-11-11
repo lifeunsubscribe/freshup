@@ -11,16 +11,20 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from urllib.parse import urlparse
+from uuid import UUID
 
 import defusedxml.ElementTree as ET
 import requests.exceptions
 
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from src.config import get_settings
+from src.db.models.recipe import Recipe
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard, SourceRecipeCard
 from src.schemas.catalog import CollectionPage
+from src.schemas.import_service import ImportStatus
 from src.services.crawlers.base_crawler import create_http_session
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
 from src.services.crawlers.hellofresh_crawler import (
@@ -28,6 +32,7 @@ from src.services.crawlers.hellofresh_crawler import (
     HelloFreshCrawler,
     classify_hellofresh_url,
 )
+from src.services.import_service import import_recipe_from_url
 from src.utils.sanitize import sanitize_exception_message
 
 logger = logging.getLogger(__name__)
@@ -334,3 +339,79 @@ def get_collection(
 def _make_crawler() -> HelloFreshCrawler:
     """Return a HelloFreshCrawler; extracted so tests can patch it."""
     return HelloFreshCrawler()
+
+
+# ---------------------------------------------------------------------------
+# Open (import on demand)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class OpenCardResult:
+    """Return type from open_card."""
+
+    recipe: Recipe
+    # True when import_recipe_from_url was called on this request (new import or duplicate link).
+    # False when the card was already linked and the recipe was returned from cache.
+    imported: bool
+
+
+def open_card(db: Session, card_id: UUID) -> Optional[OpenCardResult]:
+    """
+    Return the Recipe for a catalog card, importing it on demand if needed.
+
+    - If the card's recipe_id is already set and the recipe exists, return it
+      without fetching (imported=False).
+    - Otherwise call import_recipe_from_url with the card's URL. On success or
+      duplicate, link the card to the recipe and return it (imported=True).
+    - On import error, raise ValueError with a sanitized message; the card is
+      left unlinked so the next open retries.
+
+    Args:
+        db:      Database session.
+        card_id: Primary key of the SourceRecipeCard to open.
+
+    Returns:
+        OpenCardResult, or None if the card does not exist.
+
+    Raises:
+        ValueError: When import_recipe_from_url returns status=error.
+    """
+    card = db.query(SourceRecipeCard).filter_by(id=card_id).first()
+    if card is None:
+        return None
+
+    # Fast path: card is already linked to a recipe that still exists.
+    if card.recipe_id is not None:
+        recipe = (
+            db.query(Recipe)
+            .options(joinedload(Recipe.ingredients))
+            .filter_by(id=card.recipe_id)
+            .first()
+        )
+        if recipe is not None:
+            return OpenCardResult(recipe=recipe, imported=False)
+        # Recipe was pruned (ON DELETE SET NULL fired); fall through to re-import.
+
+    result = import_recipe_from_url(card.recipe_url, db)
+
+    if result.status in (ImportStatus.success, ImportStatus.duplicate):
+        recipe = (
+            db.query(Recipe)
+            .options(joinedload(Recipe.ingredients))
+            .filter_by(id=result.recipe_id)
+            .first()
+        )
+        if recipe is not None:
+            card.recipe_id = recipe.id
+            try:
+                db.commit()
+            except SQLAlchemyError:
+                db.rollback()
+                card.recipe_id = None
+                raise ValueError("Failed to link card to recipe; please retry")
+            return OpenCardResult(recipe=recipe, imported=True)
+
+    # Import failed or recipe lookup returned None after a successful import (unexpected).
+    raw_msg = result.error_message or "Import failed"
+    raise ValueError(sanitize_exception_message(raw_msg, max_length=250))

@@ -1,21 +1,22 @@
 """
 Catalog endpoints for browsing HelloFresh collections.
 
-Provides member-accessible endpoints that list top-level collections and
-return one collection's cards, fetching the collection page on demand when
-it has never been read or is older than CATALOG_REFRESH_HOURS.
+Provides member-accessible endpoints that list top-level collections,
+return one collection's cards, and import a card as a full recipe on open.
 
 Authorization:
-- Both endpoints: Any authenticated user (member or coordinator)
+- All endpoints: Any authenticated user (member or coordinator)
 
 Rate Limiting:
 - GET /catalog/{source}/collections: 5 requests/minute per IP
 - GET /catalog/{source}/collections/{slug}: 10 requests/minute per IP
+- POST /catalog/cards/{card_id}/open: 20 requests/minute per IP
 """
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -26,8 +27,10 @@ from src.db.models.user import User
 from src.middleware.auth import get_current_user
 from src.middleware.rate_limit import limiter
 from src.schemas.catalog import CardResponse, CollectionDetail, CollectionSummary
+from src.schemas.recipe import RecipeResponse
 from src.services import catalog_service
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
+from src.utils.sanitize import sanitize_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -251,3 +254,61 @@ def get_collection(
         cards=cards,
         fetch_error=result.fetch_error,
     )
+
+
+@router.post(
+    "/cards/{card_id}/open",
+    response_model=RecipeResponse,
+    status_code=status.HTTP_200_OK,
+)
+@limiter.limit("20/minute")
+def open_card(
+    card_id: UUID,
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> RecipeResponse:
+    """
+    Import a catalog card as a full Recipe, or return the recipe it already produced.
+
+    On first open, fetches the card's URL through the import pipeline and links the
+    card to the resulting Recipe.  Subsequent opens return the linked recipe immediately
+    without any network activity.
+
+    Args:
+        card_id:      UUID of the SourceRecipeCard to open.
+        request:      FastAPI request (required by rate limiter).
+        response:     FastAPI response (used to set X-Freshup-Imported header).
+        current_user: Authenticated user.
+        db:           Database session.
+
+    Returns:
+        RecipeResponse with ingredients.  Header ``X-Freshup-Imported`` is ``true``
+        when the import pipeline ran on this request, ``false`` when the recipe was
+        already cached.
+
+    Raises:
+        HTTPException(404): When the card_id does not exist.
+        HTTPException(502): When the import pipeline returns an error.
+        HTTPException(429): When the rate limit is exceeded.
+    """
+    logger.debug("User %s opening catalog card %s", current_user.id, card_id)
+
+    try:
+        open_result = catalog_service.open_card(db, card_id)
+    except ValueError as exc:
+        logger.warning("Import error for card %s: %s", card_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=sanitize_exception_message(str(exc), max_length=250),
+        )
+
+    if open_result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Card not found",
+        )
+
+    response.headers["X-Freshup-Imported"] = "true" if open_result.imported else "false"
+    return open_result.recipe
