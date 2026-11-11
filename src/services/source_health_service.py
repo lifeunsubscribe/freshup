@@ -14,6 +14,7 @@ from typing import Optional
 import requests
 
 from sqlalchemy import select
+from src.utils.sanitize import sanitize_exception_message
 from sqlalchemy.orm import Session
 
 from src.config import get_settings
@@ -41,7 +42,7 @@ def _check_hellofresh(settings) -> tuple[str, Optional[str], str]:
     try:
         data = scrape_recipe(canary_url)
     except ScraperError as e:
-        return "failing", f"Scraper error: {str(e)[:200]}", "link"
+        return "failing", sanitize_exception_message(f"Scraper error: {str(e)}"), "link"
     except Exception as e:
         return "failing", f"Unexpected error during import check: {type(e).__name__}", "link"
 
@@ -229,11 +230,17 @@ def latest_status(db: Session) -> list[SourceStatusResponse]:
             continue
 
         latest = rows[0]
+        checked_at = latest.checked_at
+        if checked_at is not None and checked_at.tzinfo is None:
+            checked_at = checked_at.replace(tzinfo=timezone.utc)
+        failing_since = _failing_since(rows)
+        if failing_since is not None and failing_since.tzinfo is None:
+            failing_since = failing_since.replace(tzinfo=timezone.utc)
         result.append(SourceStatusResponse(
             source_type=source_type,
             status=latest.status,
-            checked_at=latest.checked_at,
-            failing_since=_failing_since(rows),
+            checked_at=checked_at,
+            failing_since=failing_since,
             detail=latest.detail,
             import_mode=latest.import_mode,
         ))

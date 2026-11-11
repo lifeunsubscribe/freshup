@@ -78,6 +78,7 @@ def client(db_session):
 def member_token(db_session):
     user = User(
         id=uuid4(),
+        name="Test Member",
         email="member@example.com",
         hashed_password=hash_password("password"),
         role=UserRole.member.value,

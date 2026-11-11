@@ -83,8 +83,7 @@ class TestCheckSourceHelloFresh:
 
     def test_healthy_on_full_recipe(self):
         scraped = self._make_scraped_data()
-        with patch("src.services.source_health_service._check_hellofresh") as mock_check:
-            mock_check.return_value = ("healthy", None, "link")
+        with patch("src.services.scraper_service.scrape_recipe", return_value=scraped):
             row = check_source("hellofresh_web")
         assert row.status == "healthy"
         assert row.import_mode == "link"
@@ -95,9 +94,9 @@ class TestCheckSourceHelloFresh:
     def test_failing_when_scraper_raises(self):
         from src.services.scraper_service import ScraperError
         with patch(
-            "src.services.source_health_service._check_hellofresh"
-        ) as mock_check:
-            mock_check.return_value = ("failing", "Scraper error: network timeout.", "link")
+            "src.services.scraper_service.scrape_recipe",
+            side_effect=ScraperError("network timeout"),
+        ):
             row = check_source("hellofresh_web")
         assert row.status == "failing"
         assert row.detail is not None

@@ -408,11 +408,15 @@ async def background_task_worker() -> None:
                     exc_info=True
                 )
 
-            # Run source health checks (interval gate is inside the service)
+            # Run source health checks off the event loop to avoid blocking
             try:
-                SessionFactory = get_session_factory()
-                with SessionFactory() as health_session:
-                    run_due_checks(health_session)
+                def _run_health_checks():
+                    SessionFactory = get_session_factory()
+                    with SessionFactory() as health_session:
+                        run_due_checks(health_session)
+
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, _run_health_checks)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
