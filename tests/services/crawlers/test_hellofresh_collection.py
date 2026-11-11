@@ -40,6 +40,17 @@ def _make_crawler_no_robots() -> HelloFreshCrawler:
         return HelloFreshCrawler()
 
 
+def _make_collection_html(collection_dict: dict) -> str:
+    """Build minimal __NEXT_DATA__ HTML wrapping the given collection dict."""
+    import json as _json
+    data = {"props": {"pageProps": {"ssrPayload": {"collection": collection_dict}}}}
+    return (
+        '<html><body><script id="__NEXT_DATA__" type="application/json">'
+        + _json.dumps(data)
+        + '</script></body></html>'
+    )
+
+
 # ---------------------------------------------------------------------------
 # Private-helper unit tests
 # ---------------------------------------------------------------------------
@@ -74,6 +85,9 @@ class TestParsePrepTime:
 
     def test_unparseable(self):
         assert _parse_prep_time("30 minutes") is None
+
+    def test_pt_bare_returns_none(self):
+        assert _parse_prep_time("PT") is None
 
 
 # ---------------------------------------------------------------------------
@@ -302,3 +316,157 @@ class TestFetchCollection:
 
         called_url = mock_get.call_args[0][0]
         assert called_url == "https://www.hellofresh.com/recipes/vegetarian-recipes"
+
+
+# ---------------------------------------------------------------------------
+# fetch_collection — slug validation
+# ---------------------------------------------------------------------------
+
+
+class TestFetchCollectionSlugValidation:
+    def test_path_traversal_slug_raises_value_error(self):
+        crawler = _make_crawler_no_robots()
+        with pytest.raises(ValueError, match="Invalid collection slug"):
+            crawler.fetch_collection("../evil-path")
+
+    def test_leading_dash_slug_raises_value_error(self):
+        crawler = _make_crawler_no_robots()
+        with pytest.raises(ValueError, match="Invalid collection slug"):
+            crawler.fetch_collection("-invalid")
+
+    def test_empty_slug_raises_value_error(self):
+        crawler = _make_crawler_no_robots()
+        with pytest.raises(ValueError, match="Invalid collection slug"):
+            crawler.fetch_collection("")
+
+
+# ---------------------------------------------------------------------------
+# parse_collection_page — null-shape tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseCollectionPageNullShapes:
+    """Explicit JSON null on collection-level and child-level fields must not crash."""
+
+    def test_null_recipes_returns_empty_cards(self):
+        html = _make_collection_html({
+            "name": "Test", "slug": "test",
+            "recipes": None,
+            "children": {"docs": []},
+        })
+        page = parse_collection_page(html, "https://www.hellofresh.com/recipes/test")
+        assert page.cards == []
+
+    def test_null_children_returns_empty_children(self):
+        html = _make_collection_html({
+            "name": "Test", "slug": "test",
+            "recipes": [],
+            "children": None,
+        })
+        page = parse_collection_page(html, "https://www.hellofresh.com/recipes/test")
+        assert page.children == []
+
+    def test_null_website_url_skips_card(self):
+        html = _make_collection_html({
+            "name": "Test", "slug": "test",
+            "recipes": [{
+                "id": "aabbccddeeff001122334455",
+                "name": "X", "headline": None, "imagePath": "/image/x.jpg",
+                "prepTime": "PT10M", "aggregateRating": None,
+                "aggregateRatingsCount": None, "websiteUrl": None,
+            }],
+            "children": {"docs": []},
+        })
+        page = parse_collection_page(html, "https://www.hellofresh.com/recipes/test")
+        assert page.cards == []
+
+    def test_null_child_name_does_not_crash(self):
+        html = _make_collection_html({
+            "name": "Test", "slug": "test",
+            "recipes": [],
+            "children": {"docs": [{"name": None, "slug": "sub-slug"}]},
+        })
+        page = parse_collection_page(html, "https://www.hellofresh.com/recipes/test")
+        assert len(page.children) == 1
+        assert page.children[0].name == ""
+
+    def test_null_child_slug_does_not_crash(self):
+        html = _make_collection_html({
+            "name": "Test", "slug": "test",
+            "recipes": [],
+            "children": {"docs": [{"name": "Sub", "slug": None}]},
+        })
+        page = parse_collection_page(html, "https://www.hellofresh.com/recipes/test")
+        assert len(page.children) == 1
+        assert page.children[0].slug == ""
+
+
+# ---------------------------------------------------------------------------
+# parse_collection_page — card-skip guards
+# ---------------------------------------------------------------------------
+
+
+class TestParseCollectionPageSkipGuards:
+    """Guard branches introduced in fix commits: empty id, missing imagePath, type-invalid fields."""
+
+    def test_empty_id_skips_card(self):
+        html = _make_collection_html({
+            "name": "Test", "slug": "test",
+            "recipes": [{
+                "id": "",
+                "name": "No ID Recipe", "headline": None,
+                "imagePath": "/image/noid.jpg", "prepTime": "PT10M",
+                "aggregateRating": None, "aggregateRatingsCount": None,
+                "websiteUrl": "https://www.hellofresh.com/recipes/no-id-aabbccddeeff001122334455",
+            }],
+            "children": {"docs": []},
+        })
+        page = parse_collection_page(html, "https://www.hellofresh.com/recipes/test")
+        assert page.cards == []
+
+    def test_null_id_skips_card(self):
+        html = _make_collection_html({
+            "name": "Test", "slug": "test",
+            "recipes": [{
+                "id": None,
+                "name": "Null ID Recipe", "headline": None,
+                "imagePath": "/image/nullid.jpg", "prepTime": "PT10M",
+                "aggregateRating": None, "aggregateRatingsCount": None,
+                "websiteUrl": "https://www.hellofresh.com/recipes/null-id-aabbccddeeff001122334455",
+            }],
+            "children": {"docs": []},
+        })
+        page = parse_collection_page(html, "https://www.hellofresh.com/recipes/test")
+        assert page.cards == []
+
+    def test_null_image_path_skips_card(self):
+        html = _make_collection_html({
+            "name": "Test", "slug": "test",
+            "recipes": [{
+                "id": "aabbccddeeff001122334455",
+                "name": "No Image Recipe", "headline": None,
+                "imagePath": None, "prepTime": "PT10M",
+                "aggregateRating": None, "aggregateRatingsCount": None,
+                "websiteUrl": "https://www.hellofresh.com/recipes/no-image-aabbccddeeff001122334455",
+            }],
+            "children": {"docs": []},
+        })
+        page = parse_collection_page(html, "https://www.hellofresh.com/recipes/test")
+        assert page.cards == []
+
+    def test_type_invalid_card_field_raises_parse_error(self):
+        """A card with a type-invalid required field (null name) raises CrawlerParseError."""
+        html = _make_collection_html({
+            "name": "Test", "slug": "test",
+            "recipes": [{
+                "id": "aabbccddeeff001122334455",
+                "name": None,
+                "headline": None,
+                "imagePath": "/image/x.jpg", "prepTime": "PT10M",
+                "aggregateRating": None, "aggregateRatingsCount": None,
+                "websiteUrl": "https://www.hellofresh.com/recipes/x-aabbccddeeff001122334455",
+            }],
+            "children": {"docs": []},
+        })
+        with pytest.raises(CrawlerParseError, match="Invalid card data"):
+            parse_collection_page(html, "https://www.hellofresh.com/recipes/test")

@@ -161,13 +161,13 @@ def parse_collection_page(html: str, url: str) -> CollectionPage:
 
     children_docs = (collection.get("children") or {}).get("docs") or []
     children = [
-        CollectionChild(name=c.get("name", ""), slug=c.get("slug", ""))
+        CollectionChild(name=c.get("name") or "", slug=c.get("slug") or "")
         for c in children_docs
     ]
 
     return CollectionPage(
-        name=collection.get("name", ""),
-        slug=collection.get("slug", ""),
+        name=collection.get("name") or "",
+        slug=collection.get("slug") or "",
         url=url,
         cards=cards,
         children=children,
