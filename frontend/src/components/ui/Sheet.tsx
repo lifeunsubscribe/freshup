@@ -23,6 +23,7 @@ interface SheetProps {
 export default function Sheet({ open, onClose, title, children, footer, ariaLabel }: SheetProps) {
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const prevFocusRef = useRef<HTMLElement | null>(null)
   const scrimPointerDownRef = useRef(false)
 
@@ -30,7 +31,10 @@ export default function Sheet({ open, onClose, title, children, footer, ariaLabe
   useEffect(() => {
     if (open) {
       prevFocusRef.current = document.activeElement as HTMLElement
-      const firstFocusable = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTORS)
+      // Land on the first control in the content or footer. The header's Close
+      // button is deliberately skipped: when the sheet has no control of its
+      // own, focusing the panel announces the title instead of "Close".
+      const firstFocusable = bodyRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTORS)
       ;(firstFocusable ?? panelRef.current)?.focus()
       return () => {
         if (prevFocusRef.current) {
@@ -138,17 +142,19 @@ export default function Sheet({ open, onClose, title, children, footer, ariaLabe
           </button>
         </div>
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto">
-          {children}
-        </div>
-
-        {/* Sticky footer — stays visible while content scrolls */}
-        {footer && (
-          <div className="shrink-0 border-t border-warm-border">
-            {footer}
+        <div ref={bodyRef} className="flex-1 min-h-0 flex flex-col">
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto">
+            {children}
           </div>
-        )}
+
+          {/* Sticky footer — stays visible while content scrolls */}
+          {footer && (
+            <div className="shrink-0 border-t border-warm-border">
+              {footer}
+            </div>
+          )}
+        </div>
       </div>
     </div>,
     document.body
