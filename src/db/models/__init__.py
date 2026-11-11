@@ -31,6 +31,7 @@ from src.db.models.processing_task import ProcessingTask, TaskType, TaskStatus
 from src.db.models.user_cook_event import UserCookEvent
 from src.db.models.user_recipe_view import UserRecipeView
 from src.db.models.source_catalog import SourceCollection, SourceRecipeCard, SourceCollectionCard
+from src.db.models.source_health import SourceHealthCheck
 
 __all__ = [
     "User",
@@ -72,4 +73,5 @@ __all__ = [
     "SourceCollection",
     "SourceRecipeCard",
     "SourceCollectionCard",
+    "SourceHealthCheck",
 ]
