@@ -5,20 +5,27 @@ import { createElement } from 'react'
 import type { ReactNode } from 'react'
 
 // Mock apiClient and related helpers before importing the hooks.
-const mockApiClient = vi.fn()
-const mockGetAuthToken = vi.fn(() => 'test-token')
-const mockGetApiBaseUrl = vi.fn(() => 'http://localhost:8000')
-
-class MockApiException extends Error {
-  status: number
-  detail?: string
-  constructor(message: string, status: number, detail?: string) {
-    super(message)
-    this.name = 'ApiException'
-    this.status = status
-    this.detail = detail
+// vi.mock is hoisted above every import, and the hooks import runs the
+// factory, so anything the factory references must be hoisted with it or
+// it is read before initialisation and the whole suite fails to load.
+const { mockApiClient, mockGetAuthToken, mockGetApiBaseUrl, MockApiException } = vi.hoisted(() => {
+  class MockApiException extends Error {
+    status: number
+    detail?: string
+    constructor(message: string, status: number, detail?: string) {
+      super(message)
+      this.name = 'ApiException'
+      this.status = status
+      this.detail = detail
+    }
   }
-}
+  return {
+    mockApiClient: vi.fn(),
+    mockGetAuthToken: vi.fn(() => 'test-token'),
+    mockGetApiBaseUrl: vi.fn(() => 'http://localhost:8000'),
+    MockApiException,
+  }
+})
 
 vi.mock('../client', () => ({
   apiClient: mockApiClient,
@@ -165,6 +172,8 @@ describe('useImportHtml – file upload path', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
+    // Earlier blocks call apiClient; the "not called" assertion below needs a clean slate.
+    mockApiClient.mockReset()
     // For the file path the hook bypasses apiClient and uses fetch directly.
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
