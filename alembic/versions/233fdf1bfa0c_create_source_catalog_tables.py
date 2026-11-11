@@ -65,9 +65,13 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['collection_id'], ['source_collections.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('collection_id', 'card_id')
     )
+    with op.batch_alter_table('source_collection_cards', schema=None) as batch_op:
+        batch_op.create_index('ix_source_collection_cards_card_id', ['card_id'], unique=False)
 
 
 def downgrade() -> None:
+    with op.batch_alter_table('source_collection_cards', schema=None) as batch_op:
+        batch_op.drop_index('ix_source_collection_cards_card_id')
     op.drop_table('source_collection_cards')
     with op.batch_alter_table('source_recipe_cards', schema=None) as batch_op:
         batch_op.drop_index('ix_source_recipe_cards_recipe_id')

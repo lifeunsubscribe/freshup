@@ -121,7 +121,6 @@ def test_card(db_session):
         external_id="abc123def456abc123def456",
         name="Lemon Herb Chicken",
         recipe_url="https://www.hellofresh.com/recipes/lemon-herb-chicken-abc123",
-        fetched_at=__import__("datetime").datetime.utcnow(),
     )
     db_session.add(card)
     db_session.commit()
@@ -204,7 +203,6 @@ class TestSourceRecipeCardModel:
             external_id="differentid000000000000",
             name="Different Name Same URL",
             recipe_url=test_card.recipe_url,
-            fetched_at=__import__("datetime").datetime.utcnow(),
         )
         db_session.add(duplicate)
         with pytest.raises(IntegrityError):
@@ -218,7 +216,6 @@ class TestSourceRecipeCardModel:
             external_id="ks000001",
             name="Some Recipe",
             recipe_url=test_card.recipe_url,
-            fetched_at=__import__("datetime").datetime.utcnow(),
         )
         db_session.add(other)
         db_session.commit()

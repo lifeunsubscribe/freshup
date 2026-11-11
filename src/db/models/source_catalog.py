@@ -32,7 +32,7 @@ class SourceCollection(Base):
     )
 
     collection_cards: Mapped[list["SourceCollectionCard"]] = relationship(
-        back_populates="collection_rel", cascade="all, delete-orphan"
+        back_populates="collection_rel", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
@@ -72,13 +72,16 @@ class SourceRecipeCard(Base):
         "Recipe", foreign_keys=[recipe_id], passive_deletes=True
     )
     collection_cards: Mapped[list["SourceCollectionCard"]] = relationship(
-        back_populates="card_rel", cascade="all, delete-orphan"
+        back_populates="card_rel", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
 class SourceCollectionCard(Base):
     """Join table linking a SourceCollection to the SourceRecipeCards it lists."""
     __tablename__ = "source_collection_cards"
+    __table_args__ = (
+        Index("ix_source_collection_cards_card_id", "card_id"),
+    )
 
     collection_id: Mapped[UUID] = mapped_column(
         ForeignKey("source_collections.id", ondelete="CASCADE"), primary_key=True
