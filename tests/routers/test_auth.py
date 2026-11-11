@@ -1558,8 +1558,10 @@ class TestAccountLockout:
 
         # Verify lockout duration is approximately 15 minutes
         lockout_duration = test_user.lockout_until - datetime.utcnow()
-        # Allow 1-second tolerance for test execution time
-        assert timedelta(minutes=14, seconds=59) <= lockout_duration <= timedelta(minutes=15, seconds=1)
+        # 30-second tolerance: the lockout is stamped inside the login handler and
+        # measured here after five bcrypt-hashing requests; under a loaded full-suite
+        # run that gap exceeded 1 s and flaked (rite gate, 2026-11-11).
+        assert timedelta(minutes=15, seconds=-30) <= lockout_duration <= timedelta(minutes=15, seconds=30)
 
     def test_progressive_lockout_second_lockout_30_minutes(self, client, test_user, db_session):
         """Second lockout uses 30-minute duration (exponential backoff)."""
@@ -1582,7 +1584,7 @@ class TestAccountLockout:
 
         # Verify lockout duration is approximately 30 minutes
         lockout_duration = test_user.lockout_until - datetime.utcnow()
-        assert timedelta(minutes=29, seconds=59) <= lockout_duration <= timedelta(minutes=30, seconds=1)
+        assert timedelta(minutes=30, seconds=-30) <= lockout_duration <= timedelta(minutes=30, seconds=30)
 
     def test_progressive_lockout_caps_at_240_minutes(self, client, test_user, db_session):
         """Lockout duration caps at 240 minutes (4 hours) after 5th lockout."""
@@ -1601,7 +1603,7 @@ class TestAccountLockout:
         db_session.refresh(test_user)
         assert test_user.lockout_count == 5
         lockout_duration = test_user.lockout_until - datetime.utcnow()
-        assert timedelta(minutes=239, seconds=59) <= lockout_duration <= timedelta(minutes=240, seconds=1)
+        assert timedelta(minutes=240, seconds=-30) <= lockout_duration <= timedelta(minutes=240, seconds=30)
 
         # Trigger another lockout - should still use cap
         test_user.lockout_until = None  # Reset for next test
@@ -1617,7 +1619,7 @@ class TestAccountLockout:
         db_session.refresh(test_user)
         assert test_user.lockout_count == 6  # Still incrementing
         lockout_duration = test_user.lockout_until - datetime.utcnow()
-        assert timedelta(minutes=239, seconds=59) <= lockout_duration <= timedelta(minutes=240, seconds=1)
+        assert timedelta(minutes=240, seconds=-30) <= lockout_duration <= timedelta(minutes=240, seconds=30)
 
     def test_progressive_lockout_schedule_follows_exponential_pattern(self, client, db_session):
         """Verify all lockout durations follow the exponential backoff schedule."""
@@ -1649,9 +1651,9 @@ class TestAccountLockout:
             assert user.lockout_count == lockout_num + 1
             lockout_duration = user.lockout_until - datetime.utcnow()
 
-            # Allow 1-second tolerance
-            min_duration = timedelta(minutes=expected_minutes, seconds=-1)
-            max_duration = timedelta(minutes=expected_minutes, seconds=1)
+            # 30-second tolerance, see test_first_lockout_is_15_minutes for why
+            min_duration = timedelta(minutes=expected_minutes, seconds=-30)
+            max_duration = timedelta(minutes=expected_minutes, seconds=30)
             assert min_duration <= lockout_duration <= max_duration, \
                 f"Lockout {lockout_num + 1} expected {expected_minutes}min, got {lockout_duration.total_seconds() / 60:.2f}min"
 
