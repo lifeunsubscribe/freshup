@@ -132,3 +132,20 @@ export {
   useImportUrl,
   useImportHtml,
 } from './hooks/useScraper';
+
+// Catalog hooks
+export {
+  useCollections,
+  useCollection,
+  useOpenCard,
+  catalogKeys,
+  type UseCollectionOptions,
+  type OpenCardVariables,
+} from './hooks/useCatalog';
+
+// Source health hooks
+export {
+  useSourceHealth,
+  failingSources,
+  sourceHealthKeys,
+} from './hooks/useSourceHealth';

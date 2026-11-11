@@ -520,6 +520,55 @@ export interface TransferRequest {
 }
 
 // ============================================================================
+// Catalog Types
+// ============================================================================
+
+export interface CollectionSummary {
+  slug: string;
+  name: string;
+  card_count: number;
+  last_fetched_at: string | null;
+}
+
+export interface CardResponse {
+  id: string;
+  name: string;
+  headline: string | null;
+  image_url: string | null;
+  prep_time_minutes: number | null;
+  rating: number | null;
+  rating_count: number | null;
+  recipe_url: string;
+  recipe_id: string | null;
+  is_persisted: boolean;
+}
+
+export interface CollectionDetail {
+  slug: string;
+  name: string;
+  source_type: string;
+  last_fetched_at: string | null;
+  children: CollectionSummary[];
+  cards: CardResponse[];
+  fetch_error: string | null;
+}
+
+// ============================================================================
+// Source Health Types
+// ============================================================================
+
+export type SourceHealthStatus = 'healthy' | 'failing' | 'never_checked';
+
+export interface SourceStatus {
+  source_type: string;
+  status: SourceHealthStatus;
+  checked_at: string | null;
+  failing_since: string | null;
+  detail: string | null;
+  import_mode: string | null;
+}
+
+// ============================================================================
 // Scraper / Import Types
 // ============================================================================
 
