@@ -59,6 +59,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
 
+# The only sites recipes may be imported from, by link or by saved page.
+# Every import endpoint validates against this one list.
+SUPPORTED_IMPORT_DOMAINS = ["hellofresh.com", "kitchensanctuary.com"]
+
 
 def validate_domain(url: str, allowed_domains: list[str]) -> bool:
     """
@@ -151,7 +155,7 @@ def import_single_url(
     logger.info(f"User {current_user.id} importing recipe from URL")
 
     # Validate URL is from a supported domain
-    allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
+    allowed_domains = SUPPORTED_IMPORT_DOMAINS
     if not validate_domain(payload.url, allowed_domains):
         logger.warning(f"User {current_user.id} attempted to import from unsupported domain: {payload.url}")
         raise HTTPException(
@@ -305,7 +309,7 @@ async def import_html(
         )
 
     # Validate URL is from a supported domain (same check as import-url)
-    allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
+    allowed_domains = SUPPORTED_IMPORT_DOMAINS
     if not validate_domain(source_url, allowed_domains):
         logger.warning(f"User {current_user.id} attempted HTML import from unsupported domain: {source_url}")
         raise HTTPException(
@@ -375,7 +379,7 @@ def import_batch_urls(
     logger.info(f"Coordinator {current_user.id} importing batch of {len(payload.urls)} URLs")
 
     # Validate all URLs are from supported domains
-    allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
+    allowed_domains = SUPPORTED_IMPORT_DOMAINS
     invalid_urls = [url for url in payload.urls if not validate_domain(url, allowed_domains)]
     if invalid_urls:
         logger.warning(f"Coordinator {current_user.id} attempted batch import with {len(invalid_urls)} invalid URLs")

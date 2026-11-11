@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     # Source Health Check Configuration
     # How often to re-check each source (hours); 0 means every loop iteration (testing only)
-    source_health_interval_hours: int = Field(default=24, ge=0)
+    source_health_interval_hours: int = Field(default=24, ge=1)  # at most one check per source per hour
     # Canary URL used to verify the HelloFresh web scraper is still working
     source_health_canary_hellofresh: str = "https://www.hellofresh.com/recipes/peruvian-style-lomo-saltado-67fccc45e22258bf0284050d"
 

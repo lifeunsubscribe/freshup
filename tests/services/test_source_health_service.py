@@ -278,7 +278,8 @@ class TestRunDueChecks:
     def test_saves_result_to_db(self, db_session, monkeypatch):
         from src.config import get_settings
         get_settings.cache_clear()
-        monkeypatch.setenv("SOURCE_HEALTH_INTERVAL_HOURS", "0")
+        # No rows exist yet, so the source is due regardless of the interval
+        monkeypatch.setenv("SOURCE_HEALTH_INTERVAL_HOURS", "24")
         get_settings.cache_clear()
 
         healthy_row = SourceHealthCheck(

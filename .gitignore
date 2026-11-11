@@ -41,5 +41,6 @@ node_modules
 backend/node_modules
 .sharkrite-scratchpad.md
 .rite-scratchpad.md
+.rite-todo.md
 .scratchpad.md
 backend/.venv
