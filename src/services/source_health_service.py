@@ -42,7 +42,7 @@ def _check_hellofresh(settings) -> tuple[str, Optional[str], str]:
     try:
         data = scrape_recipe(canary_url)
     except ScraperError as e:
-        return "failing", sanitize_exception_message(f"Scraper error: {str(e)}"), "link"
+        return "failing", sanitize_exception_message(f"Scraper error: {str(e)}", max_length=450), "link"
     except Exception as e:
         return "failing", f"Unexpected error during import check: {type(e).__name__}", "link"
 
