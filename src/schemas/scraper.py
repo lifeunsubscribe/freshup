@@ -79,6 +79,12 @@ class ImportUrlRequest(BaseModel):
     url: str = Field(..., description="Recipe URL to import", min_length=1, max_length=2048)
 
 
+class ImportHtmlRequest(BaseModel):
+    """Request schema for saved-page HTML import (JSON body)."""
+    source_url: str = Field(..., description="Source URL of the saved recipe page", min_length=1, max_length=2048)
+    html: str = Field(..., description="HTML content of the saved recipe page", min_length=1)
+
+
 class ImportBatchRequest(BaseModel):
     """Request schema for batch URL import."""
     urls: list[str] = Field(..., description="List of recipe URLs to import (each URL max 2048 chars)", min_length=1, max_length=100)

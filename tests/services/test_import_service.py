@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from src.services.import_service import (
     import_recipe_from_url,
+    import_recipe_from_html,
     import_batch,
     _normalize_url,
     UNPARSEABLE_QUANTITY_SENTINEL,
@@ -724,6 +725,171 @@ class TestImportBatch:
 
         # Verify no imports were attempted
         mock_import.assert_not_called()
+
+
+class TestImportRecipeFromHtml:
+    """Tests for import_recipe_from_html function."""
+
+    def _mock_scraped_data(self, url="https://www.kitchensanctuary.com/chicken-curry"):
+        return ScrapedRecipeData(
+            source_url=url,
+            source_type="kitchen_sanctuary",
+            title="Chicken Curry",
+            image_url="https://example.com/img.jpg",
+            prep_time_minutes=15,
+            cook_time_minutes=30,
+            total_time_minutes=45,
+            servings=4,
+            ingredients=["500g chicken", "1 can coconut milk"],
+            instructions=["Fry chicken", "Add sauce", "Simmer"],
+            tags=[],
+            nutrients={"calories": "450"},
+        )
+
+    @patch('src.services.import_service.parse_ingredient')
+    @patch('src.services.import_service.parse_recipe_html')
+    def test_successful_import_sets_is_persisted_true(self, mock_parse_html, mock_parse_ingredient):
+        """import_recipe_from_html creates a recipe with is_persisted=True."""
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+
+        mock_parse_html.return_value = self._mock_scraped_data()
+        mock_parse_ingredient.return_value = {
+            'quantity': 1.0, 'unit': 'g', 'ingredient_name': 'chicken',
+            'preparation': '', 'is_optional': False, 'raw_text': '500g chicken',
+        }
+
+        created_recipe = None
+        def capture_add(obj):
+            nonlocal created_recipe
+            if isinstance(obj, Recipe):
+                created_recipe = obj
+                created_recipe.id = uuid4()
+
+        mock_db.add.side_effect = capture_add
+
+        url = "https://www.kitchensanctuary.com/chicken-curry"
+        html = b"<html>chicken curry page</html>"
+        result = import_recipe_from_html(url, html, mock_db)
+
+        assert result.status == ImportStatus.success
+        assert result.error_message is None
+        assert created_recipe is not None
+        assert created_recipe.is_persisted is True
+
+    @patch('src.services.import_service.parse_recipe_html')
+    def test_duplicate_url_returns_duplicate_status(self, mock_parse_html):
+        """import_recipe_from_html returns duplicate status when recipe already exists."""
+        existing_id = uuid4()
+        existing = Mock()
+        existing.id = existing_id
+
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = existing
+
+        url = "https://www.kitchensanctuary.com/chicken-curry"
+        result = import_recipe_from_html(url, b"<html></html>", mock_db)
+
+        assert result.status == ImportStatus.duplicate
+        assert result.recipe_id == existing_id
+        # parse_recipe_html must not be called for a duplicate
+        mock_parse_html.assert_not_called()
+
+    @patch('src.services.import_service.parse_recipe_html')
+    def test_parse_error_returns_error_status(self, mock_parse_html):
+        """import_recipe_from_html returns error status when parse_recipe_html raises."""
+        from src.services.scraper_service import ParseError
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+
+        mock_parse_html.side_effect = ParseError("No recipe schema found in this page")
+
+        result = import_recipe_from_html(
+            "https://www.kitchensanctuary.com/recipe",
+            b"<html>no recipe</html>",
+            mock_db,
+        )
+
+        assert result.status == ImportStatus.error
+        assert result.recipe_id is None
+        assert "No recipe schema found" in result.error_message
+
+    @patch('src.services.import_service.parse_recipe_html')
+    def test_does_not_call_scrape_recipe(self, mock_parse_html):
+        """import_recipe_from_html uses parse_recipe_html, never scrape_recipe."""
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        mock_parse_html.side_effect = ScraperError("Parse failure")
+
+        with patch('src.services.import_service.scrape_recipe') as mock_scrape:
+            import_recipe_from_html(
+                "https://www.kitchensanctuary.com/recipe",
+                b"<html></html>",
+                mock_db,
+            )
+            mock_scrape.assert_not_called()
+
+    @patch('src.services.import_service.parse_ingredient')
+    @patch('src.services.import_service.parse_recipe_html')
+    def test_created_by_is_none(self, mock_parse_html, mock_parse_ingredient):
+        """Recipes imported via HTML are system-imported (created_by=None)."""
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+
+        mock_parse_html.return_value = self._mock_scraped_data()
+        mock_parse_ingredient.return_value = {
+            'quantity': 1.0, 'unit': '', 'ingredient_name': 'chicken',
+            'preparation': '', 'is_optional': False, 'raw_text': '500g chicken',
+        }
+
+        captured = {}
+        def capture_add(obj):
+            if isinstance(obj, Recipe):
+                captured['recipe'] = obj
+                obj.id = uuid4()
+
+        mock_db.add.side_effect = capture_add
+
+        import_recipe_from_html(
+            "https://www.kitchensanctuary.com/chicken-curry",
+            b"<html></html>",
+            mock_db,
+        )
+
+        assert 'recipe' in captured
+        assert captured['recipe'].created_by is None
+
+    @patch('src.services.import_service.parse_ingredient')
+    @patch('src.services.import_service.parse_recipe_html')
+    def test_import_recipe_from_url_still_sets_is_persisted_false(
+        self, mock_parse_html, mock_parse_ingredient
+    ):
+        """import_recipe_from_url behaviour is unchanged: is_persisted=False."""
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+
+        with patch('src.services.import_service.scrape_recipe') as mock_scrape:
+            mock_scrape.return_value = self._mock_scraped_data()
+            mock_parse_ingredient.return_value = {
+                'quantity': 1.0, 'unit': '', 'ingredient_name': 'chicken',
+                'preparation': '', 'is_optional': False, 'raw_text': '500g chicken',
+            }
+
+            captured = {}
+            def capture_add(obj):
+                if isinstance(obj, Recipe):
+                    captured['recipe'] = obj
+                    obj.id = uuid4()
+
+            mock_db.add.side_effect = capture_add
+
+            import_recipe_from_url(
+                "https://www.kitchensanctuary.com/chicken-curry",
+                mock_db,
+            )
+
+        assert 'recipe' in captured
+        assert captured['recipe'].is_persisted is False
 
 
 class TestAmountlessIngredientUnit:

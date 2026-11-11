@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
-from src.services.scraper_service import scrape_recipe, ScraperError
+from src.services.scraper_service import scrape_recipe, parse_recipe_html, ScraperError
 from src.services.ingredient_parser import parse_ingredient
 from src.schemas.import_service import ImportResult, ImportStatus, BatchImportResult
 from src.db.models.recipe import Recipe
@@ -40,6 +40,14 @@ logger = logging.getLogger(__name__)
 # Related: Issue #335 - Sentinel Value 0.001 Workaround
 # Parent PR: #333 - Import pipeline & deduplication
 UNPARSEABLE_QUANTITY_SENTINEL = 0.001
+
+
+def _safe_image_url(url: Optional[str]) -> Optional[str]:
+    """Return url only when its scheme is http or https; drop javascript: and data: URIs."""
+    if not url:
+        return None
+    scheme = urlparse(url).scheme.lower()
+    return url if scheme in ('http', 'https') else None
 
 
 def is_unparseable_quantity(quantity: float) -> bool:
@@ -216,7 +224,7 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
             name=scraped_data.title or "Untitled Recipe",
             source_type=scraped_data.source_type,
             source_url=normalized_url,
-            source_image=scraped_data.image_url,
+            source_image=_safe_image_url(scraped_data.image_url),
             prep_time_minutes=scraped_data.prep_time_minutes,
             cook_time_minutes=scraped_data.cook_time_minutes,
             base_servings=scraped_data.servings or 4,
@@ -300,6 +308,192 @@ def import_recipe_from_url(url: str, db: Session) -> ImportResult:
     except Exception as e:
         db.rollback()
         logger.error(f"Unexpected error during recipe import: {e}", exc_info=True)
+        return ImportResult(
+            status=ImportStatus.error,
+            recipe_id=None,
+            warnings=warnings,
+            error_message=f"Unexpected error: {str(e)}",
+            source_url=url,
+        )
+
+
+def import_recipe_from_html(url: str, html: bytes, db: Session) -> ImportResult:
+    """
+    Import a recipe from pre-fetched HTML into the database.
+
+    Pipeline (same as import_recipe_from_url except step 2 and is_persisted):
+    1. Normalize and deduplicate against existing recipes by source_url
+    2. Parse recipe data from HTML using parse_recipe_html (no network call)
+    3. Parse ingredients using ingredient_parser
+    4. Map to Recipe and RecipeIngredient records
+    5. Save to database (Recipe + RecipeIngredient records)
+
+    Recipes imported this way are stored with is_persisted=True because a human
+    fetched the page, so the browse-cache pruning job must never remove them.
+
+    Args:
+        url: Source URL of the recipe page (used for dedup and source_type detection)
+        html: Raw HTML bytes of the saved recipe page
+        db: Database session
+
+    Returns:
+        ImportResult with status, recipe_id (on success), warnings, and errors
+    """
+    normalized_url = _normalize_url(url)
+    warnings = []
+
+    # Step 1: Check for existing recipe with this source_url (deduplication)
+    try:
+        existing_recipe = db.query(Recipe).filter(
+            (Recipe.source_url == normalized_url) | (Recipe.source_url == url.strip())
+        ).first()
+
+        if existing_recipe:
+            logger.info(f"Recipe already exists for URL: {normalized_url}")
+            return ImportResult(
+                status=ImportStatus.duplicate,
+                recipe_id=existing_recipe.id,
+                warnings=[],
+                error_message=None,
+                source_url=url,
+            )
+    except SQLAlchemyError as e:
+        logger.error(f"Database error during deduplication check: {e}", exc_info=True)
+        return ImportResult(
+            status=ImportStatus.error,
+            recipe_id=None,
+            warnings=[],
+            error_message=f"Database error during deduplication: {str(e)}",
+            source_url=url,
+        )
+
+    # Step 2: Parse recipe data from HTML (no network call)
+    try:
+        scraped_data = parse_recipe_html(html, url)
+    except ScraperError as e:
+        logger.warning(f"Parse error for URL {url}: {e}")
+        return ImportResult(
+            status=ImportStatus.error,
+            recipe_id=None,
+            warnings=[],
+            error_message=str(e),
+            source_url=url,
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during HTML parsing: {e}", exc_info=True)
+        return ImportResult(
+            status=ImportStatus.error,
+            recipe_id=None,
+            warnings=[],
+            error_message=f"Unexpected parsing error: {str(e)}",
+            source_url=url,
+        )
+
+    # Step 3: Parse ingredients
+    parsed_ingredients = []
+    for raw_ingredient in scraped_data.ingredients:
+        parsed = parse_ingredient(raw_ingredient)
+
+        quantity = parsed['quantity']
+        unit = parsed['unit'] or ''
+        ingredient_name = parsed['ingredient_name'] or raw_ingredient
+        if quantity == 0.0:
+            quantity = UNPARSEABLE_QUANTITY_SENTINEL
+            unit = ''
+            warnings.append(f"No amount given for: {ingredient_name}")
+
+        parsed_ingredients.append({
+            'ingredient_name': ingredient_name,
+            'quantity': quantity,
+            'unit': unit,
+            'is_optional': parsed['is_optional'],
+        })
+
+    # Steps 4 & 5: Create Recipe and RecipeIngredient records in transaction
+    try:
+        new_recipe = Recipe(
+            name=scraped_data.title or "Untitled Recipe",
+            source_type=scraped_data.source_type,
+            source_url=normalized_url,
+            source_image=_safe_image_url(scraped_data.image_url),
+            prep_time_minutes=scraped_data.prep_time_minutes,
+            cook_time_minutes=scraped_data.cook_time_minutes,
+            base_servings=scraped_data.servings or 4,
+            steps=scraped_data.instructions,
+            tags=scraped_data.tags,
+            nutritional_info=scraped_data.nutrients,
+            # Human-fetched page: persisted immediately, pruning must not remove it
+            is_persisted=True,
+            created_by=None,  # System-imported recipe, no owner
+        )
+
+        db.add(new_recipe)
+        db.flush()
+
+        for parsed_ing in parsed_ingredients:
+            recipe_ingredient = RecipeIngredient(
+                recipe_id=new_recipe.id,
+                ingredient_name=parsed_ing['ingredient_name'],
+                quantity=parsed_ing['quantity'],
+                unit=parsed_ing['unit'],
+                is_optional=parsed_ing['is_optional'],
+            )
+            db.add(recipe_ingredient)
+
+        db.commit()
+        db.refresh(new_recipe)
+
+        logger.info(f"Successfully imported persisted recipe {new_recipe.id} from {normalized_url}")
+        return ImportResult(
+            status=ImportStatus.success,
+            recipe_id=new_recipe.id,
+            warnings=warnings,
+            error_message=None,
+            source_url=url,
+        )
+
+    except IntegrityError as e:
+        db.rollback()
+        logger.info(f"IntegrityError during HTML import, checking for duplicate: {e}")
+
+        try:
+            existing_recipe = db.query(Recipe).filter(
+                (Recipe.source_url == normalized_url) | (Recipe.source_url == url.strip())
+            ).first()
+
+            if existing_recipe:
+                logger.info(f"Recipe already exists for URL (race condition): {normalized_url}")
+                return ImportResult(
+                    status=ImportStatus.duplicate,
+                    recipe_id=existing_recipe.id,
+                    warnings=[],
+                    error_message=None,
+                    source_url=url,
+                )
+        except SQLAlchemyError as query_error:
+            logger.error(f"Error querying for duplicate after IntegrityError: {query_error}")
+
+        return ImportResult(
+            status=ImportStatus.error,
+            recipe_id=None,
+            warnings=warnings,
+            error_message=f"Database integrity error: {str(e)}",
+            source_url=url,
+        )
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during HTML recipe import: {e}", exc_info=True)
+        return ImportResult(
+            status=ImportStatus.error,
+            recipe_id=None,
+            warnings=warnings,
+            error_message=f"Database error: {str(e)}",
+            source_url=url,
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error during HTML recipe import: {e}", exc_info=True)
         return ImportResult(
             status=ImportStatus.error,
             recipe_id=None,

@@ -6,12 +6,14 @@ from supported sources (HelloFresh, Kitchen Sanctuary), and viewing import stati
 
 Authorization:
 - Single URL import: Any authenticated user
+- Saved-page HTML import: Any authenticated user
 - Batch operations: Coordinator only
 - Discovery operations: Coordinator only
 - Status: Any authenticated user
 
 Rate Limiting (API layer - abuse prevention):
 - /import-url: 20 requests/minute per IP
+- /import-html: 20 requests/minute per IP
 - /import-batch: 5 requests/minute per IP
 - /discover/{source}: 5 requests/minute per IP
 - /discover-and-import/{source}: 3 requests/minute per IP
@@ -21,10 +23,13 @@ Note: Service layer has separate polite delays (1 second between external reques
 for crawler etiquette, not abuse prevention.
 """
 
+import asyncio
+import json
 import logging
 from typing import Literal
 from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -34,13 +39,14 @@ from src.db.models.user import User, UserRole
 from src.db.models.recipe import Recipe
 from src.middleware.auth import get_current_user
 from src.middleware.rate_limit import limiter
-from src.services.import_service import import_recipe_from_url, import_batch
+from src.services.import_service import import_recipe_from_url, import_recipe_from_html, import_batch
 from src.services.scraper_service import ScraperError
 from src.services.crawlers.hellofresh_crawler import HelloFreshCrawler
 from src.services.crawlers.kitchen_sanctuary_crawler import KitchenSanctuaryCrawler
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
 from src.schemas.scraper import (
     ImportUrlRequest,
+    ImportHtmlRequest,
     ImportBatchRequest,
     DiscoverAndImportRequest,
     DiscoveryResponse,
@@ -173,6 +179,159 @@ def import_single_url(
     except Exception as e:
         # Fallback handler for unexpected exceptions (ensures endpoint doesn't crash)
         logger.error(f"Unexpected error during import for user {current_user.id}: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during import"
+        )
+
+
+@router.post("/import-html", response_model=ImportResult, status_code=status.HTTP_200_OK)
+@limiter.limit("20/minute")
+async def import_html(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Import a recipe from a saved HTML page (no network fetch).
+
+    Accepts the HTML of a recipe page that the user saved in their own browser,
+    plus the URL it came from. Kitchen Sanctuary blocks automated fetches with a
+    Cloudflare challenge, so this endpoint is the only way to import its recipes.
+
+    Accepts two content types on the same route:
+    - JSON: ``{"source_url": "...", "html": "..."}``
+    - multipart/form-data: fields ``source_url`` (text) and ``file`` (the HTML file)
+
+    Rate limited to 20 requests per minute per IP address to prevent abuse.
+
+    Args:
+        request: FastAPI request object (inspected for content-type and body)
+        current_user: Authenticated user (injected by get_current_user)
+        db: Database session
+
+    Returns:
+        ImportResult: Result of the import operation (success/duplicate/error)
+
+    Raises:
+        HTTPException(401): If Authorization header is missing or token is invalid
+        HTTPException(400): If source_url is from an unsupported domain
+        HTTPException(413): If HTML content exceeds 5 MB
+        HTTPException(422): If required fields are missing or html is empty
+        HTTPException(429): If rate limit is exceeded
+    """
+    MAX_HTML_BYTES = 5 * 1024 * 1024  # 5 MB
+
+    # Early rejection on Content-Length header (avoids reading the body for oversized requests)
+    content_length_header = request.headers.get("content-length")
+    if content_length_header:
+        try:
+            if int(content_length_header) > MAX_HTML_BYTES + 64 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="HTML body exceeds 5 MB limit"
+                )
+        except ValueError:
+            pass  # Malformed header; fall through to per-read enforcement
+
+    content_type = request.headers.get("content-type", "")
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        source_url = form.get("source_url")
+        file_field = form.get("file")
+        if file_field is None or not hasattr(file_field, 'read'):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Multipart 'file' field is required"
+            )
+        # Read at most MAX_HTML_BYTES+1 to detect oversize without buffering the full body
+        html_bytes = await file_field.read(MAX_HTML_BYTES + 1)
+        if len(html_bytes) > MAX_HTML_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="HTML body exceeds 5 MB limit"
+            )
+        if not isinstance(source_url, str) or not (1 <= len(source_url) <= 2048):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Multipart 'source_url' field is required and must be at most 2048 characters"
+            )
+    else:
+        # JSON body — stream with cap to prevent unbounded buffering under chunked encoding
+        _raw_chunks: list[bytes] = []
+        _raw_size = 0
+        _stream_cap = MAX_HTML_BYTES + 64 * 1024
+        async for _chunk in request.stream():
+            _raw_size += len(_chunk)
+            if _raw_size > _stream_cap:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="HTML body exceeds 5 MB limit"
+                )
+            _raw_chunks.append(_chunk)
+        try:
+            body = json.loads(b"".join(_raw_chunks))
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Request body must be valid JSON or multipart/form-data"
+            )
+        if not isinstance(body, dict):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Request body must be a JSON object"
+            )
+        try:
+            validated = ImportHtmlRequest.model_validate(body)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=exc.errors()
+            )
+        source_url = validated.source_url
+        html_bytes = validated.html.encode("utf-8")
+
+    if not html_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="HTML content cannot be empty"
+        )
+
+    if len(html_bytes) > MAX_HTML_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="HTML body exceeds 5 MB limit"
+        )
+
+    # Validate URL is from a supported domain (same check as import-url)
+    allowed_domains = ["hellofresh.com", "kitchensanctuary.com"]
+    if not validate_domain(source_url, allowed_domains):
+        logger.warning(f"User {current_user.id} attempted HTML import from unsupported domain: {source_url}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"URL must be from a supported domain: {', '.join(allowed_domains)}"
+        )
+
+    logger.info(f"User {current_user.id} importing recipe from saved HTML page")
+
+    try:
+        result = await asyncio.to_thread(import_recipe_from_html, source_url, html_bytes, db)
+        return result
+    except ScraperError as e:
+        logger.warning(f"Parse error during HTML import for user {current_user.id}: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Import failed: {str(e)}"
+        )
+    except SQLAlchemyError as e:
+        logger.error(f"Database error during HTML import for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error during import"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during HTML import for user {current_user.id}: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred during import"
