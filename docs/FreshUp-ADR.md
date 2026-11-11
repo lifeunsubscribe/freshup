@@ -10,13 +10,13 @@
 
 ## 0. Current Implementation Status
 
-*Last reviewed: 2026-09-26. This section is a status snapshot, not a design decision — update it when a phase closes.*
+*Last reviewed: 2026-11-11. This section is a status snapshot, not a design decision — update it when a phase closes.*
 
 | Phase | Area | Status |
 |---|---|---|
 | 1 | Foundation (auth, inventory, recipes, grocery, prepared food) | Complete |
 | 2A | Ollama integration layer | Complete |
-| 2C | Web scrapers (HelloFresh, Kitchen Sanctuary) | Complete |
+| 2C | Web scrapers (HelloFresh, Kitchen Sanctuary) | HelloFresh works end to end (import was broken on every HTTPS site until 2026-11-09, see below). Kitchen Sanctuary cannot be fetched by the server at all and will be imported from a saved page instead. |
 | 2B / 2D | Card OCR pipeline, URL import & photo upload | Not started |
 | 2.5A | Data model & migration | Complete — `UserRecipeRelation`, `Menu`, `MenuRecipe`, `is_persisted`, `UserCookEvent`, and `UserRecipeView` all built |
 | 2.5B | Scraper browse-then-persist | Complete |
@@ -47,6 +47,8 @@
 Only the rating gate still needs backend work.
 
 **A caution about `POST /recipes/{id}/rate`:** it is a whole-relation upsert — it writes every field of `UserRecipeRelationCreate` onto the row, so a request setting one field silently clears the others. Use it only to submit a complete relation. Bookmark and like have dedicated single-field endpoints for exactly this reason; anything added later that flips one flag should follow that pattern rather than reusing `/rate`.
+
+**Recipe acquisition (2026-11-09 to 2026-11-11).** A health pass found that `scrape_recipe` had failed on every HTTPS site since the SSRF hardening (it connected by IP, which sends no SNI); the mocked tests asserted the request shape and so asserted the bug. Fixed in `a2fc39a`, together with HelloFresh discovery (sitemaps from robots.txt, recipe pages told apart from collection pages) and import quality (title, ingredient names, times, tags). Kitchen Sanctuary now serves a bot challenge to non-browser clients, so its recipes come in through a saved page the user hands over, and those are persisted immediately rather than treated as browse cache. HelloFresh browsing will be collection-backed: one collection page yields 30 recipe cards and its sub-collections without fetching recipe pages; cards live in a catalog table and a full import happens when a card is opened. The frontend for all of this is designed: see `docs/recipe-acquisition-frontend-handoff.md` and the mockups under `docs/mockups/recipe-acquisition/`. Section 6 of that handoff lists the ADR edits it implies; they are not applied yet.
 
 **Note on execution history:** Phases 2.5A–E were implemented by batched parallel Sharkrite agent sessions in early May 2026. That batching produced a duplicate Alembic migration and a broken table rename, which left the migration chain with three heads and the API unable to start (see Section 13). Repaired 2026-09-18. Migrations are now covered by `tests/test_migration_chain.py`.
 
