@@ -36,7 +36,7 @@ export function useCollection(
   const qs = fresh !== undefined ? `?fresh=${fresh}` : '';
 
   return useQuery({
-    queryKey: catalogKeys.collection(source, slug),
+    queryKey: [...catalogKeys.collection(source, slug), { fresh: fresh ?? null }],
     queryFn: () =>
       apiClient<CollectionDetail>(`/catalog/${source}/collections/${slug}${qs}`, { method: 'GET' }),
     staleTime: 10 * 60 * 1000,

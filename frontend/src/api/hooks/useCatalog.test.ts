@@ -3,23 +3,27 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement } from 'react'
 import type { ReactNode } from 'react'
-
-const mockApiClient = vi.fn()
-
-vi.mock('../client', () => ({
-  apiClient: mockApiClient,
-}))
-
-vi.mock('./useRecipes', () => ({
-  recipeKeys: {
-    all: ['recipes'] as const,
-    details: () => ['recipes', 'detail'] as const,
-    detail: (id: string) => ['recipes', 'detail', id] as const,
-  },
-}))
-
-// Import after mocks are in place.
+import { apiClient } from '../client'
 import { useCollections, useCollection, useOpenCard, catalogKeys } from './useCatalog'
+
+vi.mock('../client', async () => {
+  const actual = await vi.importActual<typeof import('../client')>('../client')
+  return { ...actual, apiClient: vi.fn() }
+})
+
+vi.mock('./useRecipes', async () => {
+  const actual = await vi.importActual<typeof import('./useRecipes')>('./useRecipes')
+  return {
+    ...actual,
+    recipeKeys: {
+      all: ['recipes'] as const,
+      details: () => ['recipes', 'detail'] as const,
+      detail: (id: string) => ['recipes', 'detail', id] as const,
+    },
+  }
+})
+
+const mockApiClient = vi.mocked(apiClient)
 
 function makeWrapper() {
   const client = new QueryClient({
@@ -161,6 +165,19 @@ describe('useCollection', () => {
       '/catalog/hellofresh_web/collections/mains',
       expect.objectContaining({ method: 'GET' })
     )
+  })
+
+  it('issues a new request when fresh toggles from false to true (cache miss on key change)', async () => {
+    mockApiClient.mockResolvedValue(stubCollection)
+
+    const { rerender } = renderHook(
+      (props: { fresh?: boolean }) => useCollection('hellofresh_web', 'mains', props),
+      { wrapper: makeWrapper(), initialProps: { fresh: false } }
+    )
+
+    await waitFor(() => expect(mockApiClient).toHaveBeenCalledTimes(1))
+    rerender({ fresh: true })
+    await waitFor(() => expect(mockApiClient).toHaveBeenCalledTimes(2))
   })
 })
 

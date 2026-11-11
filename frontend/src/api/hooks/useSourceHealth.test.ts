@@ -3,16 +3,16 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement } from 'react'
 import type { ReactNode } from 'react'
-
-const mockApiClient = vi.fn()
-
-vi.mock('../client', () => ({
-  apiClient: mockApiClient,
-}))
-
-// Import after mocks are in place.
+import { apiClient } from '../client'
 import { useSourceHealth, failingSources } from './useSourceHealth'
 import type { SourceStatus } from '../types'
+
+vi.mock('../client', async () => {
+  const actual = await vi.importActual<typeof import('../client')>('../client')
+  return { ...actual, apiClient: vi.fn() }
+})
+
+const mockApiClient = vi.mocked(apiClient)
 
 function makeWrapper() {
   const client = new QueryClient({
