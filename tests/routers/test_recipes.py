@@ -44,6 +44,13 @@ app.include_router(recipes_router.router)
 TEST_DATABASE_URL = "sqlite:///:memory:"
 
 
+def _cook(db_session, user, recipe) -> None:
+    """Record that `user` cooked `recipe`, which the rating gate (#508) requires before a numeric rating."""
+    from src.db.models.user_cook_event import UserCookEvent
+
+    db_session.add(UserCookEvent(id=uuid4(), user_id=user.id, recipe_id=recipe.id))
+    db_session.commit()
+
 @pytest.fixture(autouse=True)
 def setup_test_env(monkeypatch):
     """Set up test environment variables."""
@@ -1724,6 +1731,10 @@ class TestRecipeRatings:
         """Test that each user has separate ratings for the same recipe."""
         from src.db.models.user_recipe import UserRecipeRelation
 
+        # Both users must have cooked the recipe before they may rate it (#508)
+        _cook(db_session, test_user, test_recipe)
+        _cook(db_session, test_user2, test_recipe)
+
         # User 1 creates rating
         rating_data = {
             "rating": 3.0,
@@ -2731,6 +2742,7 @@ class TestRecipeIngredientStepIndex:
         assert "Recipe has 1 step" in detail
 
 
+
 class TestPersistenceTrigger:
     """Test persistence trigger when users bookmark/like recipes."""
 
@@ -2781,6 +2793,7 @@ class TestPersistenceTrigger:
         )
         db_session.add(recipe)
         db_session.commit()
+        _cook(db_session, test_user, recipe)
         db_session.refresh(recipe)
 
         # Rate and like the recipe
@@ -2813,6 +2826,7 @@ class TestPersistenceTrigger:
         )
         db_session.add(recipe)
         db_session.commit()
+        _cook(db_session, test_user, recipe)
         db_session.refresh(recipe)
 
         # Rate without favoriting
@@ -2879,6 +2893,7 @@ class TestPersistenceTrigger:
         )
         db_session.add(recipe)
         db_session.commit()
+        _cook(db_session, test_user, recipe)
 
         # Create an initial rating without favoriting
         initial_rating = UserRecipeRelation(
@@ -2926,6 +2941,7 @@ class TestPersistenceTrigger:
         )
         db_session.add(recipe)
         db_session.commit()
+        _cook(db_session, test_user, recipe)
 
         # Create a favorited rating
         initial_rating = UserRecipeRelation(
@@ -2971,6 +2987,7 @@ class TestPersistenceTrigger:
         )
         db_session.add(recipe)
         db_session.commit()
+        _cook(db_session, test_user, recipe)
 
         # Mock trigger_persistence to raise an exception
         def mock_trigger_persistence(recipe, db):
