@@ -429,6 +429,50 @@ FreshUp should feel like having a knowledgeable sous chef — one who knows what
 | approved_by | FK? | Coordinator who approved the final plan |
 | approved_date | DateTime? | |
 
+#### SourceCollection
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | Primary key |
+| source_type | String(50) | e.g. `hellofresh_web` — values from `SourceType` enum |
+| slug | String(255) | URL-friendly identifier, e.g. `vegetarian-recipes` |
+| name | String(255) | Display name of the collection |
+| parent_slug | String(255)? | Slug of the parent collection (same source_type); not a FK — child is often seen before parent is fetched |
+| url | String(2048) | Full URL of the collection page |
+| last_fetched_at | DateTime? | Null = known from sitemap or parent, never fetched |
+| created_at | DateTime | |
+| updated_at | DateTime | |
+
+*Unique constraint: `(source_type, slug)`. Index on `parent_slug`.*
+
+#### SourceRecipeCard
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | Primary key |
+| source_type | String(50) | e.g. `hellofresh_web` |
+| external_id | String(64) | Source's own id (HelloFresh uses a 24-hex id) |
+| name | String(255) | Recipe name as shown on the card |
+| headline | String(500)? | Subtitle or tagline |
+| image_url | String(2048)? | Card thumbnail URL |
+| prep_time_minutes | Int? | |
+| rating | Float? | |
+| rating_count | Int? | |
+| recipe_url | String(2048) | Canonical URL for this recipe on the source |
+| recipe_id | FK? | Link to `Recipe` once imported; `ON DELETE SET NULL` preserves the card if the imported recipe is pruned |
+| fetched_at | DateTime | When the card data was last read from the source |
+| created_at | DateTime | |
+| updated_at | DateTime | |
+
+*Unique constraint: `(source_type, recipe_url)`. Index on `recipe_id`.*
+
+#### SourceCollectionCard (Join Table)
+| Field | Type | Notes |
+|---|---|---|
+| collection_id | FK | Link to `SourceCollection`; `ON DELETE CASCADE` |
+| card_id | FK | Link to `SourceRecipeCard`; `ON DELETE CASCADE` |
+| position | Integer | Card's position within the collection page |
+
+*Composite PK: `(collection_id, card_id)`. Deleting a collection removes its join rows and leaves the cards.*
+
 ### 4.2 Entity Relationship Summary
 
 ```
@@ -458,6 +502,9 @@ ConsumptionPattern ──► suggests ──► GroceryListItem
 
 PreparedFood ──► feeds back into ──► MealPlanEntry (as leftover meal)
 PreparedFood (component) ──► acts as ──► InventoryItem (for recipe matching)
+
+SourceCollection ──── lists ──► SourceRecipeCard (via SourceCollectionCard)
+SourceRecipeCard ──── links to ──► Recipe (once imported; recipe_id nullable)
 ```
 
 ---
