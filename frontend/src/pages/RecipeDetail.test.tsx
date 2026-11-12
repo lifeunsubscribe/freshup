@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -409,6 +409,53 @@ describe('RecipeDetail', () => {
       )
       // The strip is still visible (no retry, no dismiss)
       expect(screen.queryByRole('button', { name: /i cooked this/i })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('transient-message timers', () => {
+    beforeEach(() => {
+      // shouldAdvanceTime keeps waitFor polling and userEvent working while
+      // still allowing manual advances via vi.advanceTimersByTime.
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('clears plan-confirmation timer on unmount so no pending timers remain', async () => {
+      const errorSpy = vi.spyOn(console, 'error')
+
+      const { unmount } = renderPage()
+
+      // Trigger the plan-confirmation flow
+      await userEvent.click(screen.getByRole('button', { name: /add to plan/i }))
+      await waitFor(() => screen.getByRole('dialog'))
+      await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
+      await waitFor(() => screen.getByText(/added to/i))
+
+      // Unmount before the 4 s timeout fires — cleanup effect must cancel it
+      unmount()
+
+      expect(vi.getTimerCount()).toBe(0)
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('unmounted'),
+        expect.anything()
+      )
+      errorSpy.mockRestore()
+    })
+
+    it('plan-confirmation message auto-clears after 4 seconds on a mounted page', async () => {
+      renderPage()
+
+      await userEvent.click(screen.getByRole('button', { name: /add to plan/i }))
+      await waitFor(() => screen.getByRole('dialog'))
+      await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
+      await waitFor(() => screen.getByText(/added to/i))
+
+      act(() => vi.advanceTimersByTime(4000))
+
+      expect(screen.queryByText(/added to/i)).not.toBeInTheDocument()
     })
   })
 })
