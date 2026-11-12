@@ -10,6 +10,7 @@ import NutritionTab from '../components/recipe/NutritionTab'
 import ActionBar from '../components/recipe/ActionBar'
 import AddToPlanSheet from '../components/recipe/AddToPlanSheet'
 import PantryReviewSheet from '../components/recipe/PantryReviewSheet'
+import NewTimerSheet from '../components/recipe/NewTimerSheet'
 import SourceLine from '../components/recipe/SourceLine'
 import Pill from '../components/ui/Pill'
 import { useRecipe } from '../api/hooks/useRecipes'
@@ -22,6 +23,7 @@ import {
 import { useCreatePlanEntry } from '../api/hooks/usePlan'
 import { useInventoryList } from '../api/hooks/useInventory'
 import { checkIngredientAvailability } from '../utils/pantryMatcher'
+import { useCookTimers } from '../hooks/useCookTimers'
 import { useAuth } from '../contexts/AuthContext'
 import type { MealType } from '../api/types'
 
@@ -34,6 +36,7 @@ export default function RecipeDetail() {
   const [planConfirmation, setPlanConfirmation] = useState<string | null>(null)
   const [isPlanSheetOpen, setIsPlanSheetOpen] = useState(false)
   const [isPantrySheetOpen, setIsPantrySheetOpen] = useState(false)
+  const [isTimerSheetOpen, setIsTimerSheetOpen] = useState(false)
   const [groceryConfirmation, setGroceryConfirmation] = useState<string | null>(null)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
@@ -51,6 +54,9 @@ export default function RecipeDetail() {
   const toggleBookmark = useToggleBookmark()
   const cookRecipe = useCookRecipe()
   const createPlanEntry = useCreatePlanEntry()
+
+  // Cook timers — frontend-only, cleared when the page unmounts
+  const { timers, addTimer, dismissTimer } = useCookTimers()
 
   // Default to recipe's base_servings if it's one of the valid options (2, 4, 6)
   // Otherwise default to 2
@@ -137,6 +143,11 @@ export default function RecipeDetail() {
     setTimeout(() => setPlanConfirmation(null), 4000)
   }
 
+  // "Start N min" button on a step: starts a named timer without opening the sheet
+  const handleStartTimer = (durationMinutes: number, stepNumber: number) => {
+    addTimer(`Step ${stepNumber}`, durationMinutes * 60)
+  }
+
   if (isLoadingRecipe) {
     return (
       <PageContainer>
@@ -192,6 +203,10 @@ export default function RecipeDetail() {
             onBookmarkToggle={handleBookmarkToggle}
             onLikeToggle={handleLikeToggle}
             isEngagementLoading={isLoadingRelation}
+            activeTab={activeTab}
+            timers={timers}
+            onDismissTimer={dismissTimer}
+            onOpenTimerSheet={() => setIsTimerSheetOpen(true)}
           />
 
           {/* Source attribution under the title block */}
@@ -246,6 +261,7 @@ export default function RecipeDetail() {
                 servingsMultiplier={servingsMultiplier}
                 sourceType={recipe.source_type}
                 sourceUrl={recipe.source_url}
+                onStartTimer={handleStartTimer}
               />
             )}
             {activeTab === 'nutrition' && (
@@ -296,6 +312,15 @@ export default function RecipeDetail() {
           setIsPantrySheetOpen(false)
           setGroceryConfirmation(`Added ${count} to the grocery list.`)
           setTimeout(() => setGroceryConfirmation(null), 4000)
+        }}
+      />
+
+      <NewTimerSheet
+        open={isTimerSheetOpen}
+        onClose={() => setIsTimerSheetOpen(false)}
+        onStart={(name, totalSeconds) => {
+          addTimer(name, totalSeconds)
+          setIsTimerSheetOpen(false)
         }}
       />
     </>

@@ -1,43 +1,24 @@
 import { Clock } from 'lucide-react'
 import Pill from '../ui/Pill'
 import type { RecipeIngredientResponse } from '../../api/types'
+import { durationsInStep, formatStartLabel } from '../../utils/stepDurations'
 
 interface RecipeStepProps {
   stepNumber: number
   instruction: string
   ingredients: RecipeIngredientResponse[]
   servingsMultiplier: number
+  onStartTimer?: (durationMinutes: number) => void
 }
 
 /**
- * Extracts time references from instruction text
- * Matches patterns like "30 minutes", "2 hours", "15 min", "1 hr"
- */
-function extractTimers(text: string): string[] {
-  const timerRegex = /\b(\d+)\s*(minute|min|hour|hr)s?\b/gi
-  const matches = text.matchAll(timerRegex)
-  const timers: string[] = []
-
-  for (const match of matches) {
-    const value = match[1]
-    const unit = match[2].toLowerCase()
-    // Normalize to full unit name
-    const normalizedUnit = unit.startsWith('h') ? 'hour' : 'minute'
-    const displayUnit = normalizedUnit + (parseInt(value) !== 1 ? 's' : '')
-    timers.push(`${value} ${displayUnit}`)
-  }
-
-  return timers
-}
-
-/**
- * RecipeStep component for displaying cooking steps
+ * RecipeStep component for displaying cooking steps.
  *
  * Features:
  * - Step number in olive circle
  * - Step instruction text
- * - Timer callout badges for steps containing time references
- * - Inline ingredient pills for ingredients used in this step
+ * - "Start N min" buttons for each distinct duration detected in the step
+ * - Inline ingredient pills for ingredients matched to this step
  * - Scaled ingredient quantities
  */
 export default function RecipeStep({
@@ -45,8 +26,9 @@ export default function RecipeStep({
   instruction,
   ingredients,
   servingsMultiplier,
+  onStartTimer,
 }: RecipeStepProps) {
-  const timers = extractTimers(instruction)
+  const durations = durationsInStep(instruction)
 
   return (
     <div className="flex gap-4 mb-6">
@@ -62,17 +44,20 @@ export default function RecipeStep({
         {/* Instruction text */}
         <p className="text-sm text-text-primary mb-2 leading-relaxed">{instruction}</p>
 
-        {/* Timer callouts */}
-        {timers.length > 0 && (
+        {/* "Start N min" timer buttons — one per distinct detected duration */}
+        {durations.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
-            {timers.map((timer, idx) => (
-              <div
-                key={idx}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-terra text-text-primary"
+            {durations.map((mins) => (
+              <button
+                key={mins}
+                onClick={() => onStartTimer?.(mins)}
+                disabled={!onStartTimer}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-terra text-text-primary text-xs font-medium disabled:opacity-60"
+                aria-label={`${formatStartLabel(mins)} timer`}
               >
                 <Clock size={14} className="flex-shrink-0" />
-                <span className="text-xs font-medium">{timer}</span>
-              </div>
+                <span>{formatStartLabel(mins)}</span>
+              </button>
             ))}
           </div>
         )}

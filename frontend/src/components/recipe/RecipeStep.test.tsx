@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import RecipeStep from './RecipeStep'
 import type { RecipeIngredientResponse } from '../../api/types'
 
@@ -11,6 +12,9 @@ describe('RecipeStep', () => {
       ingredient_name: 'olive oil',
       quantity: 2,
       unit: 'tbsp',
+      variation_group: null,
+      variation_diet: null,
+      is_optional: false,
       step_index: 0,
     },
     {
@@ -19,6 +23,9 @@ describe('RecipeStep', () => {
       ingredient_name: 'garlic',
       quantity: 3,
       unit: 'cloves',
+      variation_group: null,
+      variation_diet: null,
+      is_optional: false,
       step_index: 0,
     },
   ]
@@ -71,116 +78,139 @@ describe('RecipeStep', () => {
     })
   })
 
-  describe('timer extraction', () => {
-    it('displays timer badge for "X minutes" pattern', () => {
+  describe('"Start N min" timer buttons', () => {
+    it('renders a "Start N min" button when the step contains a plain duration', () => {
       render(
         <RecipeStep
           stepNumber={1}
           instruction="Cook for 15 minutes, stirring occasionally"
           ingredients={[]}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      expect(screen.getByText('15 minutes')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 15 min/i })).toBeInTheDocument()
     })
 
-    it('displays timer badge for "X min" pattern', () => {
+    it('renders "Start N min" for "X min" shorthand', () => {
       render(
         <RecipeStep
           stepNumber={1}
           instruction="Simmer for 30 min"
           ingredients={[]}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      expect(screen.getByText('30 minutes')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 30 min/i })).toBeInTheDocument()
     })
 
-    it('displays timer badge for "X hour" pattern', () => {
+    it('renders "Start N hr" for 1-hour steps', () => {
       render(
         <RecipeStep
           stepNumber={1}
           instruction="Bake for 1 hour until golden"
           ingredients={[]}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      expect(screen.getByText('1 hour')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 1 hr/i })).toBeInTheDocument()
     })
 
-    it('displays timer badge for "X hours" pattern', () => {
+    it('renders "Start N hr M min" for durations over 60 minutes', () => {
       render(
         <RecipeStep
           stepNumber={1}
-          instruction="Marinate for 2 hours"
+          instruction="Marinate for 1.5 hours"
           ingredients={[]}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      expect(screen.getByText('2 hours')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 1 hr 30 min/i })).toBeInTheDocument()
     })
 
-    it('displays timer badge for "X hr" pattern', () => {
-      render(
-        <RecipeStep
-          stepNumber={1}
-          instruction="Rest for 3 hr before serving"
-          ingredients={[]}
-          servingsMultiplier={1}
-        />
-      )
-      expect(screen.getByText('3 hours')).toBeInTheDocument()
-    })
-
-    it('displays multiple timer badges when step has multiple time references', () => {
+    it('renders multiple timer buttons for multiple durations', () => {
       render(
         <RecipeStep
           stepNumber={1}
           instruction="Cook for 10 minutes, then simmer for 20 minutes"
           ingredients={[]}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      expect(screen.getByText('10 minutes')).toBeInTheDocument()
-      expect(screen.getByText('20 minutes')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 10 min/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 20 min/i })).toBeInTheDocument()
     })
 
-    it('does not display timer badge when no time reference exists', () => {
+    it('does not render timer buttons when no duration exists in the step', () => {
       render(
         <RecipeStep
           stepNumber={1}
           instruction="Mix ingredients together thoroughly"
           ingredients={[]}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      expect(screen.queryByText(/minute/)).not.toBeInTheDocument()
-      expect(screen.queryByText(/hour/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /start/i })).not.toBeInTheDocument()
     })
 
-    it('handles singular time units correctly', () => {
+    it('calls onStartTimer with the detected duration in minutes', async () => {
+      const onStartTimer = vi.fn()
+      render(
+        <RecipeStep
+          stepNumber={1}
+          instruction="Cook for 15 minutes"
+          ingredients={[]}
+          servingsMultiplier={1}
+          onStartTimer={onStartTimer}
+        />
+      )
+      await userEvent.click(screen.getByRole('button', { name: /start 15 min/i }))
+      expect(onStartTimer).toHaveBeenCalledWith(15)
+    })
+
+    it('renders timer buttons disabled when onStartTimer is not provided', () => {
+      render(
+        <RecipeStep
+          stepNumber={1}
+          instruction="Cook for 15 minutes"
+          ingredients={[]}
+          servingsMultiplier={1}
+        />
+      )
+      const btn = screen.getByRole('button', { name: /start 15 min/i })
+      expect(btn).toBeDisabled()
+    })
+
+    it('handles singular "1 minute"', () => {
       render(
         <RecipeStep
           stepNumber={1}
           instruction="Cook for 1 minute"
           ingredients={[]}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      expect(screen.getByText('1 minute')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 1 min/i })).toBeInTheDocument()
     })
 
-    it('handles case-insensitive time patterns', () => {
+    it('handles case-insensitive patterns', () => {
       render(
         <RecipeStep
           stepNumber={1}
           instruction="Cook for 5 MINUTES or 10 Min"
           ingredients={[]}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      expect(screen.getByText('5 minutes')).toBeInTheDocument()
-      expect(screen.getByText('10 minutes')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 5 min/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 10 min/i })).toBeInTheDocument()
     })
   })
 
@@ -224,32 +254,34 @@ describe('RecipeStep', () => {
       expect(screen.queryByText(/cloves/)).not.toBeInTheDocument()
     })
 
-    it('displays both timer badges and ingredient pills when both exist', () => {
+    it('displays both timer buttons and ingredient pills when both exist', () => {
       render(
         <RecipeStep
           stepNumber={1}
           instruction="Heat oil for 5 minutes"
           ingredients={mockIngredients}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      expect(screen.getByText('5 minutes')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /start 5 min/i })).toBeInTheDocument()
       expect(screen.getByText(/2 tbsp olive oil/)).toBeInTheDocument()
     })
   })
 
   describe('styling', () => {
-    it('displays timer badges with terra background', () => {
+    it('displays timer buttons with terra background', () => {
       const { container } = render(
         <RecipeStep
           stepNumber={1}
           instruction="Cook for 10 minutes"
           ingredients={[]}
           servingsMultiplier={1}
+          onStartTimer={vi.fn()}
         />
       )
-      const timerBadge = container.querySelector('.bg-terra')
-      expect(timerBadge).toBeInTheDocument()
+      const timerButton = container.querySelector('.bg-terra')
+      expect(timerButton).toBeInTheDocument()
     })
 
     it('displays step number with olive background', () => {
