@@ -183,7 +183,7 @@ Used in: recipe browse grid, carousels, search results, "ready to eat" horizonta
 - Each item shows name, quantity, and "in stock" badge if available in inventory
 - Green dot indicator for items needing purchase, gold dot for pantry items
 - Pantry check summary card at bottom (passive voice)
-- Action bar: "Add to meal plan" (primary), "Add missing to list" (secondary), favorite heart
+- Action bar: "I cooked this" (secondary), "Add to plan" (primary CTA), shopping-cart glyph for "Add missing to list" (moves to dedicated sheet in #550)
 
 **Cook & enjoy! tab:**
 - Steps with large numbered circles (olive green on cream background)
@@ -193,10 +193,11 @@ Used in: recipe browse grid, carousels, search results, "ready to eat" horizonta
 - Ingredients without a `step_index` show in a "General" group at the top
 
 **Header elements:**
-- Back navigation
+- Top bar: back navigation (left), bookmark glyph + heart glyph (right; outline = off, filled olive = on)
 - Recipe title with olive period accent
+- Source attribution line ("From {Name} · View original") when `source_url` is set
 - Subtitle (e.g., "with ginger rice & avocado-cucumber salad")
-- Personalized pills: "In Sarah's favs", "Cooked 7 times", cook time, cuisine tags
+- Personalized pills: "In Sarah's favs", "Cooked N×", cook time, cuisine tags
 - Hero image (16px radius, 4:3 aspect)
 - Servings selector (2/4/6 segmented control) + US/Metric toggle
 

@@ -15,7 +15,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query'
 import { apiClient, ApiException } from '../client'
-import type { BookmarkCreate, UserRecipeRelationResponse } from '../types'
+import type { BookmarkCreate, CookEventResponse, UserRecipeRelationResponse } from '../types'
 import { recipeKeys } from './useRecipes'
 
 /**
@@ -183,4 +183,28 @@ export function useToggleBookmark() {
 /** Toggle "I endorse this" on a recipe. Visible to the household. */
 export function useToggleLike() {
   return useRelationToggle('like', 'is_liked')
+}
+
+/**
+ * Post a cook event for a recipe.
+ *
+ * On success, invalidates the detail query so times_cooked updates, and
+ * invalidates relation keys because cooking can flip is_persisted.
+ */
+export function useCookRecipe() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ recipeId }: { recipeId: string }) => {
+      return apiClient<CookEventResponse>(`/recipes/${recipeId}/cook`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+    },
+
+    onSettled: (_data, _error, { recipeId }) => {
+      queryClient.invalidateQueries({ queryKey: recipeKeys.detail(recipeId) })
+      queryClient.invalidateQueries({ queryKey: relationKeys.mine })
+    },
+  })
 }

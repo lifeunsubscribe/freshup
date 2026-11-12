@@ -8,16 +8,21 @@ import IngredientsTab from '../components/recipe/IngredientsTab'
 import CookTab from '../components/recipe/CookTab'
 import NutritionTab from '../components/recipe/NutritionTab'
 import ActionBar from '../components/recipe/ActionBar'
+import AddToPlanSheet from '../components/recipe/AddToPlanSheet'
+import SourceLine from '../components/recipe/SourceLine'
 import Pill from '../components/ui/Pill'
 import { useRecipe } from '../api/hooks/useRecipes'
 import {
   useMyRecipeRelation,
   useToggleBookmark,
   useToggleLike,
+  useCookRecipe,
 } from '../api/hooks/useRecipeEngagement'
+import { useCreatePlanEntry } from '../api/hooks/usePlan'
 import { useInventoryList } from '../api/hooks/useInventory'
 import { checkIngredientAvailability } from '../utils/pantryMatcher'
 import { useAuth } from '../contexts/AuthContext'
+import type { MealType } from '../api/types'
 
 export default function RecipeDetail() {
   const { id } = useParams<{ id: string }>()
@@ -25,6 +30,8 @@ export default function RecipeDetail() {
 
   const [activeTab, setActiveTab] = useState<TabType>('ingredients')
   const [engagementError, setEngagementError] = useState<string | null>(null)
+  const [planConfirmation, setPlanConfirmation] = useState<string | null>(null)
+  const [isPlanSheetOpen, setIsPlanSheetOpen] = useState(false)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
     enabled: !!id,
@@ -39,6 +46,8 @@ export default function RecipeDetail() {
 
   const toggleLike = useToggleLike()
   const toggleBookmark = useToggleBookmark()
+  const cookRecipe = useCookRecipe()
+  const createPlanEntry = useCreatePlanEntry()
 
   // Default to recipe's base_servings if it's one of the valid options (2, 4, 6)
   // Otherwise default to 2
@@ -49,7 +58,6 @@ export default function RecipeDetail() {
   const [selectedServings, setSelectedServings] = useState<2 | 4 | 6>(defaultServings)
 
   // Update selectedServings when recipe loads or changes
-  // This ensures the correct default is set after the recipe data arrives
   useEffect(() => {
     if (recipe?.base_servings && [2, 4, 6].includes(recipe.base_servings)) {
       setSelectedServings(recipe.base_servings as 2 | 4 | 6)
@@ -93,8 +101,37 @@ export default function RecipeDetail() {
       'Could not update bookmark. Please try again.'
     )
 
-  const handleAddToMealPlan = () => {
-    // Phase 2 feature: Add to meal plan functionality
+  const handleCookThis = async () => {
+    if (!id) return
+    setEngagementError(null)
+    try {
+      await cookRecipe.mutateAsync({ recipeId: id })
+    } catch (error) {
+      console.error('Could not record cook. Please try again.', error)
+      setEngagementError('Could not record cook. Please try again.')
+      setTimeout(() => setEngagementError(null), 5000)
+      throw error
+    }
+  }
+
+  const handleAddToPlan = async (date: string, mealType: MealType, servings: number) => {
+    if (!id) return
+
+    await createPlanEntry.mutateAsync({
+      date,
+      meal_type: mealType,
+      recipe_id: id,
+      planned_servings: servings,
+    })
+
+    setIsPlanSheetOpen(false)
+
+    const dayLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
+      weekday: 'long',
+    })
+    const mealLabel = mealType.charAt(0).toUpperCase() + mealType.slice(1)
+    setPlanConfirmation(`Added to ${dayLabel} ${mealLabel}.`)
+    setTimeout(() => setPlanConfirmation(null), 4000)
   }
 
   if (isLoadingRecipe) {
@@ -119,9 +156,6 @@ export default function RecipeDetail() {
   }
 
   // Calculate servings multiplier based on recipe's base servings
-  // Example: if base_servings=4 and selectedServings=2, multiplier=0.5 (scale down)
-  // Example: if base_servings=4 and selectedServings=6, multiplier=1.5 (scale up)
-  // Guard against division by zero - default to 1 (no scaling) if base_servings is invalid
   const servingsMultiplier = recipe.base_servings > 0
     ? selectedServings / recipe.base_servings
     : (() => {
@@ -138,7 +172,6 @@ export default function RecipeDetail() {
   const isLiked = myRelation?.is_liked ?? false
   const isBookmarked = myRelation?.is_bookmarked ?? false
 
-  // Calculate missing ingredients for "Add missing to list" button
   const stockStatus = recipe
     ? checkIngredientAvailability(recipe.ingredients, inventoryItems)
     : { inStock: [], outOfStock: [], totalCount: 0, inStockCount: 0 }
@@ -151,7 +184,19 @@ export default function RecipeDetail() {
             title={recipe.name}
             subtitle={recipe.notes || undefined}
             imageUrl={recipe.source_image || undefined}
+            isBookmarked={isBookmarked}
+            isLiked={isLiked}
+            onBookmarkToggle={handleBookmarkToggle}
+            onLikeToggle={handleLikeToggle}
+            isEngagementLoading={isLoadingRelation}
           />
+
+          {/* Source attribution under the title block */}
+          {recipe.source_url && (
+            <div className="mb-3">
+              <SourceLine sourceType={recipe.source_type} sourceUrl={recipe.source_url} />
+            </div>
+          )}
 
           <div className="mb-4 flex flex-wrap gap-2">
             {isLiked && currentUser && (
@@ -162,6 +207,9 @@ export default function RecipeDetail() {
             )}
             {totalTime > 0 && (
               <Pill variant="default">{totalTime} min</Pill>
+            )}
+            {recipe.times_cooked > 0 && (
+              <Pill variant="default">Cooked {recipe.times_cooked}×</Pill>
             )}
             {recipe.tags.map((tag) => (
               <Pill key={tag} variant="default">{tag}</Pill>
@@ -191,6 +239,8 @@ export default function RecipeDetail() {
                 steps={recipe.steps}
                 ingredients={recipe.ingredients}
                 servingsMultiplier={servingsMultiplier}
+                sourceType={recipe.source_type}
+                sourceUrl={recipe.source_url}
               />
             )}
             {activeTab === 'nutrition' && (
@@ -206,21 +256,32 @@ export default function RecipeDetail() {
             <p className="text-sm text-red-800">{engagementError}</p>
           </div>
         )}
+        {planConfirmation && (
+          <div className="fixed bottom-20 left-4 right-4 bg-green-50 border border-green-200 rounded-lg p-3 shadow-lg z-40">
+            <p className="text-sm text-green-800">{planConfirmation}</p>
+          </div>
+        )}
         {isInventoryError && (
           <div className="fixed bottom-20 left-4 right-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 shadow-lg z-40">
             <p className="text-sm text-yellow-800">Unable to load pantry inventory. The "Add missing to list" button is temporarily unavailable.</p>
           </div>
         )}
         <ActionBar
-          isLiked={isLiked}
-          onLikeToggle={handleLikeToggle}
-          isBookmarked={isBookmarked}
-          onBookmarkToggle={handleBookmarkToggle}
-          onAddToMealPlan={handleAddToMealPlan}
-          isLoading={isLoadingRelation || isLoadingInventory || isInventoryError}
+          onCookThis={handleCookThis}
+          onAddToPlan={() => setIsPlanSheetOpen(true)}
+          isLoading={isLoadingRelation}
+          isInventoryLoading={isLoadingInventory || isInventoryError}
           missingIngredients={stockStatus.outOfStock}
         />
       </>
+
+      <AddToPlanSheet
+        open={isPlanSheetOpen}
+        onClose={() => setIsPlanSheetOpen(false)}
+        recipeId={id!}
+        defaultServings={selectedServings}
+        onAdd={handleAddToPlan}
+      />
     </>
   )
 }
