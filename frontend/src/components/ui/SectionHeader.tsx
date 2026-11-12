@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react'
 
 interface SectionHeaderProps {
   children: ReactNode
+  subtitle?: string
   linkTo?: string
   linkText?: string
 }
@@ -14,13 +15,18 @@ interface SectionHeaderProps {
  * Usage: <SectionHeader>Fresh Items</SectionHeader> → "Fresh Items."
  * Optional "See all" link can be added via linkTo and linkText props
  */
-export default function SectionHeader({ children, linkTo, linkText = 'See all' }: SectionHeaderProps) {
+export default function SectionHeader({ children, subtitle, linkTo, linkText = 'See all' }: SectionHeaderProps) {
   return (
     <div className="flex items-center justify-between">
-      <h2 className="text-[15px] font-medium text-text-primary leading-tight">
-        {children}
-        <span className="text-olive">.</span>
-      </h2>
+      <div>
+        <h2 className="text-[15px] font-medium text-text-primary leading-tight">
+          {children}
+          <span className="text-olive">.</span>
+        </h2>
+        {subtitle && (
+          <p className="text-xs text-text-secondary mt-0.5">{subtitle}</p>
+        )}
+      </div>
       {linkTo && (
         <Link
           to={linkTo}
@@ -34,3 +40,4 @@ export default function SectionHeader({ children, linkTo, linkText = 'See all' }
     </div>
   )
 }
+

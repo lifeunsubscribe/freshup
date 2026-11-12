@@ -9,6 +9,8 @@ interface RecipeCarouselProps {
   filters: RecipeListFilters
   onSeeAll: () => void
   sectionId?: string
+  /** When false, skip the data fetch until set to true (e.g. via IntersectionObserver). Defaults to true. */
+  enabled?: boolean
 }
 
 /**
@@ -24,8 +26,8 @@ interface RecipeCarouselProps {
  * - Empty state when no recipes match filters
  * - ARIA attributes for screen reader accessibility (role="region", aria-roledescription="carousel")
  */
-export default function RecipeCarousel({ title, filters, onSeeAll, sectionId }: RecipeCarouselProps) {
-  const { data: recipes, isLoading, isError, error } = useRecipeList(filters)
+export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, enabled = true }: RecipeCarouselProps) {
+  const { data: recipes, isLoading, isError, error } = useRecipeList(filters, { enabled })
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
