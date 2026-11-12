@@ -80,6 +80,27 @@ describe('ConnectedRecipeCard', () => {
       expect(screen.getByText('Not saved yet')).toBeInTheDocument()
     })
 
+    it('falls back to recipe.is_bookmarked when relations map has no entry', () => {
+      queryClient.setQueryData(relationKeys.mine, new Map())
+      render(
+        <ConnectedRecipeCard recipe={{ ...mockRecipe, is_bookmarked: true }} />,
+        { wrapper: Wrapper }
+      )
+      expect(screen.getAllByText('Saved').length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('relation is_bookmarked:false wins over recipe.is_bookmarked:true', () => {
+      queryClient.setQueryData(
+        relationKeys.mine,
+        new Map([[RECIPE_ID, makeRelation({ is_bookmarked: false })]])
+      )
+      render(
+        <ConnectedRecipeCard recipe={{ ...mockRecipe, is_bookmarked: true }} />,
+        { wrapper: Wrapper }
+      )
+      expect(screen.getByText('Not saved yet')).toBeInTheDocument()
+    })
+
     it('flips to saved optimistically and invalidates recipeKeys.lists()', async () => {
       const user = userEvent.setup()
       queryClient.setQueryData(
