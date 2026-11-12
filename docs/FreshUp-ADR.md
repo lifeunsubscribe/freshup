@@ -25,7 +25,7 @@
 | 2.5E | Meal plan draft & schedule | Complete — draft/week/confirm, `POST /plan/entries` (#517), and `PUT /plan/entries/{id}/opt-out` (#518) |
 | 2.5F | Frontend: recipe engagement UI | **Partial** — bookmark/like quick actions done. The backend for "I cooked this", view tracking and add-to-plan now exists (#519, #520, #517), so those are unblocked UI work rather than blocked. |
 | 2.5G | Recipe acquisition frontend | Complete — browse rows, collection page, catalog card, source health rows and alert, detail actions, pantry sheet, step pills and timers; rating UI (#549) also shipped; rating gate (#508) merged in Phase 2.5A |
-| 2.5H–I | Frontend: home feed, menus, plan page | Not started |
+| 2.5H–I | Frontend: home feed, menus, plan page | **Partial** — bookmark state and source URL on cards (#578), recipe outcomes endpoint (#579) merged; home feed UI, menus UI, and plan page pending |
 | 3 | Smart meal planning | Not started |
 | 4A | Costco digital receipt pipeline | Complete |
 | 4B | Paper receipt OCR (Tesseract) | Complete |

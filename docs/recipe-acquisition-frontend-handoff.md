@@ -143,8 +143,8 @@ Verified by reading the repo at `976d2d0`. "Not found" means a search turned up 
 | Feed ranked by saves, likes and cooks | ADR section 0: feed scores on `UserRecipeRelation` and `times_cooked`; `UserCookEvent` and `UserRecipeView` are not wired in | Wire the cook and view signals into `feed_service` | Open |
 | Arrange rows (pin, reorder) | `Menu.sort_order` exists for menus; nothing found for browse rows | Needs per-user row order and pin storage | Open |
 | "Something different" row | `fallback_rows` exists on the home feed | Needs an always-present exploration row on browse | Open |
-| Rating only after cooking | ADR section 0: open, issue #508 | Backend gate still to build | Closed (#549) |
-| Five-point rating | `UserRecipeRelation.rating` is a float validated 0.0 to 5.0 | Fits as designed | Open (no gap — schema already fits) |
+| Rating only after cooking | ADR section 0: open, issue #508 | Backend gate still to build | Closed (#508) |
+| Five-point rating | `UserRecipeRelation.rating` is a float validated 0.0 to 5.0 | Fits as designed | Fits |
 | Photo and "What changed" | `UserRecipeRelation.rating_photos` and `rating_comment` exist; `UserCookEvent.notes` exists (500 chars) | Decide which field holds the variation: per relation (one, overwritten) or per cook event (one each time). The mockup implies per cook event | Open question 2 |
 | Submitting a rating | ADR section 0 warns `POST /recipes/{id}/rate` is a whole-relation upsert that clears fields it is not sent | The rating sheet must send the complete relation, or the endpoint needs a partial update | Closed (#549) |
 | "How it turned out" list | `GET /recipes/{id}/cook-history` and `GET /recipes/{id}/ratings` exist | Needs photos and comments per household member in one response | Open (backend #568 done; frontend #575 pending) |
@@ -197,8 +197,8 @@ These came up at the end of the session. They change the product's shape and bel
 
 1. Should members be able to trigger a bounded pull by opening a row, or should the coordinator keep a per-source "bring in automatically" switch?
    *Answered 2026-11-10: members may. The pull is one collection-page fetch (30 cards), not a batch of recipe imports, so it is cheap and bounded. See section 0.*
-2. Where does a cook's variation live: on the cook event, or on the user's relation to the recipe?
-5. Which food database backs the nutrition estimate, and what are the two sample amounts for oil and salt?
+- **2.** Where does a cook's variation live: on the cook event, or on the user's relation to the recipe?
+- **5.** Which food database backs the nutrition estimate, and what are the two sample amounts for oil and salt?
 
 ### Answered
 
@@ -212,7 +212,7 @@ These came up at the end of the session. They change the product's shape and bel
 1. ~~Screen 1 link path end to end: add page, fetching, preview, duplicate, failure, wired to `POST /scraper/import-url`.~~
 2. ~~Saved-page endpoint, then the saved-page UI and the Kitchen Sanctuary pre-fetch catch.~~
 3. ~~Recipe detail items whose backend already exists: "I cooked this", add to plan, top-bar bookmark and heart, step pills, timers, pantry review sheet.~~
-4. Rating gate (issue #508), then the just-cooked strip and the photo and variation sheet. *(backend done, frontend #549)*
+4. ~~Rating gate (issue #508), then the just-cooked strip and the photo and variation sheet.~~ *(#508 merged in Phase 2.5A, #549 merged)*
 5. Card and feed schema additions, then the browse rows with subtitles and the saved-versus-unsaved treatment. *(cards #567/#574)*
 6. ~~Member-safe "bring in more" and the opened-row tail states.~~
 7. ~~Source health job, rows and alert.~~
