@@ -792,20 +792,29 @@ class TestSwitchUser:
 
     def test_switch_user_token_is_fresh(self, client, coordinator_user, member_user):
         """POST /auth/switch-user returns a new token with fresh expiration."""
-        import time
+        from unittest.mock import patch
         from src.services.auth_service import decode_token
 
         coord_token = create_access_token(data={"sub": str(coordinator_user.id)})
         coord_headers = {"Authorization": f"Bearer {coord_token}"}
         switch_data = {"user_id": str(member_user.id)}
-        response1 = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
+
+        # Advance the datetime seen by create_access_token by 2 seconds between
+        # requests so the two tokens have distinct iat values without sleeping.
+        t0 = datetime.now(timezone.utc)
+        t1 = t0 + timedelta(seconds=2)
+
+        with patch("src.services.auth_service.datetime") as mock_dt:
+            mock_dt.now.return_value = t0
+            response1 = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
+
+        with patch("src.services.auth_service.datetime") as mock_dt:
+            mock_dt.now.return_value = t1
+            response2 = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
+
         token1 = response1.json()["access_token"]
-        payload1 = decode_token(token1)
-
-        time.sleep(1)
-
-        response2 = client.post("/auth/switch-user", json=switch_data, headers=coord_headers)
         token2 = response2.json()["access_token"]
+        payload1 = decode_token(token1)
         payload2 = decode_token(token2)
 
         assert token1 != token2
@@ -1543,12 +1552,19 @@ class TestAccountLockout:
         # Verify initial state
         assert test_user.lockout_count == 0
 
-        # Trigger first lockout (5 failed attempts)
-        for _ in range(5):
+        # Trigger first lockout: 4 attempts to build up count, then capture time
+        # around the lockout-triggering 5th attempt.
+        for _ in range(4):
             client.post("/auth/login", json={
                 "email": "test@example.com",
                 "password": "wrongpassword"
             })
+        before_lockout = datetime.now(timezone.utc)
+        client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "wrongpassword"
+        })
+        after_lockout = datetime.now(timezone.utc)
 
         # Verify lockout was applied
         db_session.refresh(test_user)
@@ -1556,12 +1572,13 @@ class TestAccountLockout:
         assert test_user.lockout_until is not None
         assert test_user.lockout_count == 1
 
-        # Verify lockout duration is approximately 15 minutes
-        lockout_duration = test_user.lockout_until - datetime.utcnow()
-        # 30-second tolerance: the lockout is stamped inside the login handler and
-        # measured here after five bcrypt-hashing requests; under a loaded full-suite
-        # run that gap exceeded 1 s and flaked (rite gate, 2026-11-11).
-        assert timedelta(minutes=15, seconds=-30) <= lockout_duration <= timedelta(minutes=15, seconds=30)
+        # Verify lockout duration is approximately 15 minutes.
+        # Tolerance = only the duration of the triggering request, not a fixed wall-clock window.
+        lockout_until = test_user.lockout_until
+        if lockout_until.tzinfo is None:
+            lockout_until = lockout_until.replace(tzinfo=timezone.utc)
+        assert lockout_until >= before_lockout + timedelta(minutes=15)
+        assert lockout_until <= after_lockout + timedelta(minutes=15)
 
     def test_progressive_lockout_second_lockout_30_minutes(self, client, test_user, db_session):
         """Second lockout uses 30-minute duration (exponential backoff)."""
@@ -1569,12 +1586,18 @@ class TestAccountLockout:
         test_user.lockout_count = 1
         db_session.commit()
 
-        # Trigger second lockout (5 failed attempts)
-        for _ in range(5):
+        # Trigger second lockout: 4 build-up attempts, then capture time around the 5th.
+        for _ in range(4):
             client.post("/auth/login", json={
                 "email": "test@example.com",
                 "password": "wrongpassword"
             })
+        before_lockout = datetime.now(timezone.utc)
+        client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "wrongpassword"
+        })
+        after_lockout = datetime.now(timezone.utc)
 
         # Verify lockout was applied with increased duration
         db_session.refresh(test_user)
@@ -1582,9 +1605,12 @@ class TestAccountLockout:
         assert test_user.lockout_until is not None
         assert test_user.lockout_count == 2
 
-        # Verify lockout duration is approximately 30 minutes
-        lockout_duration = test_user.lockout_until - datetime.utcnow()
-        assert timedelta(minutes=30, seconds=-30) <= lockout_duration <= timedelta(minutes=30, seconds=30)
+        # Verify lockout duration is approximately 30 minutes.
+        lockout_until = test_user.lockout_until
+        if lockout_until.tzinfo is None:
+            lockout_until = lockout_until.replace(tzinfo=timezone.utc)
+        assert lockout_until >= before_lockout + timedelta(minutes=30)
+        assert lockout_until <= after_lockout + timedelta(minutes=30)
 
     def test_progressive_lockout_caps_at_240_minutes(self, client, test_user, db_session):
         """Lockout duration caps at 240 minutes (4 hours) after 5th lockout."""
@@ -1592,34 +1618,52 @@ class TestAccountLockout:
         test_user.lockout_count = 4
         db_session.commit()
 
-        # Trigger 5th lockout (should use cap)
-        for _ in range(5):
+        # Trigger 5th lockout (should use cap).
+        for _ in range(4):
             client.post("/auth/login", json={
                 "email": "test@example.com",
                 "password": "wrongpassword"
             })
+        before_lockout = datetime.now(timezone.utc)
+        client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "wrongpassword"
+        })
+        after_lockout = datetime.now(timezone.utc)
 
-        # Verify lockout uses maximum duration (cap)
+        # Verify lockout uses maximum duration (cap).
         db_session.refresh(test_user)
         assert test_user.lockout_count == 5
-        lockout_duration = test_user.lockout_until - datetime.utcnow()
-        assert timedelta(minutes=240, seconds=-30) <= lockout_duration <= timedelta(minutes=240, seconds=30)
+        lockout_until = test_user.lockout_until
+        if lockout_until.tzinfo is None:
+            lockout_until = lockout_until.replace(tzinfo=timezone.utc)
+        assert lockout_until >= before_lockout + timedelta(minutes=240)
+        assert lockout_until <= after_lockout + timedelta(minutes=240)
 
-        # Trigger another lockout - should still use cap
+        # Trigger another lockout - should still use cap.
         test_user.lockout_until = None  # Reset for next test
         test_user.failed_login_attempts = 0
         db_session.commit()
 
-        for _ in range(5):
+        for _ in range(4):
             client.post("/auth/login", json={
                 "email": "test@example.com",
                 "password": "wrongpassword"
             })
+        before_lockout2 = datetime.now(timezone.utc)
+        client.post("/auth/login", json={
+            "email": "test@example.com",
+            "password": "wrongpassword"
+        })
+        after_lockout2 = datetime.now(timezone.utc)
 
         db_session.refresh(test_user)
         assert test_user.lockout_count == 6  # Still incrementing
-        lockout_duration = test_user.lockout_until - datetime.utcnow()
-        assert timedelta(minutes=240, seconds=-30) <= lockout_duration <= timedelta(minutes=240, seconds=30)
+        lockout_until2 = test_user.lockout_until
+        if lockout_until2.tzinfo is None:
+            lockout_until2 = lockout_until2.replace(tzinfo=timezone.utc)
+        assert lockout_until2 >= before_lockout2 + timedelta(minutes=240)
+        assert lockout_until2 <= after_lockout2 + timedelta(minutes=240)
 
     def test_progressive_lockout_schedule_follows_exponential_pattern(self, client, db_session):
         """Verify all lockout durations follow the exponential backoff schedule."""
@@ -1639,23 +1683,29 @@ class TestAccountLockout:
             db_session.add(user)
             db_session.commit()
 
-            # Trigger lockout
-            for _ in range(5):
+            # Trigger lockout: 4 build-up attempts, then capture time around the 5th.
+            for _ in range(4):
                 client.post("/auth/login", json={
                     "email": user.email,
                     "password": "wrongpassword"
                 })
+            before_lockout = datetime.now(timezone.utc)
+            client.post("/auth/login", json={
+                "email": user.email,
+                "password": "wrongpassword"
+            })
+            after_lockout = datetime.now(timezone.utc)
 
-            # Verify lockout duration
+            # Verify lockout duration: tolerance = only the duration of the triggering request.
             db_session.refresh(user)
             assert user.lockout_count == lockout_num + 1
-            lockout_duration = user.lockout_until - datetime.utcnow()
-
-            # 30-second tolerance, see test_first_lockout_is_15_minutes for why
-            min_duration = timedelta(minutes=expected_minutes, seconds=-30)
-            max_duration = timedelta(minutes=expected_minutes, seconds=30)
-            assert min_duration <= lockout_duration <= max_duration, \
-                f"Lockout {lockout_num + 1} expected {expected_minutes}min, got {lockout_duration.total_seconds() / 60:.2f}min"
+            lockout_until = user.lockout_until
+            if lockout_until and lockout_until.tzinfo is None:
+                lockout_until = lockout_until.replace(tzinfo=timezone.utc)
+            assert lockout_until >= before_lockout + timedelta(minutes=expected_minutes), \
+                f"Lockout {lockout_num + 1} expected >= {expected_minutes}min"
+            assert lockout_until <= after_lockout + timedelta(minutes=expected_minutes), \
+                f"Lockout {lockout_num + 1} expected <= {expected_minutes}min"
 
     def test_successful_login_resets_lockout_count(self, client, test_user, db_session):
         """Successful login resets lockout_count to 0, allowing forgiveness."""

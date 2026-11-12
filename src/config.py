@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # How long before a fetched collection is considered stale and re-fetched on next request
     catalog_refresh_hours: int = Field(default=24, gt=0)
 
+    # Password Hashing Configuration
+    # bcrypt cost factor (rounds). Lower values speed up tests; production should use >= 10.
+    # Set BCRYPT_ROUNDS=4 in the test environment for fast hashing without changing production cost.
+    bcrypt_rounds: int = Field(default=12, ge=4, le=31)
+
 
 @lru_cache
 def get_settings() -> Settings:
