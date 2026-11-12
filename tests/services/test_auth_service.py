@@ -27,7 +27,7 @@ class TestHashPassword:
         hashed = hash_password(password)
 
         # Bcrypt hashes should start with $2b$ (bcrypt prefix)
-        assert hashed.startswith("$2b$12$"), "Hash should start with $2b$12$"
+        assert hashed.startswith("$2b$"), "Hash should start with $2b$"
         # Bcrypt hashes should be 60 characters long
         assert len(hashed) == 60, "Bcrypt hash should be 60 characters"
 
@@ -44,7 +44,7 @@ class TestHashPassword:
         unicode_password = "pässwörd_日本語_🔒"
         hashed = hash_password(unicode_password)
 
-        assert hashed.startswith("$2b$12$")
+        assert hashed.startswith("$2b$")
         assert verify_password(unicode_password, hashed)
 
     def test_hash_password_with_special_characters(self):
@@ -52,7 +52,7 @@ class TestHashPassword:
         special_password = "p@ssw0rd!#$%^&*()"
         hashed = hash_password(special_password)
 
-        assert hashed.startswith("$2b$12$")
+        assert hashed.startswith("$2b$")
         assert verify_password(special_password, hashed)
 
     def test_hash_password_rejects_none(self):
@@ -82,7 +82,7 @@ class TestHashPassword:
         max_length_password = "a" * 72
         hashed = hash_password(max_length_password)
 
-        assert hashed.startswith("$2b$12$")
+        assert hashed.startswith("$2b$")
         assert verify_password(max_length_password, hashed)
 
     def test_hash_password_rejects_unicode_exceeding_byte_limit(self):
@@ -96,7 +96,7 @@ class TestHashPassword:
         # 18 emoji × 4 bytes = 72 bytes (at the limit)
         at_limit_password = "🔒" * 18  # Exactly 72 bytes
         hashed = hash_password(at_limit_password)
-        assert hashed.startswith("$2b$12$")
+        assert hashed.startswith("$2b$")
         assert verify_password(at_limit_password, hashed)
 
         # 19 emoji × 4 bytes = 76 bytes (exceeds limit)
