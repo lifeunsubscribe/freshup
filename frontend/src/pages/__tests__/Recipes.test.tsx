@@ -17,6 +17,14 @@ vi.mock('../../api/hooks/useRecipeEngagement', () => ({
   useToggleBookmark: () => ({ mutate: vi.fn() }),
   useToggleLike: () => ({ mutate: vi.fn() }),
 }))
+// The "From HelloFresh" section (#545) reads the catalog through React Query.
+// An empty, settled list keeps these library-view tests focused on what they
+// already assert; the catalog section has its own tests in ../Recipes.test.tsx.
+vi.mock('../../api/hooks/useCatalog', () => ({
+  useCollections: () => ({ data: [], isLoading: false, isError: false }),
+  useCollection: () => ({ data: undefined, isLoading: false, isError: false }),
+  useOpenCard: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null, reset: vi.fn() }),
+}))
 
 
 // Helper to render component with Router context
@@ -133,7 +141,8 @@ describe('Recipes Page', () => {
         expect.objectContaining({
           limit: 10,
           max_cook_time: 30,
-        })
+        }),
+        expect.anything()
       )
 
       // Verify italian section has tag filter
@@ -141,7 +150,8 @@ describe('Recipes Page', () => {
         expect.objectContaining({
           limit: 10,
           tag: 'italian',
-        })
+        }),
+        expect.anything()
       )
     })
 
@@ -437,7 +447,8 @@ describe('Recipes Page', () => {
       expect(useRecipeList).toHaveBeenCalledWith(
         expect.objectContaining({
           limit: 10,
-        })
+        }),
+        expect.anything()
       )
     })
 
@@ -448,7 +459,8 @@ describe('Recipes Page', () => {
         expect.objectContaining({
           limit: 10,
           max_cook_time: 30,
-        })
+        }),
+        expect.anything()
       )
     })
 
@@ -460,7 +472,8 @@ describe('Recipes Page', () => {
         expect.objectContaining({
           limit: 10,
           tag: 'italian',
-        })
+        }),
+        expect.anything()
       )
 
       // Check Mexican section
@@ -468,7 +481,8 @@ describe('Recipes Page', () => {
         expect.objectContaining({
           limit: 10,
           tag: 'mexican',
-        })
+        }),
+        expect.anything()
       )
 
       // Check Asian section
@@ -476,7 +490,8 @@ describe('Recipes Page', () => {
         expect.objectContaining({
           limit: 10,
           tag: 'asian',
-        })
+        }),
+        expect.anything()
       )
     })
   })
