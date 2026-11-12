@@ -56,7 +56,7 @@ describe('CategoryLabel', () => {
   })
 
   it('renders empty children', () => {
-    const { container } = render(<CategoryLabel></CategoryLabel>)
+    const { container } = render(<CategoryLabel>{undefined}</CategoryLabel>)
     const span = container.querySelector('span')
     expect(span).toBeInTheDocument()
     expect(span).toHaveTextContent('')

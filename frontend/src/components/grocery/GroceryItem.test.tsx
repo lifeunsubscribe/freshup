@@ -225,7 +225,7 @@ describe('GroceryItem', () => {
 
   describe('Error Handling', () => {
     it('displays error banner when purchaseMutation fails', async () => {
-      const purchaseMutate = vi.fn((id, options) => {
+      const purchaseMutate = vi.fn((_id, options) => {
         // Simulate mutation failure by calling onError
         if (options?.onError) {
           options.onError()
@@ -258,7 +258,7 @@ describe('GroceryItem', () => {
     })
 
     it('displays error banner when unpurchaseMutation fails', async () => {
-      const unpurchaseMutate = vi.fn((id, options) => {
+      const unpurchaseMutate = vi.fn((_id, options) => {
         // Simulate mutation failure by calling onError
         if (options?.onError) {
           options.onError()
@@ -293,7 +293,7 @@ describe('GroceryItem', () => {
     it('auto-dismisses error message after 5 seconds', async () => {
       vi.useFakeTimers()
 
-      const purchaseMutate = vi.fn((id, options) => {
+      const purchaseMutate = vi.fn((_id, options) => {
         // Simulate mutation failure by calling onError
         if (options?.onError) {
           options.onError()
@@ -337,7 +337,7 @@ describe('GroceryItem', () => {
       const user = userEvent.setup()
       let shouldError = true
 
-      const purchaseMutate = vi.fn((id, options) => {
+      const purchaseMutate = vi.fn((_id, options) => {
         // First call fails, second succeeds
         if (shouldError && options?.onError) {
           options.onError()

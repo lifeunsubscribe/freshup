@@ -76,7 +76,7 @@ describe('SourceHealthSection', () => {
       data: [],
       isLoading: false,
       isError: false,
-    } as ReturnType<typeof useSourceHealth>)
+    } as unknown as ReturnType<typeof useSourceHealth>)
   })
 
   it('renders nothing for a member', () => {
@@ -135,7 +135,7 @@ describe('SourceHealthSection', () => {
       data: [healthyStatus],
       isLoading: false,
       isError: false,
-    } as ReturnType<typeof useSourceHealth>)
+    } as unknown as ReturnType<typeof useSourceHealth>)
 
     renderSection()
 
@@ -159,7 +159,7 @@ describe('SourceHealthSection', () => {
       data: [failingStatus],
       isLoading: false,
       isError: false,
-    } as ReturnType<typeof useSourceHealth>)
+    } as unknown as ReturnType<typeof useSourceHealth>)
 
     renderSection()
 
@@ -183,7 +183,7 @@ describe('SourceHealthSection', () => {
       data: [neverCheckedStatus],
       isLoading: false,
       isError: false,
-    } as ReturnType<typeof useSourceHealth>)
+    } as unknown as ReturnType<typeof useSourceHealth>)
 
     renderSection()
 
@@ -207,7 +207,7 @@ describe('SourceHealthSection', () => {
       data: undefined,
       isLoading: true,
       isError: false,
-    } as ReturnType<typeof useSourceHealth>)
+    } as unknown as ReturnType<typeof useSourceHealth>)
 
     renderSection()
 
@@ -228,7 +228,7 @@ describe('SourceHealthSection', () => {
       data: [failingStatus],
       isLoading: false,
       isError: false,
-    } as ReturnType<typeof useSourceHealth>)
+    } as unknown as ReturnType<typeof useSourceHealth>)
 
     renderSection()
 
@@ -259,7 +259,7 @@ describe('SourceHealthSection', () => {
       data: [failingLinkMode],
       isLoading: false,
       isError: false,
-    } as ReturnType<typeof useSourceHealth>)
+    } as unknown as ReturnType<typeof useSourceHealth>)
 
     renderSection()
 
@@ -281,7 +281,7 @@ describe('SourceHealthSection', () => {
       data: undefined,
       isLoading: false,
       isError: true,
-    } as ReturnType<typeof useSourceHealth>)
+    } as unknown as ReturnType<typeof useSourceHealth>)
 
     renderSection()
 

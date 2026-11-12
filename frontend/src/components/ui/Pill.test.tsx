@@ -113,7 +113,7 @@ describe('Pill', () => {
   })
 
   it('renders empty children', () => {
-    const { container } = render(<Pill></Pill>)
+    const { container } = render(<Pill>{undefined}</Pill>)
     const span = container.querySelector('span')
     expect(span).toBeInTheDocument()
     expect(span).toHaveTextContent('')

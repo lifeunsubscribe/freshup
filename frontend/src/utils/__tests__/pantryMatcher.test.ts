@@ -9,6 +9,9 @@ describe('pantryMatcher', () => {
     ingredient_name: 'flour',
     quantity: 1,
     unit: 'cup',
+    variation_group: null,
+    variation_diet: null,
+    is_optional: false,
     step_index: null,
     ...overrides,
   })

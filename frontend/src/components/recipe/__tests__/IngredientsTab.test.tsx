@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import IngredientsTab from '../IngredientsTab'
 import type { RecipeIngredientResponse, InventoryItemListResponse } from '../../../api/types'
@@ -11,6 +11,9 @@ describe('IngredientsTab', () => {
     ingredient_name: 'flour',
     quantity: 1,
     unit: 'cup',
+    variation_group: null,
+    variation_diet: null,
+    is_optional: false,
     step_index: null,
     ...overrides,
   })
@@ -24,6 +27,7 @@ describe('IngredientsTab', () => {
     inStockCount: 0,
   }
   const mockInventoryError = false
+  const mockOnPantryReview = vi.fn()
 
   describe('component rendering', () => {
     it('renders ingredients list with formatted quantities', () => {
@@ -39,6 +43,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -49,7 +54,16 @@ describe('IngredientsTab', () => {
     })
 
     it('displays empty state when no ingredients', () => {
-      render(<IngredientsTab ingredients={[]} servingsMultiplier={1} />)
+      render(
+        <IngredientsTab
+          ingredients={[]}
+          servingsMultiplier={1}
+          inventoryItems={mockInventoryItems}
+          stockStatus={mockStockStatus}
+          inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
+        />
+      )
 
       expect(screen.getByText('No ingredients listed for this recipe.')).toBeInTheDocument()
     })
@@ -66,6 +80,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -87,6 +102,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -106,6 +122,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -124,6 +141,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -141,6 +159,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1\/4 cup/)).toBeInTheDocument()
@@ -155,6 +174,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1\/3 cup/)).toBeInTheDocument()
@@ -169,6 +189,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1\/2 cup/)).toBeInTheDocument()
@@ -183,6 +204,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/2\/3 cup/)).toBeInTheDocument()
@@ -197,6 +219,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/3\/4 cup/)).toBeInTheDocument()
@@ -211,6 +234,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1\/8 cup/)).toBeInTheDocument()
@@ -225,6 +249,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/3\/8 cup/)).toBeInTheDocument()
@@ -239,6 +264,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/5\/8 cup/)).toBeInTheDocument()
@@ -253,6 +279,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/7\/8 cup/)).toBeInTheDocument()
@@ -269,6 +296,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1 1\/2 cup/)).toBeInTheDocument()
@@ -283,6 +311,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/2 1\/4 cup/)).toBeInTheDocument()
@@ -297,6 +326,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1 1\/3 cup/)).toBeInTheDocument()
@@ -311,6 +341,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/3 2\/3 cup/)).toBeInTheDocument()
@@ -327,6 +358,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1\/4 cup/)).toBeInTheDocument()
@@ -341,6 +373,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1\/3 cup/)).toBeInTheDocument()
@@ -355,6 +388,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1\/2 cup/)).toBeInTheDocument()
@@ -369,6 +403,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/2\/3 cup/)).toBeInTheDocument()
@@ -383,6 +418,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/3\/4 cup/)).toBeInTheDocument()
@@ -399,6 +435,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/0\.26 cup/)).toBeInTheDocument()
@@ -413,6 +450,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/0\.40 cup/)).toBeInTheDocument()
@@ -427,6 +465,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/0\.60 cup/)).toBeInTheDocument()
@@ -445,6 +484,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1\.45 cup/)).toBeInTheDocument()
@@ -461,6 +501,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       // (1/3) * 3 might be 0.9999999... or 1.0000001 due to floating-point
@@ -477,6 +518,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1\/2 cup/)).toBeInTheDocument()
@@ -491,6 +533,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/1 1\/2 cup/)).toBeInTheDocument()
@@ -505,6 +548,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       expect(screen.getByText(/2\/3 cup/)).toBeInTheDocument()
@@ -519,6 +563,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
       // (2/3) * 1.5 = 1 (with potential floating-point errors)
@@ -541,6 +586,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -561,6 +607,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -579,6 +626,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -604,6 +652,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -633,6 +682,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -671,6 +721,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -699,6 +750,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 
@@ -730,6 +782,7 @@ describe('IngredientsTab', () => {
           inventoryItems={mockInventoryItems}
           stockStatus={mockStockStatus}
           inventoryError={mockInventoryError}
+          onPantryReview={mockOnPantryReview}
         />
       )
 

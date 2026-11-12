@@ -74,7 +74,7 @@ describe('ProfileHeader', () => {
   })
 
   it('shows loading state during logout', async () => {
-    const mockLogout = vi.fn(() => new Promise((resolve) => setTimeout(resolve, 100)))
+    const mockLogout = vi.fn(() => new Promise<void>((resolve) => setTimeout(resolve, 100)))
     render(<ProfileHeader user={mockCoordinator} onLogout={mockLogout} />)
 
     const logoutButton = screen.getByRole('button', { name: /log out/i })

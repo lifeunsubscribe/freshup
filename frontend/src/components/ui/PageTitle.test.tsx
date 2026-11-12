@@ -52,7 +52,7 @@ describe('PageTitle', () => {
   })
 
   it('renders empty children with just the period', () => {
-    render(<PageTitle></PageTitle>)
+    render(<PageTitle>{undefined}</PageTitle>)
     const heading = screen.getByRole('heading', { level: 1 })
     expect(heading).toHaveTextContent('.')
   })

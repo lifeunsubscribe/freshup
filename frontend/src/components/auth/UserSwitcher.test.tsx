@@ -300,7 +300,7 @@ describe('UserSwitcher', () => {
   })
 
   it('shows loading state during user switch', async () => {
-    const mockSwitchUser = vi.fn(() => new Promise((resolve) => setTimeout(resolve, 100)))
+    const mockSwitchUser = vi.fn(() => new Promise<void>((resolve) => setTimeout(resolve, 100)))
     vi.mocked(useAuth).mockReturnValue({
       currentUser: mockCoordinator,
       isAuthenticated: true,

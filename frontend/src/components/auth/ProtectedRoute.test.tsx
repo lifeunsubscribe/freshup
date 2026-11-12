@@ -30,7 +30,7 @@ vi.mock('../../api/client', () => ({
 // case redirected to /login, later renders started there and never mounted
 // ProtectedRoute at all — so the loading tests passed alone and failed in
 // sequence. Each render now starts fresh at "/".
-const TestWrapper = ({ children }: { children: React.ReactNode }) => {
+const TestWrapper = () => {
   return (
     <MemoryRouter initialEntries={['/']}>
       <AuthProvider>

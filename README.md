@@ -54,6 +54,7 @@ Three things to know when writing frontend tests:
   `Foo.test.tsx`, run `find src -name 'Foo.test.tsx'`; extend the existing
   file. A second file with the same name passes while the first one, which
   nobody re-ran, fails on the change you just made.
+- Run `npm run typecheck` before pushing to catch type errors in test files that neither the build nor vitest check.
 
 The API applies any pending Alembic migrations on startup and seeds local test
 users (`sarah@freshup.dev` / `alex@freshup.dev`, password `FreshUp2024!`) when
