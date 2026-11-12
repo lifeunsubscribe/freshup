@@ -333,6 +333,21 @@ class RecipeAggregateRatingsResponse(BaseModel):
     favorite_count: int = Field(..., description="Number of users who favorited this recipe")
 
 
+class RecipeOutcomeResponse(BaseModel):
+    """One row per household member who has cooked or rated the recipe."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: UUID
+    user_name: str
+    rating: Optional[float] = None
+    rating_comment: Optional[str] = None
+    rating_photos: list[str] = Field(default_factory=list)
+    times_cooked: int = 0
+    last_cooked_at: Optional[datetime] = None
+    latest_cook_notes: Optional[str] = None
+
+
 class BookmarkCreate(BaseModel):
     """
     Request body for POST /recipes/{id}/bookmark.

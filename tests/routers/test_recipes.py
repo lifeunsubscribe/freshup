@@ -3205,3 +3205,170 @@ class TestListRecipesBookmarkAndSourceUrl:
 
         # 1 (user lookup from auth) + 1 (recipe list) + 1 (bookmark IDs) = 3
         assert total[0] == 3
+
+
+class TestOutcomes:
+    """GET /recipes/{recipe_id}/outcomes — per-member outcome list."""
+
+    @pytest.fixture
+    def recipe(self, db_session):
+        r = Recipe(
+            id=uuid4(),
+            name="Outcome Test Recipe",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=0,
+            base_servings=4,
+            tags=[],
+        )
+        db_session.add(r)
+        db_session.commit()
+        db_session.refresh(r)
+        return r
+
+    def _add_relation(self, db_session, user, recipe, **kwargs):
+        from src.db.models.user_recipe import UserRecipeRelation
+        rel = UserRecipeRelation(
+            id=uuid4(),
+            user_id=user.id,
+            recipe_id=recipe.id,
+            **kwargs,
+        )
+        db_session.add(rel)
+        db_session.commit()
+        return rel
+
+    def _add_cook(self, db_session, user, recipe, notes=None):
+        from src.db.models.user_cook_event import UserCookEvent
+        from datetime import datetime, timezone
+        event = UserCookEvent(
+            id=uuid4(),
+            user_id=user.id,
+            recipe_id=recipe.id,
+            notes=notes,
+        )
+        db_session.add(event)
+        db_session.commit()
+        return event
+
+    def test_empty_no_contributions(self, client, auth_headers, recipe):
+        """200 with empty list when nobody has cooked or rated the recipe."""
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_one_member_cooked_without_rating(self, client, auth_headers, recipe, test_user, db_session):
+        """Member who cooked but has no rating appears with times_cooked=1 and rating=None."""
+        self._add_cook(db_session, test_user, recipe, notes="Turned out well")
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        row = data[0]
+        assert row["user_id"] == str(test_user.id)
+        assert row["user_name"] == test_user.name
+        assert row["rating"] is None
+        assert row["rating_comment"] is None
+        assert row["times_cooked"] == 1
+        assert row["last_cooked_at"] is not None
+        assert row["latest_cook_notes"] == "Turned out well"
+
+    def test_one_rated_without_cooking(self, client, auth_headers, recipe, test_user, db_session):
+        """Member with a rating relation but no cook events still appears (endpoint does not assume #508 gate)."""
+        self._add_relation(db_session, test_user, recipe, rating=4.5, rating_comment="Lovely")
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        row = data[0]
+        assert row["rating"] == 4.5
+        assert row["rating_comment"] == "Lovely"
+        assert row["times_cooked"] == 0
+        assert row["last_cooked_at"] is None
+
+    def test_two_members_both_cooked(self, client, auth_headers, recipe, test_user, test_user2, db_session):
+        """Two members who cooked both appear; ordering is last_cooked_at desc."""
+        self._add_cook(db_session, test_user, recipe)
+        self._add_cook(db_session, test_user2, recipe)
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        user_ids = {row["user_id"] for row in data}
+        assert str(test_user.id) in user_ids
+        assert str(test_user2.id) in user_ids
+
+    def test_photos_list_shape(self, client, auth_headers, recipe, test_user, db_session):
+        """rating_photos is returned as a list of strings."""
+        photos = ["https://example.com/photo1.jpg", "https://example.com/photo2.jpg"]
+        self._add_relation(db_session, test_user, recipe, rating_photos=photos)
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["rating_photos"] == photos
+
+    def test_404_unknown_recipe(self, client, auth_headers):
+        """404 for a recipe UUID that does not exist."""
+        response = client.get(f"/recipes/{uuid4()}/outcomes", headers=auth_headers)
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Recipe not found"
+
+    def test_non_contributing_member_excluded(self, client, auth_headers, recipe, test_user, test_user2, db_session):
+        """A member who has not cooked or rated does not appear in the list."""
+        # test_user cooked; test_user2 has no contribution
+        self._add_cook(db_session, test_user, recipe)
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["user_id"] == str(test_user.id)
+        # test_user2 must not appear
+        assert all(row["user_id"] != str(test_user2.id) for row in data)
+
+    def test_bookmark_only_does_not_create_row(self, client, auth_headers, recipe, test_user, db_session):
+        """A bookmark-only relation (no rating/comment/photos) does not create a row."""
+        self._add_relation(db_session, test_user, recipe, is_bookmarked=True)
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_query_count_is_two_for_five_members(self, client, auth_headers, recipe, db_session):
+        """Outcomes for 5 contributing members issues exactly 2 service queries (plus auth)."""
+        from sqlalchemy import event as sa_event
+
+        # Create 5 extra users and have them all cook the recipe
+        extra_users = []
+        for i in range(5):
+            u = User(
+                id=uuid4(),
+                email=f"extra{i}@example.com",
+                hashed_password="x",
+                name=f"Extra {i}",
+                role="member",
+            )
+            db_session.add(u)
+            extra_users.append(u)
+        db_session.commit()
+
+        for u in extra_users:
+            self._add_cook(db_session, u, recipe)
+
+        total = [0]
+
+        @sa_event.listens_for(db_session.bind, "before_cursor_execute")
+        def _count(conn, cursor, statement, parameters, context, executemany):
+            total[0] += 1
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        assert len(response.json()) == 5
+
+        # 1 (auth) + 1 (recipe existence) + 2 (service: relations + cook events) = 4
+        assert total[0] == 4

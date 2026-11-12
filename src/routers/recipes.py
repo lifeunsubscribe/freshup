@@ -40,6 +40,7 @@ from src.schemas.recipe import (
     UserRecipeRelationResponse,
     BookmarkCreate,
     RecipeAggregateRatingsResponse,
+    RecipeOutcomeResponse,
     AdHocRecipeCreate,
     CookEventCreate,
     CookEventResponse,
@@ -51,7 +52,7 @@ from src.routers.recipe_helpers import (
     verify_recipe_ownership_with_system_check,
     validate_step_index,
 )
-from src.services.recipe_service import trigger_persistence
+from src.services.recipe_service import trigger_persistence, get_recipe_outcomes
 from src.services.feed_service import get_bookmarked_recipe_ids
 
 logger = logging.getLogger(__name__)
@@ -1487,3 +1488,31 @@ def get_recipe_ratings(
         rating_count=rating_count,
         favorite_count=favorite_count,
     )
+
+
+@router.get("/{recipe_id}/outcomes", response_model=list[RecipeOutcomeResponse])
+def get_recipe_outcomes_endpoint(
+    recipe_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return one row per household member who has cooked or rated the recipe.
+
+    A member appears when they have a UserRecipeRelation with rating, rating_comment
+    or rating_photos set, or at least one UserCookEvent for this recipe. Bookmark
+    or like alone does not create a row.
+
+    Results are ordered by last_cooked_at desc (members who have never cooked appear
+    last), then user_name asc within ties.
+
+    Returns:
+        list[RecipeOutcomeResponse] (200): Per-member outcome rows; empty list when
+            nobody has cooked or rated the recipe.
+
+    Raises:
+        HTTPException(401): Unauthenticated caller.
+        HTTPException(404): Recipe not found.
+    """
+    _require_recipe(recipe_id, db)
+    return get_recipe_outcomes(recipe_id, db)
