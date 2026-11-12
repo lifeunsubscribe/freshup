@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
+from src.db.models.recipe import Recipe
 from src.db.models.user import User
 from src.routers.auth import get_current_user
 from src.services import feed_service
@@ -23,6 +24,12 @@ from src.schemas.feed import (
 
 router = APIRouter(prefix="/feed", tags=["feed"])
 logger = logging.getLogger(__name__)
+
+
+def _to_card(recipe: Recipe, bookmarked_ids: set) -> RecipeCardSchema:
+    card = RecipeCardSchema.model_validate(recipe)
+    card.is_bookmarked = recipe.id in bookmarked_ids
+    return card
 
 
 @router.get("/home", response_model=HomeFeedResponseSchema)
@@ -44,6 +51,9 @@ def get_home_feed(
 
     Requires authentication.
     """
+    # One extra query: the calling user's bookmarked IDs for card annotation.
+    bookmarked_ids = feed_service.get_bookmarked_recipe_ids(current_user.id, db)
+
     # Get Make This Right Now recipes (inventory-aware)
     make_now_recipes = feed_service.get_make_now_recipes(
         user_id=current_user.id,
@@ -79,7 +89,7 @@ def get_home_feed(
     personalized_rows = [
         FeedRowSchema(
             title=row["title"],
-            recipes=[RecipeCardSchema.model_validate(r) for r in row["recipes"]],
+            recipes=[_to_card(r, bookmarked_ids) for r in row["recipes"]],
             browse_url=row.get("browse_url")
         )
         for row in personalized_rows_data
@@ -88,7 +98,7 @@ def get_home_feed(
     source_rows = [
         FeedRowSchema(
             title=row["title"],
-            recipes=[RecipeCardSchema.model_validate(r) for r in row["recipes"]],
+            recipes=[_to_card(r, bookmarked_ids) for r in row["recipes"]],
             browse_url=row.get("browse_url")
         )
         for row in source_rows_data
@@ -97,7 +107,7 @@ def get_home_feed(
     fallback_rows = [
         FeedRowSchema(
             title=row["title"],
-            recipes=[RecipeCardSchema.model_validate(r) for r in row["recipes"]],
+            recipes=[_to_card(r, bookmarked_ids) for r in row["recipes"]],
             browse_url=row.get("browse_url")
         )
         for row in fallback_rows_data
@@ -107,11 +117,11 @@ def get_home_feed(
     response = HomeFeedResponseSchema(
         make_now=FeedSectionSchema(
             title="Make This Right Now",
-            recipes=[RecipeCardSchema.model_validate(r) for r in make_now_recipes]
+            recipes=[_to_card(r, bookmarked_ids) for r in make_now_recipes]
         ),
         on_repeat=FeedSectionSchema(
             title="On Repeat",
-            recipes=[RecipeCardSchema.model_validate(r) for r in on_repeat_recipes]
+            recipes=[_to_card(r, bookmarked_ids) for r in on_repeat_recipes]
         ),
         personalized_rows=personalized_rows,
         source_rows=source_rows,
@@ -147,6 +157,9 @@ def get_browse_feed(
 
     Requires authentication.
     """
+    # One extra query: the calling user's bookmarked IDs for card annotation.
+    bookmarked_ids = feed_service.get_bookmarked_recipe_ids(current_user.id, db)
+
     # Build all row types
     personalized_rows_data = feed_service.build_personalized_rows(
         user_id=current_user.id,
@@ -169,7 +182,7 @@ def get_browse_feed(
     sections = [
         FeedRowSchema(
             title=row["title"],
-            recipes=[RecipeCardSchema.model_validate(r) for r in row["recipes"]],
+            recipes=[_to_card(r, bookmarked_ids) for r in row["recipes"]],
             browse_url=row.get("browse_url")
         )
         for row in all_sections_data

@@ -15,12 +15,14 @@ class RecipeCardSchema(BaseModel):
     id: UUID = Field(..., description="Recipe ID")
     name: str = Field(..., description="Recipe name")
     source_type: str = Field(..., description="Source type")
+    source_url: Optional[str] = Field(None, description="Original URL if web-sourced")
     source_image: Optional[str] = Field(None, description="Recipe image URL")
     prep_time_minutes: Optional[int] = Field(None, description="Prep time in minutes")
     cook_time_minutes: Optional[int] = Field(None, description="Cook time in minutes")
     base_servings: int = Field(..., description="Number of servings")
     tags: list[str] = Field(default_factory=list, description="Recipe tags")
     times_cooked: int = Field(..., description="Number of times cooked")
+    is_bookmarked: bool = Field(False, description="True if the calling user has bookmarked this recipe")
 
     model_config = {"from_attributes": True}
 

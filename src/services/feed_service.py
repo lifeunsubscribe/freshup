@@ -259,6 +259,31 @@ def _get_saved_recipe_ids(user_id: UUID, db: Session) -> set[UUID]:
     }
 
 
+def get_bookmarked_recipe_ids(user_id: UUID, db: Session) -> set[UUID]:
+    """
+    Get IDs of all recipes the user has explicitly bookmarked.
+
+    One query per list/feed response — callers fetch this set once and test
+    membership per card rather than issuing a per-card relation lookup.
+
+    Args:
+        user_id: User ID to look up bookmarks for
+        db: Database session
+
+    Returns:
+        Set of recipe IDs where the user's is_bookmarked flag is True
+    """
+    rows = (
+        db.query(UserRecipeRelation.recipe_id)
+        .filter(
+            UserRecipeRelation.user_id == user_id,
+            UserRecipeRelation.is_bookmarked == True,  # noqa: E712
+        )
+        .all()
+    )
+    return {row.recipe_id for row in rows}
+
+
 def get_recipes_by_tag(user_id: UUID, db: Session, tag: str, limit: int = 10) -> list[Recipe]:
     """
     Get recipes matching a specific tag, mixing saved and non-saved recipes.

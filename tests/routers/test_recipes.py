@@ -3083,3 +3083,125 @@ class TestRecipeDetailIncludesIngredients:
 
         assert response.status_code == 200
         assert all("ingredients" not in item for item in response.json())
+
+
+class TestListRecipesBookmarkAndSourceUrl:
+    """GET /recipes list rows include is_bookmarked (caller-scoped) and source_url."""
+
+    def _recipe(self, db_session, name="Test Recipe", source_url=None):
+        from uuid import uuid4 as _uuid4
+        r = Recipe(
+            id=_uuid4(),
+            name=name,
+            source_type="url_import",
+            source_url=source_url,
+            is_persisted=True,
+            times_cooked=0,
+            base_servings=4,
+            tags=[],
+        )
+        db_session.add(r)
+        db_session.commit()
+        db_session.refresh(r)
+        return r
+
+    def _bookmark(self, db_session, user_id, recipe_id):
+        from src.db.models.user_recipe import UserRecipeRelation
+        rel = UserRecipeRelation(
+            id=uuid4(),
+            user_id=user_id,
+            recipe_id=recipe_id,
+            is_bookmarked=True,
+        )
+        db_session.add(rel)
+        db_session.commit()
+
+    def test_list_source_url_passthrough(self, client, auth_headers, test_user, db_session):
+        """source_url from the Recipe row is included in list responses."""
+        url = "https://example.com/my-recipe"
+        self._recipe(db_session, source_url=url)
+
+        response = client.get("/recipes", headers=auth_headers)
+
+        assert response.status_code == 200
+        items = response.json()
+        assert len(items) == 1
+        assert items[0]["source_url"] == url
+
+    def test_list_source_url_null_for_manual(self, client, auth_headers, test_user, db_session):
+        """source_url is null for manually-entered recipes."""
+        self._recipe(db_session, source_url=None)
+
+        response = client.get("/recipes", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert response.json()[0]["source_url"] is None
+
+    def test_list_is_bookmarked_true_for_caller(self, client, auth_headers, test_user, db_session):
+        """is_bookmarked is True when the calling user has bookmarked the recipe."""
+        recipe = self._recipe(db_session)
+        self._bookmark(db_session, test_user.id, recipe.id)
+
+        response = client.get("/recipes", headers=auth_headers)
+
+        assert response.status_code == 200
+        items = response.json()
+        assert len(items) == 1
+        assert items[0]["is_bookmarked"] is True
+
+    def test_list_is_bookmarked_false_when_no_relation(self, client, auth_headers, test_user, db_session):
+        """is_bookmarked is False when the calling user has no relation with the recipe."""
+        self._recipe(db_session)
+
+        response = client.get("/recipes", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert response.json()[0]["is_bookmarked"] is False
+
+    def test_list_is_bookmarked_false_for_other_users_bookmark(
+        self, client, auth_headers, test_user, test_user2, db_session
+    ):
+        """Another member's bookmark does not set is_bookmarked for the calling user."""
+        recipe = self._recipe(db_session)
+        self._bookmark(db_session, test_user2.id, recipe.id)  # user2 bookmarks, not user1
+
+        response = client.get("/recipes", headers=auth_headers)  # user1 is the caller
+
+        assert response.status_code == 200
+        assert response.json()[0]["is_bookmarked"] is False
+
+    def test_list_query_count_is_baseline_plus_one(self, client, auth_headers, test_user, db_session):
+        """A 20-recipe list issues exactly 3 SQL statements: auth + recipe list + bookmark IDs."""
+        from sqlalchemy import event
+
+        recipes = [
+            Recipe(
+                id=uuid4(),
+                name=f"Recipe {i}",
+                source_type="manual",
+                is_persisted=True,
+                times_cooked=0,
+                base_servings=4,
+                tags=[],
+            )
+            for i in range(20)
+        ]
+        db_session.add_all(recipes)
+        db_session.commit()
+
+        # Bookmark one recipe so the bookmark query is non-trivial
+        self._bookmark(db_session, test_user.id, recipes[0].id)
+
+        # Register the counter after all setup commits so setup queries are excluded.
+        total = [0]
+
+        @event.listens_for(db_session.bind, "before_cursor_execute")
+        def _count(conn, cursor, statement, parameters, context, executemany):
+            total[0] += 1
+
+        response = client.get("/recipes?limit=20", headers=auth_headers)
+        assert response.status_code == 200
+        assert len(response.json()) == 20
+
+        # 1 (user lookup from auth) + 1 (recipe list) + 1 (bookmark IDs) = 3
+        assert total[0] == 3
