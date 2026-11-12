@@ -27,6 +27,9 @@ vi.mock('../components/profile/DislikedIngredientsSection', () => ({
 vi.mock('../components/profile/SubstitutionsSection', () => ({
   default: () => <div data-testid="substitutions-section">SubstitutionsSection</div>,
 }))
+vi.mock('../components/profile/SourceHealthSection', () => ({
+  default: () => <div data-testid="source-health-section">SourceHealthSection</div>,
+}))
 
 // Mock the auth context
 vi.mock('../contexts/AuthContext')
@@ -93,6 +96,7 @@ describe('Profile Page', () => {
     expect(screen.getByTestId('allergies-section')).toBeInTheDocument()
     expect(screen.getByTestId('disliked-section')).toBeInTheDocument()
     expect(screen.getByTestId('substitutions-section')).toBeInTheDocument()
+    expect(screen.getByTestId('source-health-section')).toBeInTheDocument()
     expect(screen.getByTestId('user-switcher')).toBeInTheDocument()
   })
 
@@ -127,6 +131,7 @@ describe('Profile Page', () => {
     expect(screen.queryByTestId('allergies-section')).not.toBeInTheDocument()
     expect(screen.queryByTestId('disliked-section')).not.toBeInTheDocument()
     expect(screen.queryByTestId('substitutions-section')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('source-health-section')).not.toBeInTheDocument()
     expect(screen.queryByTestId('user-switcher')).not.toBeInTheDocument()
   })
 
@@ -148,6 +153,7 @@ describe('Profile Page', () => {
     expect(sections[2]).toHaveAttribute('data-testid', 'allergies-section')
     expect(sections[3]).toHaveAttribute('data-testid', 'disliked-section')
     expect(sections[4]).toHaveAttribute('data-testid', 'substitutions-section')
-    expect(sections[5]).toHaveAttribute('data-testid', 'user-switcher')
+    expect(sections[5]).toHaveAttribute('data-testid', 'source-health-section')
+    expect(sections[6]).toHaveAttribute('data-testid', 'user-switcher')
   })
 })

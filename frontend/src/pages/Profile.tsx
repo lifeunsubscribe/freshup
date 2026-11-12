@@ -6,6 +6,7 @@ import DietarySection from '../components/profile/DietarySection'
 import AllergiesSection from '../components/profile/AllergiesSection'
 import DislikedIngredientsSection from '../components/profile/DislikedIngredientsSection'
 import SubstitutionsSection from '../components/profile/SubstitutionsSection'
+import SourceHealthSection from '../components/profile/SourceHealthSection'
 import { useAuth } from '../contexts/AuthContext'
 
 /**
@@ -55,6 +56,9 @@ export default function Profile() {
 
           {/* Substitution Preferences */}
           <SubstitutionsSection />
+
+          {/* Recipe source health (only for coordinators) */}
+          <SourceHealthSection />
 
           {/* User Switcher (only for coordinators) */}
           <UserSwitcher />

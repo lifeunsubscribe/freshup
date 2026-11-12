@@ -153,7 +153,7 @@ Verified by reading the repo at `976d2d0`. "Not found" means a search turned up 
 | Cook timers | Nothing found | Frontend-only state is enough | Open |
 | Similar recipes | Nothing found | Needs a similarity query on shared ingredients and tags | Open |
 | Estimated nutrition | `Recipe.nutritional_info` exists | Needs an ingredient-to-nutrient lookup, an `estimated` marker, and ranges | Open question 5 |
-| Source health check, rows and alert | Nothing found | Needs a daily job, stored status per source, and a status endpoint readable by members | Open; design agreed (daily job in the API's background worker, one known recipe per source) |
+| Source health check, rows and alert | Nothing found | Needs a daily job, stored status per source, and a status endpoint readable by members | Backend closed (#526, #527); rows #544; alert #547 |
 | Pantry check sheet | `recipe/PantryCheck.tsx` exists | Needs per-ingredient in-stock results, not only a summary | Open |
 
 Per the project's LLM boundary: similarity, ranking, nutrition arithmetic, duration extraction and the health check are deterministic code. The one place an LLM may fit is mapping free-text ingredient names to food-database entries for the nutrition estimate.
