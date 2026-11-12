@@ -7,8 +7,13 @@ import SearchBar from '../components/recipe/SearchBar'
 import SectionNav from '../components/recipe/SectionNav'
 import RecipeCarousel from '../components/recipe/RecipeCarousel'
 import RecipeGrid from '../components/recipe/RecipeGrid'
+import CollectionRow from '../components/recipe/CollectionRow'
+import MoreCollectionsSheet from '../components/recipe/MoreCollectionsSheet'
+import SectionHeader from '../components/ui/SectionHeader'
 import Pill from '../components/ui/Pill'
+import { useCollections } from '../api/hooks/useCatalog'
 import type { RecipeFilters } from '../components/recipe/FilterChips'
+import type { CollectionSummary } from '../api/types'
 
 /**
  * Recipes page - Primary recipe discovery interface
@@ -24,11 +29,22 @@ import type { RecipeFilters } from '../components/recipe/FilterChips'
  * - Back button returns to carousel view
  * - Recipe cards navigate to /recipes/:id
  */
+function sortCollections(collections: CollectionSummary[]): CollectionSummary[] {
+  const withCards = collections.filter((c) => c.card_count > 0).sort((a, b) => b.card_count - a.card_count)
+  const withoutCards = collections.filter((c) => c.card_count === 0).sort((a, b) => a.name.localeCompare(b.name))
+  return [...withCards, ...withoutCards]
+}
+
 export default function Recipes() {
   const [viewMode, setViewMode] = useState<'carousel' | 'grid'>('carousel')
   const [searchQuery, setSearchQuery] = useState('')
   const [filters, setFilters] = useState<RecipeFilters>({})
   const [showOnlyInStock, setShowOnlyInStock] = useState(false)
+  const [showMoreCollections, setShowMoreCollections] = useState(false)
+
+  const { data: allCollections, isLoading: collectionsLoading } = useCollections('hellofresh_web')
+  const sortedCollections = allCollections ? sortCollections(allCollections) : []
+  const displayedCollections = sortedCollections.slice(0, 6)
 
   // Define carousel sections
   const sections = [
@@ -109,12 +125,18 @@ export default function Recipes() {
         {/* Carousel view */}
         {viewMode === 'carousel' && (
           <>
-            {/* Section navigation */}
+            {/* Section navigation — library sections + HelloFresh collection rows */}
             <SectionNav
-              sections={sections.map((s) => ({ id: s.id, label: s.label }))}
+              sections={[
+                ...sections.map((s) => ({ id: s.id, label: s.label })),
+                ...displayedCollections.map((c) => ({
+                  id: `hellofresh-${c.slug}`,
+                  label: c.name,
+                })),
+              ]}
             />
 
-            {/* Carousels */}
+            {/* Library carousels */}
             <div className="space-y-6">
               {sections.map((section) => (
                 <RecipeCarousel
@@ -126,6 +148,38 @@ export default function Recipes() {
                 />
               ))}
             </div>
+
+            {/* HelloFresh section */}
+            <div className="space-y-6 mt-6">
+              {/* Section header "From HelloFresh." */}
+              <SectionHeader>From HelloFresh</SectionHeader>
+
+              {/* Skeleton while list is loading (cold start) */}
+              {collectionsLoading && (
+                <p className="text-sm text-text-secondary">Loading collections…</p>
+              )}
+
+              {displayedCollections.map((collection) => (
+                <CollectionRow key={collection.slug} collection={collection} />
+              ))}
+
+              {/* "More collections" button — only when there are collections */}
+              {!collectionsLoading && allCollections && allCollections.length > 0 && (
+                <button
+                  onClick={() => setShowMoreCollections(true)}
+                  className="w-full py-3 text-sm text-olive font-medium hover:text-olive/80 transition-colors text-left"
+                  aria-label="More collections"
+                >
+                  More collections…
+                </button>
+              )}
+            </div>
+
+            <MoreCollectionsSheet
+              open={showMoreCollections}
+              onClose={() => setShowMoreCollections(false)}
+              collections={allCollections ?? []}
+            />
           </>
         )}
 
