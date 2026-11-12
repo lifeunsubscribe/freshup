@@ -627,3 +627,40 @@ export interface SubstitutionPreferenceResponse {
   replacements: ReplacementItem[];
   context: string | null;
 }
+
+// ============================================================================
+// Cook Event Types
+// ============================================================================
+
+export interface CookEventResponse {
+  id: string;
+  user_id: string;
+  recipe_id: string;
+  cooked_at: string;
+  meal_plan_entry_id: string | null;
+  notes: string | null;
+}
+
+// ============================================================================
+// Meal Plan Types
+// ============================================================================
+
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+export interface CreateEntryRequest {
+  date: string;
+  meal_type: MealType;
+  recipe_id: string;
+  planned_servings?: number;
+}
+
+export interface MealPlanEntry {
+  id: string;
+  date: string;
+  meal_type: string;
+  recipe_id: string | null;
+  prepared_food_id: string | null;
+  planned_servings: number;
+  status: string;
+  notes: string | null;
+}

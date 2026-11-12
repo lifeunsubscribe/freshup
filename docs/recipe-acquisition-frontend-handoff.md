@@ -139,7 +139,7 @@ Verified by reading the repo at `976d2d0`. "Not found" means a search turned up 
 | Opening a row brings in more, for any member | `import-batch`, `discover/{source}` and `discover-and-import/{source}` all call `require_coordinator` | **Permission change.** Either relax these for a bounded pull, or add a member-safe "bring in more for this row" endpoint | Closed: `GET /catalog/{source}/collections/{slug}` fetches on demand for any authenticated user (#525) (frontend: #545) |
 | Row subtitle ("Saved 6 times and cooked 31 times here") | `FeedRowSchema` has `title`, `recipes`, `browse_url` | Needs a reason or counts field per row | Open |
 | Saved versus not saved on cards | `RecipeCardSchema` has no `is_persisted` and no per-user bookmark state | Add both to the card schema | Closed for `CatalogCard` (#543); `RecipeCardSchema` still lacks bookmark state |
-| Source badge and "view original" | `RecipeCardSchema` has `source_type` but not `source_url` | Add `source_url` where the link is shown | Open |
+| Source badge and "view original" | `RecipeCardSchema` has `source_type` but not `source_url` | Add `source_url` where the link is shown | Closed on the detail page (#548); cards still lack `source_url` |
 | Feed ranked by saves, likes and cooks | ADR section 0: feed scores on `UserRecipeRelation` and `times_cooked`; `UserCookEvent` and `UserRecipeView` are not wired in | Wire the cook and view signals into `feed_service` | Open |
 | Arrange rows (pin, reorder) | `Menu.sort_order` exists for menus; nothing found for browse rows | Needs per-user row order and pin storage | Open |
 | "Something different" row | `fallback_rows` exists on the home feed | Needs an always-present exploration row on browse | Open |

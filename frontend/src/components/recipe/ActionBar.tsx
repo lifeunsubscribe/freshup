@@ -1,17 +1,12 @@
-import { Bookmark, Heart, ShoppingCart } from 'lucide-react'
+import { ShoppingCart } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useCreateGroceryItem, useGroceryList } from '../../api/hooks/useGrocery'
 import type { IngredientStockStatus } from '../../utils/pantryMatcher'
 import { batchPromises } from '../../utils/batchPromises'
 
 interface ActionBarProps {
-  /** "I endorse this" — public to the household. */
-  isLiked: boolean
-  onLikeToggle: () => void
-  /** "Save for later" — private to the user. */
-  isBookmarked: boolean
-  onBookmarkToggle: () => void
-  onAddToMealPlan: () => void
+  onCookThis: () => Promise<void>
+  onAddToPlan: () => void
   isLoading?: boolean
   missingIngredients?: IngredientStockStatus[]
 }
@@ -21,21 +16,13 @@ interface ActionBarProps {
  *
  * Features:
  * - Fixed bottom bar (mobile-friendly)
- * - "Add missing to list" button (pantry cross-reference)
- * - "Add to meal plan" button (Phase 2 feature)
- * - Like heart toggle (filled when liked) and bookmark toggle (filled when saved)
- * - Shows count of missing ingredients
- * - Disabled when all ingredients in stock
- * - Sticky positioning with shadow for visibility
+ * - "Add missing to list" button (pantry cross-reference; moves to #550)
+ * - "I cooked this" button (posts cook event)
+ * - "Add to plan" button (opens AddToPlanSheet)
  */
 export default function ActionBar({
-  isLiked,
-  onLikeToggle,
-  isBookmarked,
-  onBookmarkToggle,
-  // onAddToMealPlan stays in the props contract for Phase 2.5F's add-to-plan
-  // button, which is blocked on a backend endpoint (ADR Section 0). Not
-  // destructured until there is something to wire it to.
+  onCookThis,
+  onAddToPlan,
   isLoading = false,
   missingIngredients = [],
 }: ActionBarProps) {
@@ -44,31 +31,25 @@ export default function ActionBar({
   const [isAddingToList, setIsAddingToList] = useState(false)
   const [addToListError, setAddToListError] = useState<string | null>(null)
   const [addToListSuccess, setAddToListSuccess] = useState(false)
+  const [isCooking, setIsCooking] = useState(false)
+  const [cookSuccess, setCookSuccess] = useState(false)
   const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const cookSuccessTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const addedItemsRef = useRef<Set<string>>(new Set())
 
-  // Cleanup timeouts on component unmount
   useEffect(() => {
     return () => {
-      if (errorTimeoutRef.current) {
-        clearTimeout(errorTimeoutRef.current)
-      }
-      if (successTimeoutRef.current) {
-        clearTimeout(successTimeoutRef.current)
-      }
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current)
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current)
+      if (cookSuccessTimeoutRef.current) clearTimeout(cookSuccessTimeoutRef.current)
     }
   }, [])
 
-  // Sync addedItemsRef with the current grocery list
-  // Remove items from the ref that are no longer in the grocery list
-  // This prevents the race condition where removed items cannot be re-added
   useEffect(() => {
     const currentItemNames = new Set(
       existingGroceryItems.map(item => item.item_name.toLowerCase())
     )
-
-    // Remove items from addedItemsRef that are no longer in the grocery list
     addedItemsRef.current.forEach(itemName => {
       if (!currentItemNames.has(itemName)) {
         addedItemsRef.current.delete(itemName)
@@ -85,19 +66,15 @@ export default function ActionBar({
     setIsAddingToList(true)
     setAddToListError(null)
 
-    // Clear any existing error timeout
     if (errorTimeoutRef.current) {
       clearTimeout(errorTimeoutRef.current)
       errorTimeoutRef.current = null
     }
 
     try {
-      // Refetch grocery list to ensure we have the latest data before checking for duplicates
       const { data: latestGroceryItems } = await refetchGroceryList()
       const currentGroceryItems = latestGroceryItems || existingGroceryItems
 
-      // Filter out ingredients already in the grocery list (case-insensitive match by name)
-      // Also filter out items that were added in this session (to prevent duplicates from rapid clicks)
       const existingItemNames = new Set(
         currentGroceryItems.map(item => item.item_name.toLowerCase())
       )
@@ -109,7 +86,6 @@ export default function ActionBar({
         }
       )
 
-      // If all ingredients are already in the list, show success message
       if (ingredientsToAdd.length === 0) {
         setAddToListSuccess(true)
         successTimeoutRef.current = setTimeout(() => {
@@ -120,8 +96,6 @@ export default function ActionBar({
         return
       }
 
-      // Add only new ingredients to grocery list with controlled concurrency (max 5 at a time)
-      // This prevents overwhelming the backend with unbounded parallel API calls
       const promiseFns = ingredientsToAdd.map(({ ingredient }) => () =>
         createGroceryItem.mutateAsync({
           item_name: ingredient.ingredient_name,
@@ -132,12 +106,10 @@ export default function ActionBar({
       )
       const results = await batchPromises(promiseFns, 5)
 
-      // Count successes and failures
       const successCount = results.filter(r => r.status === 'fulfilled').length
       const failureCount = results.filter(r => r.status === 'rejected').length
       const skippedCount = missingIngredients.length - ingredientsToAdd.length
 
-      // Track successfully added items to prevent duplicates from rapid clicks
       if (successCount > 0) {
         results.forEach((result, index) => {
           if (result.status === 'fulfilled') {
@@ -148,14 +120,12 @@ export default function ActionBar({
       }
 
       if (failureCount === 0) {
-        // All new ingredients added successfully
         setAddToListSuccess(true)
         successTimeoutRef.current = setTimeout(() => {
           setAddToListSuccess(false)
           successTimeoutRef.current = null
         }, 3000)
       } else if (successCount > 0) {
-        // Partial success
         console.error('Some ingredients failed to add:', results.filter(r => r.status === 'rejected'))
         const totalToAdd = ingredientsToAdd.length
         setAddToListError(`Added ${successCount} of ${totalToAdd} new ingredients. Some failed to add.${skippedCount > 0 ? ` ${skippedCount} already in list.` : ''}`)
@@ -164,7 +134,6 @@ export default function ActionBar({
           errorTimeoutRef.current = null
         }, 5000)
       } else {
-        // Complete failure
         console.error('Failed to add ingredients to grocery list:', results.filter(r => r.status === 'rejected'))
         setAddToListError('Failed to add ingredients. Please try again.')
         errorTimeoutRef.current = setTimeout(() => {
@@ -184,6 +153,22 @@ export default function ActionBar({
     }
   }
 
+  const handleCookThis = async () => {
+    if (isCooking || cookSuccess) return
+    setIsCooking(true)
+    try {
+      await onCookThis()
+      setCookSuccess(true)
+      // Reset to normal after 2 s (#549 rating offer picks up after this)
+      cookSuccessTimeoutRef.current = setTimeout(() => {
+        setCookSuccess(false)
+        cookSuccessTimeoutRef.current = null
+      }, 2000)
+    } finally {
+      setIsCooking(false)
+    }
+  }
+
   return (
     <>
       {addToListError && (
@@ -198,49 +183,33 @@ export default function ActionBar({
       )}
       <div className="fixed bottom-0 left-0 right-0 bg-cream border-t border-warm-border shadow-lg z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-          {/* Add missing to list button (pantry cross-reference) */}
+          {/* Add missing to list button (pantry cross-reference; moves to #550) */}
           <button
             onClick={handleAddMissingToList}
             disabled={isLoading || isAddingToList || allInStock || addToListSuccess}
-            className="flex-1 bg-olive text-cream font-medium py-3 px-4 rounded-button hover:bg-olive-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="flex-shrink-0 p-3 rounded-button border-2 border-warm-border bg-cream hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={allInStock ? 'All ingredients are in stock' : addToListSuccess ? 'Ingredients added to list' : `Add ${missingCount} missing ingredient${missingCount === 1 ? '' : 's'} to grocery list`}
+            aria-label={allInStock ? 'All ingredients in stock' : `Add ${missingCount} missing to list`}
           >
-            <ShoppingCart size={18} />
-            <span>
-              {allInStock
-                ? 'All ingredients in stock'
-                : `Add ${missingCount} missing to list`}
-            </span>
+            <ShoppingCart size={20} />
           </button>
 
-          {/* Like toggle button */}
+          {/* I cooked this */}
           <button
-            onClick={onLikeToggle}
-            disabled={isLoading}
-            className="flex-shrink-0 p-3 rounded-button border-2 border-warm-border bg-cream hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label={isLiked ? 'Unlike recipe' : 'Like recipe'}
-            aria-pressed={isLiked}
+            onClick={handleCookThis}
+            disabled={isLoading || isCooking}
+            className="flex-1 bg-cream text-text-primary font-medium py-3 px-4 rounded-button border-2 border-warm-border hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Heart
-              size={24}
-              className={isLiked ? 'fill-mocha stroke-mocha' : 'stroke-mocha'}
-              strokeWidth={2}
-            />
+            {cookSuccess ? 'Cooked!' : 'I cooked this'}
           </button>
 
-          {/* Bookmark toggle button */}
+          {/* Add to plan */}
           <button
-            onClick={onBookmarkToggle}
+            onClick={onAddToPlan}
             disabled={isLoading}
-            className="flex-shrink-0 p-3 rounded-button border-2 border-warm-border bg-cream hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark recipe'}
-            aria-pressed={isBookmarked}
+            className="flex-1 bg-olive text-cream font-medium py-3 px-4 rounded-button hover:bg-olive-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Bookmark
-              size={24}
-              className={isBookmarked ? 'fill-olive stroke-olive' : 'stroke-mocha'}
-              strokeWidth={2}
-            />
+            Add to plan
           </button>
         </div>
       </div>
