@@ -42,7 +42,7 @@ export function durationsInStep(step: string): number[] {
 
   // Compact form: "1h30" (digit immediately followed by 'h' then digits).
   // \b before the first digit; word boundary after the minute digits.
-  const compoundCompactRe = /\b(\d+)h\s*(\d+)\b/gi
+  const compoundCompactRe = /\b(\d+)h([0-5]?\d)\b/gi
   for (const m of [...text.matchAll(compoundCompactRe)]) {
     result.add(parseInt(m[1]) * 60 + parseInt(m[2]))
     text = mask(text, m.index!, m.index! + m[0].length)
