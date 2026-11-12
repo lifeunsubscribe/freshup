@@ -128,7 +128,7 @@ describe('OutcomesSection', () => {
 
   it('renders empty state when outcomes list is empty', () => {
     mockUseRecipeOutcomes.mockReturnValue({
-      data: [],
+      data: [] as RecipeOutcome[],
       isLoading: false,
       isError: false,
     } as ReturnType<typeof useRecipeOutcomes>)
