@@ -79,6 +79,18 @@ const stubRecipe = {
 describe('useCollections', () => {
   beforeEach(() => { mockApiClient.mockReset() })
 
+  it('percent-encodes the source segment', async () => {
+    mockApiClient.mockResolvedValueOnce([])
+
+    const { result } = renderHook(() => useCollections('hello/fresh'), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiClient).toHaveBeenCalledWith(
+      '/catalog/hello%2Ffresh/collections',
+      expect.objectContaining({ method: 'GET' })
+    )
+  })
+
   it('hits the endpoint once for two mounted consumers (dedupe + staleTime)', async () => {
     const data = [{ slug: 'mains', name: 'Mains', card_count: 10, last_fetched_at: null }]
     mockApiClient.mockResolvedValue(data)
@@ -113,6 +125,36 @@ describe('useCollections', () => {
 
 describe('useCollection', () => {
   beforeEach(() => { mockApiClient.mockReset() })
+
+  it('percent-encodes a slug containing reserved characters', async () => {
+    mockApiClient.mockResolvedValueOnce(stubCollection)
+
+    const { result } = renderHook(
+      () => useCollection('hellofresh_web', 'a/b?c#d%'),
+      { wrapper: makeWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiClient).toHaveBeenCalledWith(
+      '/catalog/hellofresh_web/collections/a%2Fb%3Fc%23d%25',
+      expect.objectContaining({ method: 'GET' })
+    )
+  })
+
+  it('preserves the fresh query parameter after encoding the slug', async () => {
+    mockApiClient.mockResolvedValueOnce(stubCollection)
+
+    const { result } = renderHook(
+      () => useCollection('hellofresh_web', 'a/b?c#d%', { fresh: true }),
+      { wrapper: makeWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiClient).toHaveBeenCalledWith(
+      '/catalog/hellofresh_web/collections/a%2Fb%3Fc%23d%25?fresh=true',
+      expect.objectContaining({ method: 'GET' })
+    )
+  })
 
   it('makes no request when enabled is false', () => {
     renderHook(
@@ -183,6 +225,22 @@ describe('useCollection', () => {
 
 describe('useOpenCard', () => {
   beforeEach(() => { mockApiClient.mockReset() })
+
+  it('percent-encodes a cardId containing reserved characters', async () => {
+    mockApiClient.mockResolvedValueOnce(stubRecipe)
+
+    const { result } = renderHook(() => useOpenCard(), { wrapper: makeWrapper() })
+
+    await act(async () => {
+      result.current.mutate({ cardId: 'card/special', source: 'hellofresh_web', collectionSlug: 'mains' })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiClient).toHaveBeenCalledWith(
+      '/catalog/cards/card%2Fspecial/open',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
 
   it('POSTs to /catalog/cards/{cardId}/open', async () => {
     mockApiClient.mockResolvedValueOnce(stubRecipe)

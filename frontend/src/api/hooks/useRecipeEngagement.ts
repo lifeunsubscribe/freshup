@@ -78,6 +78,7 @@ export function useMyRecipeRelation(
     queryKey: recipeKeys.myRating(recipeId),
     queryFn: async () => {
       try {
+        // recipeId is a UUID from our own API; UUIDs are path-safe and do not need percent-encoding.
         return await apiClient<UserRecipeRelationResponse>(`/recipes/${recipeId}/my-rating`, {
           method: 'GET',
         })

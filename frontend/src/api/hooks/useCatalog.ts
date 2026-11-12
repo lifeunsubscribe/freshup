@@ -14,7 +14,7 @@ export function useCollections(source: string) {
   return useQuery({
     queryKey: catalogKeys.collections(source),
     queryFn: () =>
-      apiClient<CollectionSummary[]>(`/catalog/${source}/collections`, { method: 'GET' }),
+      apiClient<CollectionSummary[]>(`/catalog/${encodeURIComponent(source)}/collections`, { method: 'GET' }),
     staleTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -33,12 +33,13 @@ export function useCollection(
   opts: UseCollectionOptions = {}
 ) {
   const { fresh, enabled = true } = opts;
-  const qs = fresh !== undefined ? `?fresh=${fresh}` : '';
+  const params = fresh !== undefined ? new URLSearchParams({ fresh: String(fresh) }) : null;
+  const qs = params ? `?${params.toString()}` : '';
 
   return useQuery({
     queryKey: [...catalogKeys.collection(source, slug), { fresh: fresh ?? null }],
     queryFn: () =>
-      apiClient<CollectionDetail>(`/catalog/${source}/collections/${slug}${qs}`, { method: 'GET' }),
+      apiClient<CollectionDetail>(`/catalog/${encodeURIComponent(source)}/collections/${encodeURIComponent(slug)}${qs}`, { method: 'GET' }),
     staleTime: 10 * 60 * 1000,
     enabled,
   });
@@ -55,7 +56,7 @@ export function useOpenCard() {
 
   return useMutation({
     mutationFn: ({ cardId }: OpenCardVariables) =>
-      apiClient<RecipeResponse>(`/catalog/cards/${cardId}/open`, { method: 'POST' }),
+      apiClient<RecipeResponse>(`/catalog/cards/${encodeURIComponent(cardId)}/open`, { method: 'POST' }),
     onSuccess: (recipe, { source, collectionSlug }) => {
       // Seed the detail cache so navigating to the recipe skips a network round-trip.
       queryClient.setQueryData(recipeKeys.detail(recipe.id), recipe);
