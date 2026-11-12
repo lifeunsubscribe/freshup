@@ -212,7 +212,7 @@ These came up at the end of the session. They change the product's shape and bel
 1. ~~Screen 1 link path end to end: add page, fetching, preview, duplicate, failure, wired to `POST /scraper/import-url`.~~
 2. ~~Saved-page endpoint, then the saved-page UI and the Kitchen Sanctuary pre-fetch catch.~~
 3. ~~Recipe detail items whose backend already exists: "I cooked this", add to plan, top-bar bookmark and heart, step pills, timers, pantry review sheet.~~
-4. ~~Rating gate (issue #508), then the just-cooked strip and the photo and variation sheet.~~ *(#508 merged in Phase 2.5A, #549 merged)*
+4. ~~Rating gate (issue #508), then the just-cooked strip~~ and the photo and variation sheet. *(#508 merged in Phase 2.5A, #549 merged; photo and variation sheet frontend #575 pending)*
 5. Card and feed schema additions, then the browse rows with subtitles and the saved-versus-unsaved treatment. *(cards #567/#574)*
 6. ~~Member-safe "bring in more" and the opened-row tail states.~~
 7. ~~Source health job, rows and alert.~~
