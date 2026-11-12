@@ -3415,5 +3415,6 @@ class TestOutcomes:
         assert response.status_code == 200
         assert len(response.json()) == 5
 
-        # 1 (auth) + 1 (recipe existence) + 2 (service: relations + cook events) = 4
-        assert total[0] == 4
+        # 1 (auth) + 1 (recipe existence) + 2 (service: relations + cook events) + 1 (SQLAlchemy backref
+        # sync when cook events are loaded into the identity map alongside an already-loaded recipe) = 5
+        assert total[0] == 5
