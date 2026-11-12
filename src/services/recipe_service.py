@@ -89,6 +89,13 @@ def get_recipe_outcomes(recipe_id: UUID, db: Session) -> list[RecipeOutcomeRespo
         )
         .all()
     )
+    # rating_photos=[] passes isnot(None) but carries no data; drop it
+    relations = [
+        (rel, user) for rel, user in relations
+        if rel.rating is not None
+        or rel.rating_comment is not None
+        or (rel.rating_photos is not None and len(rel.rating_photos) > 0)
+    ]
 
     # Query 2: all cook events for this recipe, newest first
     cook_events = (

@@ -3238,15 +3238,12 @@ class TestOutcomes:
         db_session.commit()
         return rel
 
-    def _add_cook(self, db_session, user, recipe, notes=None):
+    def _add_cook(self, db_session, user, recipe, notes=None, cooked_at=None):
         from src.db.models.user_cook_event import UserCookEvent
-        from datetime import datetime, timezone
-        event = UserCookEvent(
-            id=uuid4(),
-            user_id=user.id,
-            recipe_id=recipe.id,
-            notes=notes,
-        )
+        kwargs = dict(id=uuid4(), user_id=user.id, recipe_id=recipe.id, notes=notes)
+        if cooked_at is not None:
+            kwargs['cooked_at'] = cooked_at
+        event = UserCookEvent(**kwargs)
         db_session.add(event)
         db_session.commit()
         return event
@@ -3290,16 +3287,20 @@ class TestOutcomes:
 
     def test_two_members_both_cooked(self, client, auth_headers, recipe, test_user, test_user2, db_session):
         """Two members who cooked both appear; ordering is last_cooked_at desc."""
-        self._add_cook(db_session, test_user, recipe)
-        self._add_cook(db_session, test_user2, recipe)
+        from datetime import datetime, timezone, timedelta
+        t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        t1 = t0 + timedelta(hours=1)
+        # test_user2 cooked more recently
+        self._add_cook(db_session, test_user, recipe, cooked_at=t0)
+        self._add_cook(db_session, test_user2, recipe, cooked_at=t1)
 
         response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 2
-        user_ids = {row["user_id"] for row in data}
-        assert str(test_user.id) in user_ids
-        assert str(test_user2.id) in user_ids
+        # test_user2 cooked most recently, so they appear first (desc order)
+        assert data[0]["user_id"] == str(test_user2.id)
+        assert data[1]["user_id"] == str(test_user.id)
 
     def test_photos_list_shape(self, client, auth_headers, recipe, test_user, db_session):
         """rating_photos is returned as a list of strings."""
@@ -3338,6 +3339,50 @@ class TestOutcomes:
         response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
         assert response.status_code == 200
         assert response.json() == []
+
+    def test_empty_rating_photos_does_not_create_row(self, client, auth_headers, recipe, test_user, db_session):
+        """A relation with rating=None, rating_comment=None, rating_photos=[] does not create a row."""
+        self._add_relation(db_session, test_user, recipe, rating_photos=[])
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_rated_and_cooked_merges_into_one_row(self, client, auth_headers, recipe, test_user, db_session):
+        """Member with both a rating relation and two cook events produces one merged row."""
+        from datetime import datetime, timezone, timedelta
+        t0 = datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+        t1 = t0 + timedelta(hours=2)
+        self._add_cook(db_session, test_user, recipe, notes="First cook", cooked_at=t0)
+        self._add_cook(db_session, test_user, recipe, notes="Second cook", cooked_at=t1)
+        self._add_relation(db_session, test_user, recipe, rating=4.0, rating_comment="Good recipe")
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        row = data[0]
+        assert row["user_id"] == str(test_user.id)
+        assert row["rating"] == 4.0
+        assert row["rating_comment"] == "Good recipe"
+        assert row["times_cooked"] == 2
+        assert row["latest_cook_notes"] == "Second cook"
+        assert row["last_cooked_at"] is not None
+
+    def test_tiebreak_ordering_by_user_name(self, client, auth_headers, recipe, test_user, test_user2, db_session):
+        """When last_cooked_at values are equal, ordering falls back to user_name asc."""
+        from datetime import datetime, timezone
+        same_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        self._add_cook(db_session, test_user, recipe, cooked_at=same_time)
+        self._add_cook(db_session, test_user2, recipe, cooked_at=same_time)
+
+        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        # "Test User" < "Test User 2" alphabetically
+        assert data[0]["user_name"] == test_user.name
+        assert data[1]["user_name"] == test_user2.name
 
     def test_query_count_is_two_for_five_members(self, client, auth_headers, recipe, db_session):
         """Outcomes for 5 contributing members issues exactly 2 service queries (plus auth)."""
