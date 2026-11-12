@@ -136,7 +136,8 @@ export default function RecipeDetail() {
   }
 
   const handleRate = async (stars: number) => {
-    if (!id || !myRelation) return
+    if (!id) return
+    if (!myRelation) throw new Error('Recipe relation not loaded — please try again.')
     await rateRecipe.mutateAsync({
       recipeId: id,
       rating: stars,
@@ -267,7 +268,7 @@ export default function RecipeDetail() {
           </div>
 
           <RatingLine
-            cookCount={sessionOfferDismissed ? 0 : (cookHistory?.length ?? 0)}
+            cookCount={cookHistory?.length ?? 0}
             rating={myRelation?.rating ?? null}
             onRate={handleRate}
           />
