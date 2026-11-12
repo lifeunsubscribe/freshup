@@ -12,11 +12,14 @@ export interface RecipeFilters {
   source_type?: string
   tag?: string
   max_cook_time?: number
+  saved_only?: boolean
+  under_30_min?: boolean
 }
 
 interface FilterChipsProps {
   filters: RecipeFilters
   onFilterChange: (filters: RecipeFilters) => void
+  enableBooleanChips?: boolean
 }
 
 /**
@@ -28,14 +31,14 @@ interface FilterChipsProps {
  * - Each chip has X button to remove filter
  * - Filters combine with AND logic
  */
-export default function FilterChips({ filters, onFilterChange }: FilterChipsProps) {
+export default function FilterChips({ filters, onFilterChange, enableBooleanChips = false }: FilterChipsProps) {
   const removeFilter = (key: keyof RecipeFilters) => {
     const newFilters = { ...filters }
     delete newFilters[key]
     onFilterChange(newFilters)
   }
 
-  const setFilter = (key: keyof RecipeFilters, value: string | number | undefined) => {
+  const setFilter = (key: keyof RecipeFilters, value: string | number | boolean | undefined) => {
     if (value === undefined || value === '') {
       removeFilter(key)
     } else {
@@ -43,8 +46,44 @@ export default function FilterChips({ filters, onFilterChange }: FilterChipsProp
     }
   }
 
+  const toggleBool = (key: 'saved_only' | 'under_30_min') => {
+    if (filters[key]) {
+      removeFilter(key)
+    } else {
+      setFilter(key, true)
+    }
+  }
+
   return (
     <div className="space-y-3">
+      {/* Boolean toggle chips (Saved only / Under 30 min) */}
+      {enableBooleanChips && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => toggleBool('saved_only')}
+            className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+              filters.saved_only
+                ? 'bg-olive text-cream border-olive'
+                : 'bg-white text-text-primary border-warm-border hover:bg-warm-gray/30'
+            }`}
+            aria-pressed={!!filters.saved_only}
+          >
+            Saved only
+          </button>
+          <button
+            onClick={() => toggleBool('under_30_min')}
+            className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+              filters.under_30_min
+                ? 'bg-olive text-cream border-olive'
+                : 'bg-white text-text-primary border-warm-border hover:bg-warm-gray/30'
+            }`}
+            aria-pressed={!!filters.under_30_min}
+          >
+            Under 30 min
+          </button>
+        </div>
+      )}
+
       {/* Filter dropdowns */}
       <div className="flex flex-wrap gap-2">
         {/* Source type filter */}
