@@ -20,6 +20,8 @@ interface IngredientsTabProps {
   stockStatus: PantryCheckResult
   /** Error state from inventory API call */
   inventoryError: boolean
+  /** True while inventory is still being fetched */
+  isInventoryLoading?: boolean
   /** Opens the pantry review sheet */
   onPantryReview: () => void
 }
@@ -99,6 +101,7 @@ export default function IngredientsTab({
   // component no longer reads it.
   stockStatus,
   inventoryError,
+  isInventoryLoading,
   onPantryReview,
 }: IngredientsTabProps) {
 
@@ -153,7 +156,7 @@ export default function IngredientsTab({
       })}
 
       {/* PantryCheck summary card */}
-      <PantryCheck stockStatus={stockStatus} onReview={onPantryReview} inventoryError={inventoryError} />
+      <PantryCheck stockStatus={stockStatus} onReview={onPantryReview} inventoryError={inventoryError} isInventoryLoading={isInventoryLoading} />
     </div>
   )
 }

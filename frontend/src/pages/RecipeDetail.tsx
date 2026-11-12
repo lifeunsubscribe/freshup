@@ -235,6 +235,7 @@ export default function RecipeDetail() {
                 inventoryItems={inventoryItems}
                 stockStatus={stockStatus}
                 inventoryError={isInventoryError}
+                isInventoryLoading={isLoadingInventory}
                 onPantryReview={() => setIsPantrySheetOpen(true)}
               />
             )}

@@ -135,7 +135,8 @@ export default function PantryReviewSheet({
 
       const promiseFns = rowsToAdd.map(({ status }) => () => {
         const { ingredient } = status
-        const scaledQty = ingredient.quantity * servingsMultiplier
+        const rawQty = ingredient.quantity
+        const scaledQty = isUnparseableQuantity(rawQty, 1) ? rawQty : rawQty * servingsMultiplier
         return createGroceryItem.mutateAsync({
           item_name: ingredient.ingredient_name,
           quantity: scaledQty,
@@ -165,6 +166,9 @@ export default function PantryReviewSheet({
       } else {
         setFailedIds(newFailedIds)
       }
+    } catch (err) {
+      console.error('Failed to add ingredients.', err)
+      setFailedIds(new Set(checkedIds))
     } finally {
       setIsSubmitting(false)
     }
