@@ -39,7 +39,7 @@ npx vitest run        # full suite, ~17s
 npm run build         # typecheck + production bundle
 ```
 
-Two things to know when writing frontend tests:
+Three things to know when writing frontend tests:
 
 - Wrap renders in `src/test/renderWithProviders.tsx` rather than a bare
   `render`. It supplies a Router and a QueryClient, which most components need
@@ -49,6 +49,11 @@ Two things to know when writing frontend tests:
   froze) and `userEvent` hangs unless you pass
   `vi.useFakeTimers({ shouldAdvanceTime: true })`. Advance inside `act()` and
   assert synchronously.
+- Test files live either next to the component or under a sibling
+  `__tests__/` folder, and both styles are in use. Before creating
+  `Foo.test.tsx`, run `find src -name 'Foo.test.tsx'`; extend the existing
+  file. A second file with the same name passes while the first one, which
+  nobody re-ran, fails on the change you just made.
 
 The API applies any pending Alembic migrations on startup and seeds local test
 users (`sarah@freshup.dev` / `alex@freshup.dev`, password `FreshUp2024!`) when

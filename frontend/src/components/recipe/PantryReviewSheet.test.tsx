@@ -48,6 +48,10 @@ function makeStockStatus(inStockIds: string[], outOfStockIds: string[]): PantryC
   return { inStock, outOfStock, totalCount: all.length, inStockCount: inStock.length }
 }
 
+// The default status omits vanilla (optional); these rows only exist when the
+// matcher reported on it, so the tests about optional rows pass a full status.
+const allFour = () => makeStockStatus(['ing-1'], ['ing-2', 'ing-3', 'ing-4'])
+
 let queryClient: QueryClient
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -79,7 +83,7 @@ beforeEach(() => {
 describe('PantryReviewSheet', () => {
   describe('initial row state', () => {
     it('renders a checkbox row for each ingredient', () => {
-      renderSheet()
+      renderSheet({ stockStatus: allFour() })
       const checkboxes = screen.getAllByRole('checkbox')
       // flour (inStock), sugar (outOfStock), salt (outOfStock), vanilla (optional)
       expect(checkboxes).toHaveLength(4)
@@ -101,7 +105,7 @@ describe('PantryReviewSheet', () => {
     })
 
     it('optional ingredients appear last', () => {
-      renderSheet()
+      renderSheet({ stockStatus: allFour() })
       const labels = screen.getAllByRole('checkbox').map(cb => {
         const label = cb.closest('label')
         return label?.textContent ?? ''
@@ -113,7 +117,7 @@ describe('PantryReviewSheet', () => {
     })
 
     it('shows (optional) label next to optional ingredients', () => {
-      renderSheet()
+      renderSheet({ stockStatus: allFour() })
       expect(screen.getByText('(optional)')).toBeInTheDocument()
     })
 
