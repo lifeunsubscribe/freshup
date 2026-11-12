@@ -3405,16 +3405,19 @@ class TestOutcomes:
         for u in extra_users:
             self._add_cook(db_session, u, recipe)
 
+        # Resolve recipe.id before attaching the listener so the expired-attribute
+        # refresh SELECT is not counted.
+        recipe_id = recipe.id
+
         total = [0]
 
         @sa_event.listens_for(db_session.bind, "before_cursor_execute")
         def _count(conn, cursor, statement, parameters, context, executemany):
             total[0] += 1
 
-        response = client.get(f"/recipes/{recipe.id}/outcomes", headers=auth_headers)
+        response = client.get(f"/recipes/{recipe_id}/outcomes", headers=auth_headers)
         assert response.status_code == 200
         assert len(response.json()) == 5
 
-        # 1 (auth) + 1 (recipe existence) + 2 (service: relations + cook events) + 1 (SQLAlchemy backref
-        # sync when cook events are loaded into the identity map alongside an already-loaded recipe) = 5
-        assert total[0] == 5
+        # 1 (auth) + 1 (recipe existence) + 2 (service: relations + cook events) = 4
+        assert total[0] == 4
