@@ -63,7 +63,7 @@ function renderSheet(props: Partial<React.ComponentProps<typeof PantryReviewShee
     open: true,
     onClose: vi.fn(),
     ingredients,
-    stockStatus: makeStockStatus(['ing-1'], ['ing-2', 'ing-3']),
+    stockStatus: makeStockStatus(['ing-1', 'ing-4'], ['ing-2', 'ing-3']),
     servingsMultiplier: 1,
     onSuccess: vi.fn(),
   }

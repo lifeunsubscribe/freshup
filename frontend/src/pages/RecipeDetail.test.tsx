@@ -288,4 +288,37 @@ describe('RecipeDetail', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
   })
+
+  describe('Cook-tab header: timer slot vs bookmark/heart', () => {
+    it('shows bookmark and heart on the Ingredients tab (default)', () => {
+      renderPage()
+      expect(screen.getByRole('button', { name: /bookmark recipe/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /like recipe/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /new timer/i })).not.toBeInTheDocument()
+    })
+
+    it('shows the timer button and no bookmark/heart on the Cook tab', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: 'Cook & enjoy!' }))
+      expect(screen.getByRole('button', { name: /new timer/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /bookmark recipe/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /like recipe/i })).not.toBeInTheDocument()
+    })
+
+    it('restores bookmark and heart when switching back from Cook to Ingredients', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: 'Cook & enjoy!' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Ingredients' }))
+      expect(screen.getByRole('button', { name: /bookmark recipe/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /new timer/i })).not.toBeInTheDocument()
+    })
+
+    it('opens NewTimerSheet when the timer button is clicked', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: 'Cook & enjoy!' }))
+      await userEvent.click(screen.getByRole('button', { name: /new timer/i }))
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      expect(screen.getByText(/new timer/i)).toBeInTheDocument()
+    })
+  })
 })

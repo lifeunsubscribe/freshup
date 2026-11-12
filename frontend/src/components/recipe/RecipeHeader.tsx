@@ -1,5 +1,8 @@
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bookmark, Heart } from 'lucide-react'
+import { ArrowLeft, Bookmark, Heart, Timer } from 'lucide-react'
+import type { TabType } from './TabBar'
+import type { CookTimer } from '../../hooks/useCookTimers'
+import TimerPills from './TimerPills'
 
 interface RecipeHeaderProps {
   title: string
@@ -10,17 +13,19 @@ interface RecipeHeaderProps {
   onBookmarkToggle?: () => void
   onLikeToggle?: () => void
   isEngagementLoading?: boolean
+  // Cook-tab timer slot
+  activeTab?: TabType
+  timers?: CookTimer[]
+  onDismissTimer?: (id: string) => void
+  onOpenTimerSheet?: () => void
 }
 
 /**
- * RecipeHeader component for recipe detail view
+ * RecipeHeader component for recipe detail view.
  *
- * Features:
- * - Back navigation button (top-left)
- * - Bookmark and heart glyph buttons (top-right, 44px touch targets)
- * - Recipe title (26px/500) with olive period
- * - Subtitle below title
- * - Hero image with 4:3 aspect ratio
+ * Top-bar right slot:
+ *   - Cook tab: timer button (opens NewTimerSheet) + TimerPills
+ *   - Other tabs: bookmark and heart buttons
  */
 export default function RecipeHeader({
   title,
@@ -31,12 +36,17 @@ export default function RecipeHeader({
   onBookmarkToggle,
   onLikeToggle,
   isEngagementLoading = false,
+  activeTab,
+  timers = [],
+  onDismissTimer,
+  onOpenTimerSheet,
 }: RecipeHeaderProps) {
   const navigate = useNavigate()
+  const isCookTab = activeTab === 'cook'
 
   return (
     <div className="mb-4">
-      {/* Top bar: back button on left, engagement glyphs on right */}
+      {/* Top bar: back button on left, right slot depends on active tab */}
       <div className="flex items-center justify-between mb-4">
         <button
           onClick={() => navigate(-1)}
@@ -47,35 +57,52 @@ export default function RecipeHeader({
           <span className="text-sm font-medium">Back</span>
         </button>
 
-        <div className="flex items-center gap-1">
-          <button
-            onClick={onBookmarkToggle}
-            disabled={isEngagementLoading || !onBookmarkToggle}
-            className="w-11 h-11 flex items-center justify-center rounded-button hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark recipe'}
-            aria-pressed={isBookmarked}
-          >
-            <Bookmark
-              size={22}
-              className={isBookmarked ? 'fill-olive stroke-olive' : 'stroke-text-secondary'}
-              strokeWidth={1.8}
-            />
-          </button>
+        {isCookTab ? (
+          /* Cook tab: timer button + live timer pills */
+          <div className="flex items-center gap-2 min-w-0">
+            {timers.length > 0 && onDismissTimer && (
+              <TimerPills timers={timers} onDismiss={onDismissTimer} />
+            )}
+            <button
+              onClick={onOpenTimerSheet}
+              className="w-11 h-11 flex items-center justify-center rounded-button hover:bg-cream-dark transition-colors flex-shrink-0"
+              aria-label="New timer"
+            >
+              <Timer size={22} className="stroke-text-secondary" strokeWidth={1.8} />
+            </button>
+          </div>
+        ) : (
+          /* Ingredients / Nutrition tabs: bookmark and heart */
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onBookmarkToggle}
+              disabled={isEngagementLoading || !onBookmarkToggle}
+              className="w-11 h-11 flex items-center justify-center rounded-button hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark recipe'}
+              aria-pressed={isBookmarked}
+            >
+              <Bookmark
+                size={22}
+                className={isBookmarked ? 'fill-olive stroke-olive' : 'stroke-text-secondary'}
+                strokeWidth={1.8}
+              />
+            </button>
 
-          <button
-            onClick={onLikeToggle}
-            disabled={isEngagementLoading || !onLikeToggle}
-            className="w-11 h-11 flex items-center justify-center rounded-button hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label={isLiked ? 'Unlike recipe' : 'Like recipe'}
-            aria-pressed={isLiked}
-          >
-            <Heart
-              size={22}
-              className={isLiked ? 'fill-olive stroke-olive' : 'stroke-text-secondary'}
-              strokeWidth={1.8}
-            />
-          </button>
-        </div>
+            <button
+              onClick={onLikeToggle}
+              disabled={isEngagementLoading || !onLikeToggle}
+              className="w-11 h-11 flex items-center justify-center rounded-button hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={isLiked ? 'Unlike recipe' : 'Like recipe'}
+              aria-pressed={isLiked}
+            >
+              <Heart
+                size={22}
+                className={isLiked ? 'fill-olive stroke-olive' : 'stroke-text-secondary'}
+                strokeWidth={1.8}
+              />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Hero image (4:3 aspect ratio) */}
