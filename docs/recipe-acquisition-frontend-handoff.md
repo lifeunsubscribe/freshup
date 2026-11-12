@@ -133,28 +133,28 @@ Verified by reading the repo at `976d2d0`. "Not found" means a search turned up 
 
 | Mockup feature | In the repo at `976d2d0` | Gap | Status (2026-11-11) |
 |---|---|---|---|
-| Paste a link | `POST /scraper/import-url` exists | No frontend code calls any `/scraper` route yet | Closed |
-| Paste or upload a saved page | Not found in `src/routers/scraper.py` | Needs an endpoint that accepts page HTML (text or file) and runs the existing parser on it | Closed: `POST /scraper/import-html`, result is browse cache until bookmarked |
-| Preview before saving | Not checked whether `import-url` can parse without persisting | Needs a parse-only mode, or the preview is shown after an unsaved (`is_persisted = false`) import | Recommendation in section 0: no parse-only mode |
-| Opening a row brings in more, for any member | `import-batch`, `discover/{source}` and `discover-and-import/{source}` all call `require_coordinator` | **Permission change.** Either relax these for a bounded pull, or add a member-safe "bring in more for this row" endpoint | Closed: `GET /catalog/{source}/collections/{slug}` fetches on demand for any authenticated user (#525) (frontend: #545) |
-| Row subtitle ("Saved 6 times and cooked 31 times here") | `FeedRowSchema` has `title`, `recipes`, `browse_url` | Needs a reason or counts field per row | Open |
-| Saved versus not saved on cards | `RecipeCardSchema` has no `is_persisted` and no per-user bookmark state | Add both to the card schema | Closed (backend #567; frontend #574) |
-| Source badge and "view original" | `RecipeCardSchema` has `source_type` but not `source_url` | Add `source_url` where the link is shown | Closed (backend #568; frontend #574) |
+| Paste a link | `POST /scraper/import-url` exists | No frontend code calls any `/scraper` route yet | Closed (#537) |
+| Paste or upload a saved page | Not found in `src/routers/scraper.py` | Needs an endpoint that accepts page HTML (text or file) and runs the existing parser on it | Closed (#530) |
+| Preview before saving | Not checked whether `import-url` can parse without persisting | Needs a parse-only mode, or the preview is shown after an unsaved (`is_persisted = false`) import | Closed (#537) |
+| Opening a row brings in more, for any member | `import-batch`, `discover/{source}` and `discover-and-import/{source}` all call `require_coordinator` | **Permission change.** Either relax these for a bounded pull, or add a member-safe "bring in more for this row" endpoint | Closed (#545) |
+| Row subtitle ("Saved 6 times and cooked 31 times here") | `FeedRowSchema` has `title`, `recipes`, `browse_url` | Needs a reason or counts field per row | Open (counts still absent; `card_count` only) |
+| Saved versus not saved on cards | `RecipeCardSchema` has no `is_persisted` and no per-user bookmark state | Add both to the card schema | Closed (#574) |
+| Source badge and "view original" | `RecipeCardSchema` has `source_type` but not `source_url` | Add `source_url` where the link is shown | Closed (#574) |
 | Feed ranked by saves, likes and cooks | ADR section 0: feed scores on `UserRecipeRelation` and `times_cooked`; `UserCookEvent` and `UserRecipeView` are not wired in | Wire the cook and view signals into `feed_service` | Open |
 | Arrange rows (pin, reorder) | `Menu.sort_order` exists for menus; nothing found for browse rows | Needs per-user row order and pin storage | Open |
 | "Something different" row | `fallback_rows` exists on the home feed | Needs an always-present exploration row on browse | Open |
-| Rating only after cooking | ADR section 0: open, issue #508 | Backend gate still to build | Closed; frontend built in #549 |
-| Five-point rating | `UserRecipeRelation.rating` is a float validated 0.0 to 5.0 | Fits as designed | Fits |
+| Rating only after cooking | ADR section 0: open, issue #508 | Backend gate still to build | Closed (#549) |
+| Five-point rating | `UserRecipeRelation.rating` is a float validated 0.0 to 5.0 | Fits as designed | Open (no gap — schema already fits) |
 | Photo and "What changed" | `UserRecipeRelation.rating_photos` and `rating_comment` exist; `UserCookEvent.notes` exists (500 chars) | Decide which field holds the variation: per relation (one, overwritten) or per cook event (one each time). The mockup implies per cook event | Open question 2 |
-| Submitting a rating | ADR section 0 warns `POST /recipes/{id}/rate` is a whole-relation upsert that clears fields it is not sent | The rating sheet must send the complete relation, or the endpoint needs a partial update | Closed; `useRateRecipe` now merges the current relation in #549 |
-| "How it turned out" list | `GET /recipes/{id}/cook-history` and `GET /recipes/{id}/ratings` exist | Needs photos and comments per household member in one response | Backend #568; frontend #575 |
-| Ingredient pills per step | `RecipeIngredient.step_index` exists | Scraped recipes may all have `step_index = null`; pills then need a "General" group or a matching pass | Open; imported recipes have `step_index = null` |
-| "Start N min" on a step | Nothing found | Durations must be read from step text (deterministic pattern match) | Open |
-| Cook timers | Nothing found | Frontend-only state is enough | Open |
+| Submitting a rating | ADR section 0 warns `POST /recipes/{id}/rate` is a whole-relation upsert that clears fields it is not sent | The rating sheet must send the complete relation, or the endpoint needs a partial update | Closed (#549) |
+| "How it turned out" list | `GET /recipes/{id}/cook-history` and `GET /recipes/{id}/ratings` exist | Needs photos and comments per household member in one response | Open (backend #568 done; frontend #575 pending) |
+| Ingredient pills per step | `RecipeIngredient.step_index` exists | Scraped recipes may all have `step_index = null`; pills then need a "General" group or a matching pass | Closed (#551) |
+| "Start N min" on a step | Nothing found | Durations must be read from step text (deterministic pattern match) | Closed (#551) |
+| Cook timers | Nothing found | Frontend-only state is enough | Closed (#551) |
 | Similar recipes | Nothing found | Needs a similarity query on shared ingredients and tags | Open |
 | Estimated nutrition | `Recipe.nutritional_info` exists | Needs an ingredient-to-nutrient lookup, an `estimated` marker, and ranges | Open question 5 |
-| Source health check, rows and alert | Nothing found | Needs a daily job, stored status per source, and a status endpoint readable by members | Backend closed (#526, #527); rows #544; alert #547 |
-| Pantry check sheet | `recipe/PantryCheck.tsx` exists | Needs per-ingredient in-stock results, not only a summary | Open |
+| Source health check, rows and alert | Nothing found | Needs a daily job, stored status per source, and a status endpoint readable by members | Closed (#547) |
+| Pantry check sheet | `recipe/PantryCheck.tsx` exists | Needs per-ingredient in-stock results, not only a summary | Closed (#548) |
 
 Per the project's LLM boundary: similarity, ranking, nutrition arithmetic, duration extraction and the health check are deterministic code. The one place an LLM may fit is mapping free-text ingredient names to food-database entries for the nutrition estimate.
 
@@ -198,19 +198,22 @@ These came up at the end of the session. They change the product's shape and bel
 1. Should members be able to trigger a bounded pull by opening a row, or should the coordinator keep a per-source "bring in automatically" switch?
    *Answered 2026-11-10: members may. The pull is one collection-page fetch (30 cards), not a batch of recipe imports, so it is cheap and bounded. See section 0.*
 2. Where does a cook's variation live: on the cook event, or on the user's relation to the recipe?
+5. Which food database backs the nutrition estimate, and what are the two sample amounts for oil and salt?
+
+### Answered
+
 3. Is "Saved by the household" built from `is_persisted`, from bookmarks, or from likes?
-   *Narrowed 2026-11-11: `is_persisted` again means "someone bookmarked this" on every path, so it is a usable household-level signal; bookmarks or likes remain the per-user choice.*
+   *Answered 2026-11-11: `is_persisted` means "someone bookmarked this" on every import path, so it is a usable household-level signal; bookmarks or likes remain the per-user choice.*
 4. Does the preview need a true parse-without-saving mode, or is an unpersisted import acceptable as the preview?
    *Answered 2026-11-11: the unpersisted import is the preview on both paths.*
-5. Which food database backs the nutrition estimate, and what are the two sample amounts for oil and salt?
 
 ## 8. Suggested order of work
 
-1. Screen 1 link path end to end: add page, fetching, preview, duplicate, failure, wired to `POST /scraper/import-url`.
-2. Saved-page endpoint, then the saved-page UI and the Kitchen Sanctuary pre-fetch catch.
-3. Recipe detail items whose backend already exists: "I cooked this", add to plan, top-bar bookmark and heart, step pills, timers, pantry review sheet.
-4. Rating gate (issue #508), then the just-cooked strip and the photo and variation sheet.
-5. Card and feed schema additions, then the browse rows with subtitles and the saved-versus-unsaved treatment.
-6. Member-safe "bring in more" and the opened-row tail states.
-7. Source health job, rows and alert.
+1. ~~Screen 1 link path end to end: add page, fetching, preview, duplicate, failure, wired to `POST /scraper/import-url`.~~
+2. ~~Saved-page endpoint, then the saved-page UI and the Kitchen Sanctuary pre-fetch catch.~~
+3. ~~Recipe detail items whose backend already exists: "I cooked this", add to plan, top-bar bookmark and heart, step pills, timers, pantry review sheet.~~
+4. Rating gate (issue #508), then the just-cooked strip and the photo and variation sheet. *(backend done, frontend #549)*
+5. Card and feed schema additions, then the browse rows with subtitles and the saved-versus-unsaved treatment. *(cards #567/#574)*
+6. ~~Member-safe "bring in more" and the opened-row tail states.~~
+7. ~~Source health job, rows and alert.~~
 8. Arrange rows, similar recipes, estimated nutrition.
