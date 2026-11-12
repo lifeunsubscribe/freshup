@@ -105,7 +105,9 @@ beforeEach(() => {
   mockCookMutateAsync.mockReset().mockResolvedValue({})
   mockCreateEntryMutateAsync.mockReset().mockResolvedValue({})
   mockRateMutateAsync.mockReset().mockResolvedValue({})
-  vi.useFakeTimers()
+  // shouldAdvanceTime keeps React Query and waitFor moving; a fully frozen clock
+  // stalled every test that awaited a mutation and hit the 5 s limit.
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) })
 })
 

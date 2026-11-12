@@ -243,7 +243,9 @@ export default function RecipeDetail() {
           </div>
           <div className="mb-4">
             <RatingLine
-              hasCooked={hasCooked}
+              // While the just-cooked strip is offering the rating, the inline
+              // offer would be a second set of stars for the same thing.
+              hasCooked={hasCooked && !showRatingStrip}
               rating={myRelation?.rating ?? null}
               onRate={handleRate}
             />

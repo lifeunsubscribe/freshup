@@ -8,7 +8,7 @@ let user: ReturnType<typeof userEvent.setup>
 
 describe('JustCookedStrip', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) })
   })
   afterEach(() => { vi.useRealTimers() })
