@@ -38,7 +38,8 @@
 
 | Feature | Backend | Frontend |
 |---|---|---|
-| "I cooked this" button | `POST /recipes/{id}/cook`, `GET /recipes/{id}/cook-history` (#520) | not built |
+| "I cooked this" button | `POST /recipes/{id}/cook`, `GET /recipes/{id}/cook-history` (#520) | #548 merged |
+| Rating UI gated by cook event existence (gate: #508) | `POST /recipes/{id}/rate` returns 403 before first cook (#508) | #549 merged |
 | Viewed-but-not-cooked feed signal | `POST /recipes/{id}/view` (#520); `feed_service` does not consume it yet | not built |
 | Add-to-plan from a recipe card | `POST /plan/entries` (#517) | not built |
 | Per-meal opt-out | `PUT /plan/entries/{id}/opt-out` (#518) | not built |

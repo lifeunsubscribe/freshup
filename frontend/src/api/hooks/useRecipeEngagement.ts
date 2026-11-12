@@ -18,6 +18,10 @@ import { apiClient, ApiException } from '../client'
 import type { BookmarkCreate, CookEventResponse, UserRecipeRelationResponse } from '../types'
 import { recipeKeys } from './useRecipes'
 
+export const cookHistoryKeys = {
+  history: (recipeId: string) => ['recipes', 'cook-history', recipeId] as const,
+}
+
 /**
  * The relation a recipe has when the user has never engaged with it.
  *
@@ -205,6 +209,26 @@ export function useCookRecipe() {
     onSettled: (_data, _error, { recipeId }) => {
       queryClient.invalidateQueries({ queryKey: recipeKeys.detail(recipeId) })
       queryClient.invalidateQueries({ queryKey: relationKeys.mine })
+      queryClient.invalidateQueries({ queryKey: cookHistoryKeys.history(recipeId) })
     },
+  })
+}
+
+/**
+ * Cook events for a recipe. Used to determine whether the current user has
+ * ever cooked this recipe (gate check for the rating UI).
+ */
+export function useCookHistory(
+  recipeId: string,
+  options?: Omit<UseQueryOptions<CookEventResponse[]>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery<CookEventResponse[]>({
+    queryKey: cookHistoryKeys.history(recipeId),
+    queryFn: async () =>
+      apiClient<CookEventResponse[]>(`/recipes/${recipeId}/cook-history`, {
+        method: 'GET',
+      }),
+    staleTime: 5 * 60 * 1000,
+    ...options,
   })
 }

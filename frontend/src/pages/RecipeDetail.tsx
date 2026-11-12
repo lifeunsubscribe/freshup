@@ -8,15 +8,18 @@ import IngredientsTab from '../components/recipe/IngredientsTab'
 import CookTab from '../components/recipe/CookTab'
 import NutritionTab from '../components/recipe/NutritionTab'
 import ActionBar from '../components/recipe/ActionBar'
+import JustCookedStrip from '../components/recipe/JustCookedStrip'
+import RatingLine from '../components/recipe/RatingLine'
 import AddToPlanSheet from '../components/recipe/AddToPlanSheet'
 import SourceLine from '../components/recipe/SourceLine'
 import Pill from '../components/ui/Pill'
-import { useRecipe } from '../api/hooks/useRecipes'
+import { useRecipe, useRateRecipe } from '../api/hooks/useRecipes'
 import {
   useMyRecipeRelation,
   useToggleBookmark,
   useToggleLike,
   useCookRecipe,
+  useCookHistory,
 } from '../api/hooks/useRecipeEngagement'
 import { useCreatePlanEntry } from '../api/hooks/usePlan'
 import { useInventoryList } from '../api/hooks/useInventory'
@@ -32,6 +35,8 @@ export default function RecipeDetail() {
   const [engagementError, setEngagementError] = useState<string | null>(null)
   const [planConfirmation, setPlanConfirmation] = useState<string | null>(null)
   const [isPlanSheetOpen, setIsPlanSheetOpen] = useState(false)
+  // True while the rating strip is shown (after a successful cook this visit).
+  const [showRatingStrip, setShowRatingStrip] = useState(false)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
     enabled: !!id,
@@ -47,7 +52,10 @@ export default function RecipeDetail() {
   const toggleLike = useToggleLike()
   const toggleBookmark = useToggleBookmark()
   const cookRecipe = useCookRecipe()
+  const rateRecipe = useRateRecipe()
   const createPlanEntry = useCreatePlanEntry()
+
+  const { data: cookHistory = [] } = useCookHistory(id!, { enabled: !!id })
 
   // Default to recipe's base_servings if it's one of the valid options (2, 4, 6)
   // Otherwise default to 2
@@ -106,6 +114,7 @@ export default function RecipeDetail() {
     setEngagementError(null)
     try {
       await cookRecipe.mutateAsync({ recipeId: id })
+      setShowRatingStrip(true)
     } catch (error) {
       console.error('Could not record cook. Please try again.', error)
       setEngagementError('Could not record cook. Please try again.')
@@ -113,6 +122,18 @@ export default function RecipeDetail() {
       throw error
     }
   }
+
+  const handleRate = async (stars: number) => {
+    if (!id || !myRelation) return
+    await rateRecipe.mutateAsync({
+      recipeId: id,
+      rating: stars,
+      currentRelation: myRelation,
+    })
+  }
+
+  const handleRatingDone = () => setShowRatingStrip(false)
+  const handleNotNow = () => setShowRatingStrip(false)
 
   const handleAddToPlan = async (date: string, mealType: MealType, servings: number) => {
     if (!id) return
@@ -171,6 +192,8 @@ export default function RecipeDetail() {
 
   const isLiked = myRelation?.is_liked ?? false
   const isBookmarked = myRelation?.is_bookmarked ?? false
+  const hasCooked =
+    showRatingStrip || cookHistory.some((e) => e.user_id === currentUser?.id)
 
   const stockStatus = recipe
     ? checkIngredientAvailability(recipe.ingredients, inventoryItems)
@@ -198,7 +221,7 @@ export default function RecipeDetail() {
             </div>
           )}
 
-          <div className="mb-4 flex flex-wrap gap-2">
+          <div className="mb-1 flex flex-wrap gap-2">
             {isLiked && currentUser && (
               <Pill variant="success">{currentUser.name} likes this</Pill>
             )}
@@ -214,6 +237,13 @@ export default function RecipeDetail() {
             {recipe.tags.map((tag) => (
               <Pill key={tag} variant="default">{tag}</Pill>
             ))}
+          </div>
+          <div className="mb-4">
+            <RatingLine
+              hasCooked={hasCooked}
+              rating={myRelation?.rating ?? null}
+              onRate={handleRate}
+            />
           </div>
 
           <ServingsControl
@@ -266,13 +296,22 @@ export default function RecipeDetail() {
             <p className="text-sm text-yellow-800">Unable to load pantry inventory. The "Add missing to list" button is temporarily unavailable.</p>
           </div>
         )}
-        <ActionBar
-          onCookThis={handleCookThis}
-          onAddToPlan={() => setIsPlanSheetOpen(true)}
-          isLoading={isLoadingRelation}
-          isInventoryLoading={isLoadingInventory || isInventoryError}
-          missingIngredients={stockStatus.outOfStock}
-        />
+        {showRatingStrip ? (
+          <JustCookedStrip
+            cookCount={recipe.times_cooked}
+            onRate={handleRate}
+            onNotNow={handleNotNow}
+            onDone={handleRatingDone}
+          />
+        ) : (
+          <ActionBar
+            onCookThis={handleCookThis}
+            onAddToPlan={() => setIsPlanSheetOpen(true)}
+            isLoading={isLoadingRelation}
+            isInventoryLoading={isLoadingInventory || isInventoryError}
+            missingIngredients={stockStatus.outOfStock}
+          />
+        )}
       </>
 
       <AddToPlanSheet

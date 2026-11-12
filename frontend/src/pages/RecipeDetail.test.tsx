@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router-dom'
@@ -27,40 +27,45 @@ vi.mock('../contexts/AuthContext', () => ({
 
 const mockCookMutateAsync = vi.fn().mockResolvedValue({})
 const mockCreateEntryMutateAsync = vi.fn().mockResolvedValue({})
+const mockRateMutateAsync = vi.fn().mockResolvedValue({})
+
+const baseRecipe = {
+  id: 'recipe-1',
+  name: 'Mushroom Risotto',
+  source_type: 'hellofresh',
+  source_url: 'https://www.hellofresh.com/recipes/mushroom-risotto',
+  source_image: null,
+  steps: ['Boil water.', 'Add rice.'],
+  notes: null,
+  tags: ['vegetarian'],
+  cook_time_minutes: 30,
+  prep_time_minutes: 10,
+  base_servings: 4,
+  times_cooked: 3,
+  is_persisted: true,
+  variation_groups: null,
+  nutritional_info: null,
+  ingredients: [],
+}
 
 vi.mock('../api/hooks/useRecipes', () => ({
   useRecipe: vi.fn(() => ({
-    data: {
-      id: 'recipe-1',
-      name: 'Mushroom Risotto',
-      source_type: 'hellofresh',
-      source_url: 'https://www.hellofresh.com/recipes/mushroom-risotto',
-      source_image: null,
-      steps: ['Boil water.', 'Add rice.'],
-      notes: null,
-      tags: ['vegetarian'],
-      cook_time_minutes: 30,
-      prep_time_minutes: 10,
-      base_servings: 4,
-      times_cooked: 3,
-      is_persisted: true,
-      variation_groups: null,
-      nutritional_info: null,
-      ingredients: [],
-    },
+    data: baseRecipe,
     isLoading: false,
     isError: false,
   })),
+  useRateRecipe: vi.fn(() => ({ mutateAsync: mockRateMutateAsync })),
 }))
 
 vi.mock('../api/hooks/useRecipeEngagement', () => ({
-  useMyRecipeRelation: () => ({
-    data: { is_bookmarked: false, is_liked: false },
+  useMyRecipeRelation: vi.fn(() => ({
+    data: { rating: null, is_bookmarked: false, is_liked: false, rating_photos: null, rating_comment: null, menu_id: null },
     isLoading: false,
-  }),
+  })),
   useToggleBookmark: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useToggleLike: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useCookRecipe: () => ({ mutateAsync: mockCookMutateAsync }),
+  useCookHistory: vi.fn(() => ({ data: [] })),
 }))
 
 vi.mock('../api/hooks/usePlan', () => ({
@@ -98,6 +103,12 @@ beforeEach(() => {
   })
   mockCookMutateAsync.mockReset().mockResolvedValue({})
   mockCreateEntryMutateAsync.mockReset().mockResolvedValue({})
+  mockRateMutateAsync.mockReset().mockResolvedValue({})
+  vi.useFakeTimers()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 function renderPage() {
@@ -200,6 +211,102 @@ describe('RecipeDetail', () => {
 
       renderPage()
       expect(screen.queryByText(/view original/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('RatingLine', () => {
+    it('shows the gate message when user has never cooked (no cook history)', () => {
+      renderPage()
+      expect(
+        screen.getByText(/ratings open up after the first cook/i)
+      ).toBeInTheDocument()
+    })
+
+    it('shows inline stars when user has cook history but no rating', async () => {
+      const engagementModule = await import('../api/hooks/useRecipeEngagement')
+      vi.mocked(engagementModule.useCookHistory).mockReturnValueOnce({
+        data: [{ id: 'ev-1', user_id: 'user-1', recipe_id: 'recipe-1', cooked_at: '2026-11-10T10:00:00Z', meal_plan_entry_id: null, notes: null }],
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      renderPage()
+      await waitFor(() =>
+        expect(screen.getByText(/you've cooked this\. rate it\?/i)).toBeInTheDocument()
+      )
+      expect(screen.getByRole('radiogroup', { name: /rating/i })).toBeInTheDocument()
+    })
+
+    it('shows the user\'s rating when myRelation has a non-null rating', async () => {
+      const engagementModule = await import('../api/hooks/useRecipeEngagement')
+      vi.mocked(engagementModule.useMyRecipeRelation).mockReturnValueOnce({
+        data: { rating: 4, is_bookmarked: false, is_liked: false, rating_photos: null, rating_comment: null, menu_id: null },
+        isLoading: false,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      renderPage()
+      expect(screen.getByText(/your rating/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('JustCookedStrip', () => {
+    it('replaces ActionBar with JustCookedStrip after a successful cook', async () => {
+      renderPage()
+      expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await waitFor(() =>
+        expect(screen.getByRole('radiogroup', { name: /rating/i })).toBeInTheDocument()
+      )
+      expect(screen.queryByRole('button', { name: /i cooked this/i })).not.toBeInTheDocument()
+    })
+
+    it('"Not now" returns the ActionBar without calling rateRecipe', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /not now/i })).toBeInTheDocument()
+      )
+      await userEvent.click(screen.getByRole('button', { name: /not now/i }))
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
+      )
+      expect(mockRateMutateAsync).not.toHaveBeenCalled()
+    })
+
+    it('a star tap calls rateRecipe with the merged relation', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await waitFor(() =>
+        expect(screen.getByRole('radiogroup', { name: /rating/i })).toBeInTheDocument()
+      )
+      const stars = screen.getByRole('radiogroup').querySelectorAll('button')
+      await userEvent.click(stars[4]) // star 5
+
+      await waitFor(() => expect(mockRateMutateAsync).toHaveBeenCalledTimes(1))
+      const call = mockRateMutateAsync.mock.calls[0][0]
+      expect(call.rating).toBe(5)
+      expect(call.recipeId).toBe('recipe-1')
+      expect(call.currentRelation).toBeDefined()
+    })
+
+    it('ActionBar returns after the thanks delay', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await waitFor(() =>
+        expect(screen.getByRole('radiogroup', { name: /rating/i })).toBeInTheDocument()
+      )
+      const stars = screen.getByRole('radiogroup').querySelectorAll('button')
+      await userEvent.click(stars[2]) // star 3
+
+      await waitFor(() =>
+        expect(screen.getByText(/thanks\. rated 3 stars/i)).toBeInTheDocument()
+      )
+      // ActionBar not yet restored
+      expect(screen.queryByRole('button', { name: /i cooked this/i })).not.toBeInTheDocument()
+
+      vi.advanceTimersByTime(2000)
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
+      )
     })
   })
 })
