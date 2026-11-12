@@ -159,9 +159,10 @@ export default function Collection() {
     )
     observer.observe(el)
     return () => observer.disconnect()
-    // Re-subscribe when children become available (parent data loads) or failed changes.
+    // Re-subscribe when children load, failed changes, or a child settles (sentinel may still
+    // be in viewport — a new observer fires immediately so the walk can advance).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!parent, failed])
+  }, [!!parent, failed, settledSet.size])
 
   // ── derived display values ───────────────────────────────────────────────────
 
@@ -197,6 +198,20 @@ export default function Collection() {
   }
 
   const is404 = isError && (error as { status?: number })?.status === 404
+
+  if (isError && !is404) {
+    return (
+      <PageContainer>
+        <div className="py-8 text-center">
+          <p className="text-mocha mb-2">Could not load this collection right now.</p>
+          <Link to="/recipes" className="text-sm text-olive hover:text-olive/80 underline">
+            Back to recipes
+          </Link>
+        </div>
+      </PageContainer>
+    )
+  }
+
   if (is404 || (!isLoading && !parent)) {
     return (
       <PageContainer>
@@ -206,19 +221,6 @@ export default function Collection() {
             to="/recipes"
             className="text-sm text-olive hover:text-olive/80 underline"
           >
-            Back to recipes
-          </Link>
-        </div>
-      </PageContainer>
-    )
-  }
-
-  if (isError && !is404) {
-    return (
-      <PageContainer>
-        <div className="py-8 text-center">
-          <p className="text-mocha mb-2">Could not load this collection right now.</p>
-          <Link to="/recipes" className="text-sm text-olive hover:text-olive/80 underline">
             Back to recipes
           </Link>
         </div>
@@ -277,7 +279,7 @@ export default function Collection() {
             key={child.slug}
             child={child}
             source="hellofresh_web"
-            enabled={i <= cursor && !failed}
+            enabled={i < cursor || (i === cursor && !failed)}
             index={i}
             filters={filters}
             onSettled={handleSettled}

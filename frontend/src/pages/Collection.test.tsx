@@ -411,6 +411,168 @@ describe('AC3 — tail states', () => {
   })
 })
 
+// ── Regression 1: settled children survive a later sibling failure ────────────
+
+describe('Regression — settled child content survives a later sibling failure', () => {
+  const parentSlug = 'quick-meals'
+  const childASlug = 'child-a'
+
+  it('leaves child-a cards visible when child-b fails with 429', async () => {
+    const parentDetail = makeDetail(parentSlug, {
+      cards: [],
+      children: [
+        { slug: childASlug, name: 'Child A', card_count: 1, last_fetched_at: null },
+        { slug: 'child-b', name: 'Child B', card_count: 0, last_fetched_at: null },
+      ],
+    })
+    const childADetail = makeDetail(childASlug, {
+      cards: [makeCard('a1', { name: 'Child A Card' })],
+    })
+
+    vi.mocked(useCollection).mockImplementation((_source, slug, opts) => {
+      const enabled = (opts as { enabled?: boolean })?.enabled !== false
+      if (slug === parentSlug) return { data: parentDetail, ...idle } as any
+      if (!enabled) return { data: undefined, ...idle } as any
+      if (slug === childASlug) return { data: childADetail, ...idle } as any
+      if (slug === 'child-b') {
+        return {
+          data: undefined,
+          isLoading: false,
+          isFetching: false,
+          isError: true,
+          error: { status: 429, message: 'Too Many Requests' },
+        } as any
+      }
+      return { data: undefined, ...idle } as any
+    })
+
+    renderCollection()
+    triggerObserver() // cursor=0 → child-a settles
+
+    await waitFor(() => expect(screen.getByText('Child A Card')).toBeInTheDocument())
+
+    triggerObserver() // cursor=1 → child-b fails
+
+    await waitFor(() => {
+      expect(screen.getByText(/could not bring in more right now/i)).toBeInTheDocument()
+    })
+
+    // Child A content must still be in the DOM after the failure
+    expect(screen.getByText('Child A Card')).toBeInTheDocument()
+  })
+})
+
+// ── Regression 2: slug navigation resets walk state ───────────────────────────
+
+describe('Regression — slug change resets walk state', () => {
+  it('shows fresh state when re-rendered with a new slug key', async () => {
+    const detailA = makeDetail('collection-a', {
+      cards: [],
+      children: [{ slug: 'ca-child', name: 'Child A', card_count: 1, last_fetched_at: null }],
+    })
+    const detailB = makeDetail('collection-b', { cards: [makeCard('b1')], children: [] })
+    const caChildDetail = makeDetail('ca-child', {
+      cards: [makeCard('ca1', { name: 'CA Child Card' })],
+    })
+
+    vi.mocked(useCollection).mockImplementation((_source, slug, opts) => {
+      const enabled = (opts as { enabled?: boolean })?.enabled !== false
+      if (slug === 'collection-a') return { data: detailA, ...idle } as any
+      if (slug === 'collection-b') return { data: detailB, ...idle } as any
+      if (slug === 'ca-child' && enabled) return { data: caChildDetail, ...idle } as any
+      return { data: undefined, ...idle } as any
+    })
+
+    // Render collection-a and advance the walk
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/browse/hellofresh/collection-a']}>
+        <Routes>
+          <Route path="/browse/hellofresh/:slug" element={<Collection key="collection-a" />} />
+          <Route path="/recipes" element={<div>recipes page</div>} />
+        </Routes>
+      </MemoryRouter>
+    )
+    triggerObserver()
+    await waitFor(() => expect(screen.getByText('CA Child Card')).toBeInTheDocument())
+
+    // Navigate to collection-b: new key forces remount (simulates CollectionRoute key={slug})
+    observers.length = 0
+    rerender(
+      <MemoryRouter initialEntries={['/browse/hellofresh/collection-b']}>
+        <Routes>
+          <Route path="/browse/hellofresh/:slug" element={<Collection key="collection-b" />} />
+          <Route path="/recipes" element={<div>recipes page</div>} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Collection collection-b.')
+    })
+    // Stale child content from collection-a must not appear
+    expect(screen.queryByText('CA Child Card')).not.toBeInTheDocument()
+    // collection-b has no children → caught-up tail shows immediately
+    expect(screen.getByText(/that's everything in this collection/i)).toBeInTheDocument()
+  })
+})
+
+// ── Regression 3: 0-card child does not stall the walk ────────────────────────
+
+describe('Regression — 0-card child advances the walk', () => {
+  it('walks past a 0-card child when sentinel stays in viewport', async () => {
+    const parentSlug = 'quick-meals'
+    const parentDetail = makeDetail(parentSlug, {
+      cards: [],
+      children: [
+        { slug: 'child-empty', name: 'Child Empty', card_count: 0, last_fetched_at: null },
+        { slug: 'child-full', name: 'Child Full', card_count: 1, last_fetched_at: null },
+      ],
+    })
+    const emptyChild = makeDetail('child-empty', { cards: [], fetch_error: null })
+    const fullChildDetail = makeDetail('child-full', {
+      cards: [makeCard('cf1', { name: 'Full Child Card' })],
+    })
+
+    vi.mocked(useCollection).mockImplementation((_source, slug, opts) => {
+      const enabled = (opts as { enabled?: boolean })?.enabled !== false
+      if (slug === parentSlug) return { data: parentDetail, ...idle } as any
+      if (!enabled) return { data: undefined, ...idle } as any
+      if (slug === 'child-empty') return { data: emptyChild, ...idle } as any
+      if (slug === 'child-full') return { data: fullChildDetail, ...idle } as any
+      return { data: undefined, ...idle } as any
+    })
+
+    renderCollection()
+    triggerObserver() // sentinel fires → cursor=0 (child-empty); settles with 0 cards →
+                      // settledSet.size dep triggers re-subscribe → sentinel still in viewport
+                      // → cursor=1 (child-full)
+
+    await waitFor(() => {
+      expect(screen.getByText('Full Child Card')).toBeInTheDocument()
+    })
+  })
+})
+
+// ── Regression 4: non-404 errors show the correct error view ──────────────────
+
+describe('Regression — non-404 error shows correct error view', () => {
+  it('shows "could not load" for a 500 error, not "not found"', async () => {
+    vi.mocked(useCollection).mockReturnValue({
+      data: undefined,
+      ...idle,
+      isError: true,
+      error: { status: 500, message: 'Internal Server Error' },
+    } as any)
+
+    renderCollection()
+
+    await waitFor(() => {
+      expect(screen.getByText(/could not load this collection right now/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/recipe collection not found/i)).not.toBeInTheDocument()
+  })
+})
+
 // ── AC4: client-side chips ─────────────────────────────────────────────────────
 
 describe('AC4 — Saved only and Under 30 min filters', () => {
