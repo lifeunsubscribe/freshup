@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import PageContainer from '../components/layout/PageContainer'
 import RecipeHeader from '../components/recipe/RecipeHeader'
@@ -43,6 +43,20 @@ export default function RecipeDetail() {
   const [groceryConfirmation, setGroceryConfirmation] = useState<string | null>(null)
   // True while the JustCookedStrip is showing (this page visit only).
   const [justCooked, setJustCooked] = useState(false)
+
+  // Timeout refs: cleared on unmount so a navigation mid-countdown never
+  // triggers a setState on a detached component tree.
+  const engagementTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const planConfirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const groceryConfirmationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (engagementTimeoutRef.current) clearTimeout(engagementTimeoutRef.current)
+      if (planConfirmationTimeoutRef.current) clearTimeout(planConfirmationTimeoutRef.current)
+      if (groceryConfirmationTimeoutRef.current) clearTimeout(groceryConfirmationTimeoutRef.current)
+    }
+  }, [])
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
     enabled: !!id,
@@ -104,7 +118,11 @@ export default function RecipeDetail() {
     } catch (error) {
       console.error(failureMessage, error)
       setEngagementError(failureMessage)
-      setTimeout(() => setEngagementError(null), 5000)
+      if (engagementTimeoutRef.current) clearTimeout(engagementTimeoutRef.current)
+      engagementTimeoutRef.current = setTimeout(() => {
+        setEngagementError(null)
+        engagementTimeoutRef.current = null
+      }, 5000)
     }
   }
 
@@ -127,7 +145,11 @@ export default function RecipeDetail() {
     } catch (error) {
       console.error('Could not record cook. Please try again.', error)
       setEngagementError('Could not record cook. Please try again.')
-      setTimeout(() => setEngagementError(null), 5000)
+      if (engagementTimeoutRef.current) clearTimeout(engagementTimeoutRef.current)
+      engagementTimeoutRef.current = setTimeout(() => {
+        setEngagementError(null)
+        engagementTimeoutRef.current = null
+      }, 5000)
       throw error
     }
   }
@@ -169,7 +191,11 @@ export default function RecipeDetail() {
     })
     const mealLabel = mealType.charAt(0).toUpperCase() + mealType.slice(1)
     setPlanConfirmation(`Added to ${dayLabel} ${mealLabel}.`)
-    setTimeout(() => setPlanConfirmation(null), 4000)
+    if (planConfirmationTimeoutRef.current) clearTimeout(planConfirmationTimeoutRef.current)
+    planConfirmationTimeoutRef.current = setTimeout(() => {
+      setPlanConfirmation(null)
+      planConfirmationTimeoutRef.current = null
+    }, 4000)
   }
 
   // "Start N min" button on a step: starts a named timer without opening the sheet
@@ -355,7 +381,11 @@ export default function RecipeDetail() {
         onSuccess={(count) => {
           setIsPantrySheetOpen(false)
           setGroceryConfirmation(`Added ${count} to the grocery list.`)
-          setTimeout(() => setGroceryConfirmation(null), 4000)
+          if (groceryConfirmationTimeoutRef.current) clearTimeout(groceryConfirmationTimeoutRef.current)
+          groceryConfirmationTimeoutRef.current = setTimeout(() => {
+            setGroceryConfirmation(null)
+            groceryConfirmationTimeoutRef.current = null
+          }, 4000)
         }}
       />
 
