@@ -100,6 +100,7 @@ export function useRecipe(
   return useQuery({
     queryKey: recipeKeys.detail(id),
     queryFn: async () => {
+      // id is a UUID from our own API; UUIDs are path-safe and do not need percent-encoding.
       return apiClient<RecipeResponse>(`/recipes/${id}`, {
         method: 'GET',
       });
