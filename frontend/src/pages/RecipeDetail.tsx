@@ -43,8 +43,6 @@ export default function RecipeDetail() {
   const [groceryConfirmation, setGroceryConfirmation] = useState<string | null>(null)
   // True while the JustCookedStrip is showing (this page visit only).
   const [justCooked, setJustCooked] = useState(false)
-  // True after "Not now" — the offer is not shown again until the next cook.
-  const [sessionOfferDismissed, setSessionOfferDismissed] = useState(false)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
     enabled: !!id,
@@ -126,7 +124,6 @@ export default function RecipeDetail() {
     try {
       await cookRecipe.mutateAsync({ recipeId: id })
       setJustCooked(true)
-      setSessionOfferDismissed(false)
     } catch (error) {
       console.error('Could not record cook. Please try again.', error)
       setEngagementError('Could not record cook. Please try again.')
@@ -153,7 +150,6 @@ export default function RecipeDetail() {
 
   const handleStripDismiss = () => {
     setJustCooked(false)
-    setSessionOfferDismissed(true)
   }
 
   const handleAddToPlan = async (date: string, mealType: MealType, servings: number) => {
