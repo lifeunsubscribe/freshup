@@ -169,7 +169,7 @@ describe('AC1 — parent cards and header count', () => {
     vi.mocked(useCollection).mockReturnValue({ data: detail, ...idle } as any)
     renderCollection()
     await waitFor(() => {
-      expect(screen.getByText(/that's everything in this collection/i)).toBeInTheDocument()
+      expect(screen.getByText(/that’s everything in this collection/i)).toBeInTheDocument()
     })
   })
 
@@ -338,7 +338,7 @@ describe('AC3 — tail states', () => {
     triggerObserver()
 
     await waitFor(() => {
-      expect(screen.getByText(/that's everything in this collection/i)).toBeInTheDocument()
+      expect(screen.getByText(/that’s everything in this collection/i)).toBeInTheDocument()
     })
   })
 
@@ -484,7 +484,7 @@ describe('Regression — slug change resets walk state', () => {
     })
 
     // Render collection-a and advance the walk
-    const { rerender } = render(
+    const { unmount } = render(
       <MemoryRouter initialEntries={['/browse/hellofresh/collection-a']}>
         <Routes>
           <Route path="/browse/hellofresh/:slug" element={<Collection key="collection-a" />} />
@@ -495,9 +495,12 @@ describe('Regression — slug change resets walk state', () => {
     triggerObserver()
     await waitFor(() => expect(screen.getByText('CA Child Card')).toBeInTheDocument())
 
-    // Navigate to collection-b: new key forces remount (simulates CollectionRoute key={slug})
+    // Navigate to collection-b: unmount the old tree and mount a fresh one so the
+    // new MemoryRouter's initialEntries actually take effect (rerender keeps the old
+    // router's location; unmount+render gives a genuinely fresh component tree).
     observers.length = 0
-    rerender(
+    unmount()
+    render(
       <MemoryRouter initialEntries={['/browse/hellofresh/collection-b']}>
         <Routes>
           <Route path="/browse/hellofresh/:slug" element={<Collection key="collection-b" />} />
@@ -512,7 +515,7 @@ describe('Regression — slug change resets walk state', () => {
     // Stale child content from collection-a must not appear
     expect(screen.queryByText('CA Child Card')).not.toBeInTheDocument()
     // collection-b has no children → caught-up tail shows immediately
-    expect(screen.getByText(/that's everything in this collection/i)).toBeInTheDocument()
+    expect(screen.getByText(/that’s everything in this collection/i)).toBeInTheDocument()
   })
 })
 
@@ -543,9 +546,9 @@ describe('Regression — 0-card child advances the walk', () => {
     })
 
     renderCollection()
-    triggerObserver() // sentinel fires → cursor=0 (child-empty); settles with 0 cards →
-                      // settledSet.size dep triggers re-subscribe → sentinel still in viewport
-                      // → cursor=1 (child-full)
+    triggerObserver() // cursor=0 → child-empty loads and settles with 0 cards; settledSet.size
+                      // dep triggers re-subscribe (new observer registered in observers[])
+    triggerObserver() // new observer fires → cursor=1 → child-full loads
 
     await waitFor(() => {
       expect(screen.getByText('Full Child Card')).toBeInTheDocument()

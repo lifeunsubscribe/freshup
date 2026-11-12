@@ -34,7 +34,7 @@ interface ChildSectionProps {
 }
 
 function ChildSection({ child, source, enabled, index, filters, onSettled, onFailed }: ChildSectionProps) {
-  const { data, isLoading, isFetching, isError, error } = useCollection(source, child.slug, { enabled })
+  const { data, isLoading, isFetching, isError } = useCollection(source, child.slug, { enabled })
   // Guard: only call onSettled/onFailed once per mount.
   const reportedRef = useRef(false)
 
