@@ -28,7 +28,7 @@ describe('ServingsControl', () => {
     })
 
     it('highlights selected serving option', () => {
-      const { container } = render(
+      render(
         <ServingsControl selectedServings={4} onServingsChange={mockOnChange} />
       )
       const button4 = screen.getByLabelText('4 servings')

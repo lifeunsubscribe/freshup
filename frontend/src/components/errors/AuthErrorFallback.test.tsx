@@ -13,13 +13,13 @@ describe('AuthErrorFallback', () => {
   beforeEach(() => {
     originalLocation = window.location;
     delete (window as any).location;
-    window.location = { href: '' } as Location;
+    (window as any).location = { href: '' } as Location;
     mockResetError.mockClear();
     localStorage.clear();
   });
 
   afterEach(() => {
-    window.location = originalLocation;
+    (window as any).location = originalLocation;
   });
 
   describe('Rendering', () => {

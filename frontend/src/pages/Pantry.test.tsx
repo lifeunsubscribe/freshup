@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Pantry from './Pantry'
@@ -15,7 +15,7 @@ vi.mock('../api', () => ({
 
 // Mock child components to avoid nested dependency issues
 vi.mock('../components/pantry/StorageTabs', () => ({
-  default: ({ activeTab, onTabChange }: any) => (
+  default: ({ onTabChange }: any) => (
     <div data-testid="storage-tabs">
       <button onClick={() => onTabChange('all')}>All</button>
       <button onClick={() => onTabChange('fridge')}>Fridge</button>
@@ -326,7 +326,7 @@ describe('Pantry', () => {
       // Check that useInventoryList was called without storage_location filter
       const calls = vi.mocked(useInventoryList).mock.calls
       expect(calls.some(call =>
-        call[0].storage_location === undefined && call[0].limit === 100
+        call[0]?.storage_location === undefined && call[0]?.limit === 100
       )).toBe(true)
     })
 
@@ -756,7 +756,7 @@ describe('Pantry', () => {
         error: null,
       } as any)
 
-      const { container } = renderWithProviders(<Pantry />)
+      renderWithProviders(<Pantry />)
 
       // Check that major sections exist
       expect(screen.getByText('All')).toBeInTheDocument() // StorageTabs

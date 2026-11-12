@@ -92,7 +92,7 @@ describe('InventoryRow', () => {
   describe('Visual States', () => {
     it('renders item name in 13px primary text', () => {
       const item = createMockItem({ name: 'Olive oil' })
-      const { container } = renderWithProviders(<InventoryRow item={item} />)
+      renderWithProviders(<InventoryRow item={item} />)
 
       // Row text was tightened to 13px; this assertion still expected 14px.
       const itemName = screen.getByText('Olive oil')
@@ -404,7 +404,7 @@ describe('InventoryRow', () => {
 
   describe('Error Handling', () => {
     it('displays error banner when consume mutation fails', async () => {
-      const consumeMutate = vi.fn((variables, options) => {
+      const consumeMutate = vi.fn((_variables, options) => {
         // Simulate mutation failure by calling onError
         if (options?.onError) {
           options.onError()
@@ -435,7 +435,7 @@ describe('InventoryRow', () => {
     })
 
     it('displays error banner when freeze mutation fails', async () => {
-      const freezeMutate = vi.fn((variables, options) => {
+      const freezeMutate = vi.fn((_variables, options) => {
         // Simulate mutation failure by calling onError
         if (options?.onError) {
           options.onError()
@@ -466,7 +466,7 @@ describe('InventoryRow', () => {
     })
 
     it('displays error banner when update mutation fails', async () => {
-      const updateMutate = vi.fn((variables, options) => {
+      const updateMutate = vi.fn((_variables, options) => {
         // Simulate mutation failure by calling onError
         if (options?.onError) {
           options.onError()
@@ -497,7 +497,7 @@ describe('InventoryRow', () => {
     it('auto-dismisses error message after 5 seconds', async () => {
       vi.useFakeTimers()
 
-      const consumeMutate = vi.fn((variables, options) => {
+      const consumeMutate = vi.fn((_variables, options) => {
         // Simulate mutation failure by calling onError
         if (options?.onError) {
           options.onError()

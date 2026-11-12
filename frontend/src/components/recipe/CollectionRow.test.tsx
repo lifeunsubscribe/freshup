@@ -18,18 +18,13 @@ vi.mock('../../api/hooks/useCatalog', () => ({
 
 // IntersectionObserver is not available in jsdom — provide a controllable stub.
 let observerCallback: IntersectionObserverCallback | null = null
-let observedElement: Element | null = null
-
 class MockIntersectionObserver {
   constructor(cb: IntersectionObserverCallback, _opts?: IntersectionObserverInit) {
     observerCallback = cb
   }
-  observe(el: Element) {
-    observedElement = el
-  }
+  observe(_el: Element) {}
   disconnect() {
     observerCallback = null
-    observedElement = null
   }
   unobserve() {}
 }
@@ -37,7 +32,6 @@ class MockIntersectionObserver {
 beforeEach(() => {
   vi.clearAllMocks()
   observerCallback = null
-  observedElement = null
   // @ts-expect-error - jsdom does not define IntersectionObserver
   window.IntersectionObserver = MockIntersectionObserver
 })

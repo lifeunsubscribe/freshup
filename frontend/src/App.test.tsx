@@ -147,7 +147,7 @@ describe('App', () => {
     afterEach(() => {
       // Restore window.location if it was mocked
       if (window.location !== originalLocation) {
-        window.location = originalLocation
+        ;(window as any).location = originalLocation
       }
       // Clean up localStorage to prevent test pollution
       localStorage.removeItem('access_token')
@@ -230,7 +230,7 @@ describe('App', () => {
 
       // Mock window.location.href
       delete (window as any).location
-      window.location = { href: '' } as Location
+      ;(window as any).location = { href: '' } as Location
 
       renderApp()
 
@@ -273,7 +273,7 @@ describe('App', () => {
           isLoading: false,
           isError: false,
           refetch: vi.fn(),
-        }
+        } as any
       })
 
       // Wrap App in QueryClientProvider to support successful rendering after recovery

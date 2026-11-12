@@ -52,7 +52,7 @@ describe('SectionHeader', () => {
   })
 
   it('renders empty children with just the period', () => {
-    render(<SectionHeader></SectionHeader>)
+    render(<SectionHeader>{undefined}</SectionHeader>)
     const heading = screen.getByRole('heading', { level: 2 })
     expect(heading).toHaveTextContent('.')
   })

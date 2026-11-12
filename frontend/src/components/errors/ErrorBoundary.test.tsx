@@ -45,7 +45,7 @@ describe('ErrorBoundary', () => {
   });
 
   it('passes error to fallback function', () => {
-    const fallbackFn = vi.fn(() => <div>Fallback</div>);
+    const fallbackFn = vi.fn((_error: Error, _reset: () => void) => <div>Fallback</div>);
 
     render(
       <ErrorBoundary fallback={fallbackFn}>
@@ -107,7 +107,7 @@ describe('ErrorBoundary', () => {
   });
 
   it('handles different error types', () => {
-    function ThrowCustomError() {
+    function ThrowCustomError(): never {
       throw new Error('Custom error type');
     }
 
