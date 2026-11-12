@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
@@ -59,7 +59,9 @@ describe('ActionBar', () => {
   })
 
   describe('cook success state', () => {
-    beforeEach(() => { vi.useFakeTimers() })
+    // shouldAdvanceTime keeps React Query's internal timers moving; a fully frozen
+    // clock stalled the click and the test hit vitest's 5 s limit.
+    beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
     afterEach(() => { vi.useRealTimers() })
 
     it('shows "Cooked!" for 2s after a successful cook', async () => {
@@ -70,10 +72,12 @@ describe('ActionBar', () => {
       await user.click(screen.getByRole('button', { name: /i cooked this/i }))
       expect(screen.getByText('Cooked!')).toBeInTheDocument()
 
-      vi.advanceTimersByTime(2001)
-      await waitFor(() =>
-        expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
-      )
+      // waitFor polls with the (faked) timers and never advances; step the clock
+      // inside act and assert synchronously instead.
+      await act(async () => {
+        vi.advanceTimersByTime(2001)
+      })
+      expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
     })
   })
 

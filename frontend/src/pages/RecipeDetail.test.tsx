@@ -108,9 +108,13 @@ function renderPage() {
 
 describe('RecipeDetail', () => {
   describe('SourceLine', () => {
-    it('renders source attribution when source_url is set', () => {
+    it('renders source attribution when source_url is set', async () => {
       renderPage()
-      expect(screen.getAllByText(/view original/i)).toHaveLength(2) // under title + after last step
+      // Under the title on every tab; the copy after the last step only exists
+      // once the Cook & enjoy! tab is rendered.
+      expect(screen.getAllByText(/view original/i)).toHaveLength(1)
+      await userEvent.click(screen.getByRole('button', { name: 'Cook & enjoy!' }))
+      expect(screen.getAllByText(/view original/i)).toHaveLength(2)
     })
 
     it('renders "From HelloFresh" for hellofresh source_type', () => {
