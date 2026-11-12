@@ -3,7 +3,8 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { createElement } from 'react'
-import { useRateRecipe } from './useRecipes'
+import { useRateRecipe, recipeKeys } from './useRecipes'
+import { useCookRecipe } from './useRecipeEngagement'
 import { apiClient } from '../client'
 
 vi.mock('../client', async () => {
@@ -166,6 +167,69 @@ describe('useRateRecipe', () => {
     ).toBe(true)
     expect(
       invalidatedKeys.some((k) => JSON.stringify(k).includes('ratings'))
+    ).toBe(true)
+  })
+
+  it('invalidates outcomes cache key on success', async () => {
+    mockApiClient.mockResolvedValueOnce(makeRelationResponse())
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { result } = renderHook(() => useRateRecipe(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        recipeId: RECIPE_ID,
+        rating: 3,
+        currentRelation: {
+          is_bookmarked: false,
+          is_liked: false,
+          rating_photos: null,
+          rating_comment: null,
+          menu_id: null,
+        },
+      })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const invalidatedKeys = invalidateSpy.mock.calls.map(
+      (call) => (call[0] as { queryKey: unknown[] }).queryKey
+    )
+    expect(
+      invalidatedKeys.some(
+        (k) => JSON.stringify(k) === JSON.stringify(recipeKeys.outcomes(RECIPE_ID))
+      )
+    ).toBe(true)
+  })
+})
+
+describe('useCookRecipe outcomes invalidation', () => {
+  it('invalidates outcomes cache key after a successful cook', async () => {
+    mockApiClient.mockResolvedValueOnce({
+      id: 'ev-1',
+      user_id: 'user-1',
+      recipe_id: RECIPE_ID,
+      cooked_at: new Date().toISOString(),
+      meal_plan_entry_id: null,
+      notes: null,
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { result } = renderHook(() => useCookRecipe(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ recipeId: RECIPE_ID })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const invalidatedKeys = invalidateSpy.mock.calls.map(
+      (call) => (call[0] as { queryKey: unknown[] }).queryKey
+    )
+    expect(
+      invalidatedKeys.some(
+        (k) => JSON.stringify(k) === JSON.stringify(recipeKeys.outcomes(RECIPE_ID))
+      )
     ).toBe(true)
   })
 })

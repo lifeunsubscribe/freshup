@@ -31,6 +31,7 @@ import type {
   UserRecipeRelationCreate,
   UserRecipeRelationResponse,
   RecipeAggregateRatingsResponse,
+  RecipeOutcome,
 } from '../types';
 
 // Query keys for cache management
@@ -42,6 +43,7 @@ export const recipeKeys = {
   detail: (id: string) => [...recipeKeys.details(), id] as const,
   ratings: (id: string) => [...recipeKeys.all, 'ratings', id] as const,
   myRating: (id: string) => [...recipeKeys.all, 'my-rating', id] as const,
+  outcomes: (id: string) => [...recipeKeys.all, 'outcomes', id] as const,
 };
 
 export interface RecipeListFilters {
@@ -333,6 +335,9 @@ export function useRateRecipe() {
       queryClient.invalidateQueries({
         queryKey: recipeKeys.ratings(variables.recipeId),
       });
+      queryClient.invalidateQueries({
+        queryKey: recipeKeys.outcomes(variables.recipeId),
+      });
     },
   });
 }
@@ -397,6 +402,24 @@ export function useRecipeAggregateRatings(
       );
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
+    ...options,
+  });
+}
+
+/**
+ * Household outcomes for a recipe (all members' cooks, ratings, comments and photos).
+ */
+export function useRecipeOutcomes(
+  recipeId: string,
+  options?: Omit<UseQueryOptions<RecipeOutcome[]>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery({
+    queryKey: recipeKeys.outcomes(recipeId),
+    queryFn: async () =>
+      apiClient<RecipeOutcome[]>(`/recipes/${recipeId}/outcomes`, {
+        method: 'GET',
+      }),
+    staleTime: 2 * 60 * 1000,
     ...options,
   });
 }

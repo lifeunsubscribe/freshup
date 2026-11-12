@@ -53,6 +53,7 @@ vi.mock('../api/hooks/useRecipes', () => ({
     isLoading: false,
     isError: false,
   })),
+  useRecipeOutcomes: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
 }))
 
 vi.mock('../api/hooks/useRecipeEngagement', () => ({
@@ -409,6 +410,30 @@ describe('RecipeDetail', () => {
       )
       // The strip is still visible (no retry, no dismiss)
       expect(screen.queryByRole('button', { name: /i cooked this/i })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('OutcomesSection', () => {
+    it('renders the "How it turned out" section on the Ingredients tab', () => {
+      renderPage()
+      expect(screen.getByText(/how it turned out/i)).toBeInTheDocument()
+    })
+
+    it('renders the "How it turned out" section on the Cook tab', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: 'Cook & enjoy!' }))
+      expect(screen.getByText(/how it turned out/i)).toBeInTheDocument()
+    })
+
+    it('renders the "How it turned out" section on the Nutrition tab', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: 'Nutrition' }))
+      expect(screen.getByText(/how it turned out/i)).toBeInTheDocument()
+    })
+
+    it('shows empty state when outcomes list is empty', () => {
+      renderPage()
+      expect(screen.getByText('Nobody here has cooked this yet.')).toBeInTheDocument()
     })
   })
 

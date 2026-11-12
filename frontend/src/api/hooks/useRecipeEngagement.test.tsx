@@ -8,8 +8,10 @@ import {
   useMyRecipeRelations,
   useToggleBookmark,
   useToggleLike,
+  useCookRecipe,
   relationKeys,
 } from './useRecipeEngagement'
+import { recipeKeys } from './useRecipes'
 import { apiClient, ApiException } from '../client'
 
 vi.mock('../client', async () => {
@@ -202,6 +204,37 @@ describe('useToggleBookmark', () => {
       relationKeys.mine
     )
     expect(map?.get(RECIPE_ID)?.is_bookmarked).toBe(false)
+  })
+})
+
+describe('useCookRecipe', () => {
+  it('invalidates the outcomes cache key after a cook', async () => {
+    mockApiClient.mockResolvedValueOnce({
+      id: 'ev-1',
+      user_id: 'user-1',
+      recipe_id: RECIPE_ID,
+      cooked_at: new Date().toISOString(),
+      meal_plan_entry_id: null,
+      notes: null,
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { result } = renderHook(() => useCookRecipe(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ recipeId: RECIPE_ID })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const invalidatedKeys = invalidateSpy.mock.calls.map(
+      (call) => (call[0] as { queryKey: unknown[] }).queryKey
+    )
+    expect(
+      invalidatedKeys.some(
+        (k) => JSON.stringify(k) === JSON.stringify(recipeKeys.outcomes(RECIPE_ID))
+      )
+    ).toBe(true)
   })
 })
 

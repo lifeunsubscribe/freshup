@@ -211,6 +211,7 @@ export function useCookRecipe() {
       queryClient.invalidateQueries({ queryKey: recipeKeys.detail(recipeId) })
       queryClient.invalidateQueries({ queryKey: relationKeys.mine })
       queryClient.invalidateQueries({ queryKey: cookHistoryKey(recipeId) })
+      queryClient.invalidateQueries({ queryKey: recipeKeys.outcomes(recipeId) })
     },
   })
 }

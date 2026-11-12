@@ -631,6 +631,22 @@ export interface SubstitutionPreferenceResponse {
 }
 
 // ============================================================================
+// Recipe Outcome Types
+// ============================================================================
+
+/** One household member's history with a recipe, from GET /recipes/{id}/outcomes. */
+export interface RecipeOutcome {
+  user_id: string;
+  user_name: string;
+  rating: number | null;
+  rating_comment: string | null;
+  rating_photos: string[] | null;
+  times_cooked: number;
+  last_cooked_at: string | null;
+  latest_cook_notes: string | null;
+}
+
+// ============================================================================
 // Cook Event Types
 // ============================================================================
 
