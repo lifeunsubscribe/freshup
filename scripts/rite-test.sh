@@ -52,8 +52,9 @@ main() {
         exit 1
       fi
     fi
-    echo "[rite-test] frontend: tsc (build config) + vitest run"
+    echo "[rite-test] frontend: tsc (build config) + tsc (tests, #540) + vitest run"
     (cd "$fe" && npx tsc --project tsconfig.build.json) || status=1
+    (cd "$fe" && npx tsc --noEmit -p .) || status=1
     (cd "$fe" && npx vitest run) || status=1
   fi
 
