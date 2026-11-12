@@ -66,22 +66,33 @@ describe('RecipeCard', () => {
       expect(screen.getByText('HelloFresh')).toBeInTheDocument()
     })
 
-    it('displays "My recipe" badge for manual source', () => {
-      const manualRecipe = { ...mockRecipe, source_type: 'manual' }
-      renderWithRouter(<RecipeCard recipe={manualRecipe} />)
-      expect(screen.getByText('My recipe')).toBeInTheDocument()
+    it('displays "Kitchen Sanctuary" badge for kitchen_sanctuary source', () => {
+      const ksRecipe = { ...mockRecipe, source_type: 'kitchen_sanctuary' }
+      renderWithRouter(<RecipeCard recipe={ksRecipe} />)
+      expect(screen.getByText('Kitchen Sanctuary')).toBeInTheDocument()
     })
 
-    it('displays "My recipe" badge for ad_hoc source', () => {
+    it('does not display badge for manual source', () => {
+      const manualRecipe = { ...mockRecipe, source_type: 'manual' }
+      renderWithRouter(<RecipeCard recipe={manualRecipe} />)
+      expect(screen.queryByText('HelloFresh')).not.toBeInTheDocument()
+      expect(screen.queryByText('Kitchen Sanctuary')).not.toBeInTheDocument()
+      expect(screen.queryByText('My recipe')).not.toBeInTheDocument()
+    })
+
+    it('does not display badge for ad_hoc source', () => {
       const adHocRecipe = { ...mockRecipe, source_type: 'ad_hoc' }
       renderWithRouter(<RecipeCard recipe={adHocRecipe} />)
-      expect(screen.getByText('My recipe')).toBeInTheDocument()
+      expect(screen.queryByText('HelloFresh')).not.toBeInTheDocument()
+      expect(screen.queryByText('Kitchen Sanctuary')).not.toBeInTheDocument()
+      expect(screen.queryByText('My recipe')).not.toBeInTheDocument()
     })
 
     it('does not display badge for unknown source type', () => {
       const unknownRecipe = { ...mockRecipe, source_type: 'unknown' }
       renderWithRouter(<RecipeCard recipe={unknownRecipe} />)
       expect(screen.queryByText('HelloFresh')).not.toBeInTheDocument()
+      expect(screen.queryByText('Kitchen Sanctuary')).not.toBeInTheDocument()
       expect(screen.queryByText('My recipe')).not.toBeInTheDocument()
     })
   })
@@ -386,6 +397,72 @@ describe('RecipeCard', () => {
       const { container } = renderWithRouter(<RecipeCard recipe={mockRecipe} />)
       const imageContainer = container.querySelector('.relative.w-full')
       expect(imageContainer).toHaveStyle({ paddingBottom: '75%' })
+    })
+  })
+
+  describe('saved state display', () => {
+    it('shows "Not saved yet" text when isBookmarked is false', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isBookmarked={false} />)
+      expect(screen.getByText('Not saved yet')).toBeInTheDocument()
+    })
+
+    it('shows "Saved" text in content section when isBookmarked is true', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isBookmarked={true} />)
+      // Content-section "Saved" label (distinct from the photo overlay pill)
+      const savedSpans = screen.getAllByText('Saved')
+      expect(savedSpans.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('shows "Saved" pill overlay in the photo when isBookmarked is true', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isBookmarked={true} />)
+      // The photo overlay and the content row both render "Saved"; at least two
+      expect(screen.getAllByText('Saved').length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('does not show "Saved" pill overlay when isBookmarked is false', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isBookmarked={false} />)
+      expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+    })
+
+    it('bookmark icon in content uses filled olive style when saved', () => {
+      const { container } = renderWithRouter(
+        <RecipeCard recipe={mockRecipe} isBookmarked={true} />
+      )
+      // The small content-section bookmark is a 14px svg; find it via the
+      // containing div that has the saved state row (last flex row in content).
+      const contentSection = container.querySelector('.p-3')
+      const savedRow = contentSection?.querySelector('.flex.items-center.gap-1.text-xs')
+      const svgEl = savedRow?.querySelector('svg')
+      expect(svgEl?.getAttribute('class')).toContain('fill-olive')
+    })
+
+    it('bookmark icon in content uses outline mocha style when not saved', () => {
+      const { container } = renderWithRouter(
+        <RecipeCard recipe={mockRecipe} isBookmarked={false} />
+      )
+      const contentSection = container.querySelector('.p-3')
+      const savedRow = contentSection?.querySelector('.flex.items-center.gap-1.text-xs')
+      const svgEl = savedRow?.querySelector('svg')
+      expect(svgEl?.getAttribute('class')).toContain('stroke-mocha')
+      expect(svgEl?.getAttribute('class')).not.toContain('fill-olive')
+    })
+  })
+
+  describe('aria-label with saved state', () => {
+    it('includes "not saved yet" in aria-label when not bookmarked', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isBookmarked={false} />)
+      const link = screen.getByRole('link', {
+        name: /sweet potato chickpea curry.*not saved yet/i,
+      })
+      expect(link).toBeInTheDocument()
+    })
+
+    it('includes "saved" in aria-label when bookmarked', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} isBookmarked={true} />)
+      const link = screen.getByRole('link', {
+        name: /sweet potato chickpea curry.*saved/i,
+      })
+      expect(link).toBeInTheDocument()
     })
   })
 })

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { Bookmark, Heart } from 'lucide-react'
 import { useState } from 'react'
 import Pill from '../ui/Pill'
+import { sourceName } from '../../utils/sourceNames'
 
 /**
  * Run a quick action without letting the click reach the wrapping <Link>.
@@ -26,6 +27,7 @@ export interface RecipeCardProps {
     cook_time_minutes: number | null
     prep_time_minutes: number | null
     tags: string[]
+    is_bookmarked?: boolean
   }
   variant?: 'grid' | 'carousel'
   isLastVisible?: boolean
@@ -88,14 +90,13 @@ export default function RecipeCard({
   // Extract cuisine tag (first tag if available)
   const cuisineTag = tags.length > 0 ? tags[0] : null
 
-  // Map source_type to badge label
-  const getSourceBadge = (): string | null => {
-    if (source_type === 'hellofresh_card') return 'HelloFresh'
-    if (source_type === 'manual' || source_type === 'ad_hoc') return 'My recipe'
-    return null
-  }
-
-  const sourceBadge = getSourceBadge()
+  // hellofresh_card is a card-level subtype; resolve to the canonical source key
+  // so sourceName() can return 'HelloFresh'. Returns null for manual/ad_hoc.
+  const normalized = source_type === 'hellofresh_card' ? 'hellofresh' : source_type
+  const sourceBadgeLabel = (() => {
+    const label = sourceName(normalized)
+    return label !== normalized ? label : null
+  })()
 
   // Household context display
   const getHouseholdContextDisplay = () => {
@@ -116,6 +117,7 @@ export default function RecipeCard({
   return (
     <Link
       to={`/recipes/${id}`}
+      aria-label={`${name}, ${isBookmarked ? 'saved' : 'not saved yet'}`}
       className={`block bg-white rounded-[10px] overflow-hidden shadow-sm hover:shadow-md transition-shadow ${containerClasses}`}
     >
       {/* Image container with 4:3 aspect ratio and overlays */}
@@ -137,10 +139,11 @@ export default function RecipeCard({
           )}
         </div>
 
-        {/* Source badge overlay (top-left) */}
-        {sourceBadge && (
-          <div className="absolute top-2 left-2">
-            <Pill variant="default">{sourceBadge}</Pill>
+        {/* Saved pill + source badge stacked at top-left of photo */}
+        {(isBookmarked || sourceBadgeLabel) && (
+          <div className="absolute top-2 left-2 flex flex-col gap-1">
+            {isBookmarked && <Pill variant="success">Saved</Pill>}
+            {sourceBadgeLabel && <Pill variant="default">{sourceBadgeLabel}</Pill>}
           </div>
         )}
 
@@ -204,7 +207,7 @@ export default function RecipeCard({
         </div>
 
         {/* Household context line */}
-        <div className="text-xs">
+        <div className="text-xs mb-1.5">
           <span
             className={
               householdDisplay.variant === 'success'
@@ -214,6 +217,20 @@ export default function RecipeCard({
           >
             {householdDisplay.text}
           </span>
+        </div>
+
+        {/* Saved state — identical classes and copy to CatalogCard */}
+        <div className="flex items-center gap-1 text-xs">
+          <Bookmark
+            size={14}
+            className={isBookmarked ? 'fill-olive stroke-olive' : 'stroke-mocha'}
+            strokeWidth={2}
+          />
+          {isBookmarked ? (
+            <span className="text-olive font-medium">Saved</span>
+          ) : (
+            <span className="text-mocha">Not saved yet</span>
+          )}
         </div>
       </div>
     </Link>

@@ -28,7 +28,10 @@ export default function ConnectedRecipeCard(props: ConnectedRecipeCardProps) {
   const toggleLike = useToggleLike()
 
   const relation = relations?.get(props.recipe.id)
-  const isBookmarked = relation?.is_bookmarked ?? false
+  // Relations map tracks optimistic toggle state; card-level field is the
+  // server-authoritative initial value. Relations map wins when present so
+  // the optimistic flip shows immediately without waiting for the list refetch.
+  const isBookmarked = relation?.is_bookmarked ?? props.recipe.is_bookmarked ?? false
   const isLiked = relation?.is_liked ?? false
 
   return (
