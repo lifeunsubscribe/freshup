@@ -69,12 +69,13 @@ export default function Recipes() {
   }, [filters])
 
   // Handle "See all" button - transition to grid with filter
-  const handleSeeAll = useCallback((sectionFilters: { limit?: number; max_cook_time?: number; tag?: string }) => {
+  const handleSeeAll = useCallback((sectionFilters: { limit?: number; max_cook_time?: number; tag?: string; source_type?: string }) => {
     // Extract only RecipeFilters properties (exclude limit which is for carousel only)
-    const { max_cook_time, tag } = sectionFilters
+    const { max_cook_time, tag, source_type } = sectionFilters
     const gridFilters: RecipeFilters = {}
     if (max_cook_time !== undefined) gridFilters.max_cook_time = max_cook_time
     if (tag !== undefined) gridFilters.tag = tag
+    if (source_type !== undefined) gridFilters.source_type = source_type
     setFilters(gridFilters)
     setViewMode('grid')
   }, [])
@@ -129,6 +130,7 @@ export default function Recipes() {
             <SectionNav
               sections={[
                 ...sections.map((s) => ({ id: s.id, label: s.label })),
+                { id: 'kitchen-sanctuary', label: 'Kitchen Sanctuary' },
                 ...displayedCollections.map((c) => ({
                   id: `hellofresh-${c.slug}`,
                   label: c.name,
@@ -147,6 +149,29 @@ export default function Recipes() {
                   sectionId={section.id}
                 />
               ))}
+            </div>
+
+            {/* Kitchen Sanctuary section — grows only by hand via saved-page import */}
+            <div className="mt-6">
+              <RecipeCarousel
+                title="Kitchen Sanctuary"
+                sectionId="kitchen-sanctuary"
+                filters={{ source_type: 'kitchen_sanctuary', limit: 10 }}
+                onSeeAll={() => handleSeeAll({ source_type: 'kitchen_sanctuary', limit: 10 })}
+                subtitle={(n) => `${n ?? 0} recipes · added by hand`}
+                emptyState={null}
+                footer={
+                  <p className="mt-3 text-sm text-text-secondary">
+                    Kitchen Sanctuary turns automated fetching away, so this row grows only when someone adds a recipe.{' '}
+                    <Link
+                      to="/recipes/add?source=kitchen_sanctuary"
+                      className="text-olive hover:text-olive/80 transition-colors"
+                    >
+                      Add a specific recipe
+                    </Link>
+                  </p>
+                }
+              />
             </div>
 
             {/* HelloFresh section */}

@@ -348,6 +348,192 @@ describe('RecipeCarousel', () => {
     })
   })
 
+  describe('subtitle prop', () => {
+    it('renders computed subtitle when subtitle fn is provided', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: mockRecipes,
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+          subtitle={(n) => `${n ?? 0} items · added by hand`}
+        />
+      )
+
+      expect(screen.getByText(`${mockRecipes.length} items · added by hand`)).toBeInTheDocument()
+    })
+
+    it('does not render subtitle when prop is omitted', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: mockRecipes,
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+        />
+      )
+
+      expect(screen.queryByText(/items · added by hand/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('emptyState prop', () => {
+    it('shows default empty message when emptyState is not provided', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: [],
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+        />
+      )
+
+      expect(screen.getByText('No recipes found for this category.')).toBeInTheDocument()
+    })
+
+    it('renders custom emptyState instead of default when provided', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: [],
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+          emptyState={<p>Custom empty message</p>}
+        />
+      )
+
+      expect(screen.getByText('Custom empty message')).toBeInTheDocument()
+      expect(screen.queryByText('No recipes found for this category.')).not.toBeInTheDocument()
+    })
+
+    it('shows nothing when emptyState={null}', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: [],
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+          emptyState={null}
+        />
+      )
+
+      expect(screen.queryByText('No recipes found for this category.')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('footer prop', () => {
+    it('renders footer content after cards when recipes exist', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: mockRecipes,
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+          footer={<p>Footer line here</p>}
+        />
+      )
+
+      expect(screen.getByText('Footer line here')).toBeInTheDocument()
+    })
+
+    it('renders footer content in empty state', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: [],
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+          emptyState={null}
+          footer={<p>Footer in empty state</p>}
+        />
+      )
+
+      expect(screen.getByText('Footer in empty state')).toBeInTheDocument()
+    })
+
+    it('does not render footer during loading', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        error: null,
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+          footer={<p>Footer should not appear</p>}
+        />
+      )
+
+      expect(screen.queryByText('Footer should not appear')).not.toBeInTheDocument()
+    })
+
+    it('does not render footer during error', () => {
+      vi.mocked(useRecipeList).mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error('Network error'),
+      } as any)
+
+      renderWithRouter(
+        <RecipeCarousel
+          title="Quick meals"
+          filters={mockFilters}
+          onSeeAll={mockOnSeeAll}
+          footer={<p>Footer should not appear</p>}
+        />
+      )
+
+      expect(screen.queryByText('Footer should not appear')).not.toBeInTheDocument()
+    })
+  })
+
   describe('section id', () => {
     it('applies sectionId to section element when provided', () => {
       vi.mocked(useRecipeList).mockReturnValue({

@@ -2,7 +2,7 @@ import { useRecipeList, type RecipeListFilters } from '../../api'
 import ConnectedRecipeCard from './ConnectedRecipeCard'
 import SectionHeader from '../ui/SectionHeader'
 import { ChevronRight, ChevronLeft } from 'lucide-react'
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, type ReactNode } from 'react'
 
 interface RecipeCarouselProps {
   title: string
@@ -11,6 +11,12 @@ interface RecipeCarouselProps {
   sectionId?: string
   /** When false, skip the data fetch until set to true (e.g. via IntersectionObserver). Defaults to true. */
   enabled?: boolean
+  /** Renders a subtitle under the section header; receives the current recipe count (undefined while loading). */
+  subtitle?: (count: number | undefined) => string
+  /** Replaces the default "No recipes found" message when the list is empty. Pass null to show nothing. */
+  emptyState?: ReactNode
+  /** Rendered after the cards (or empty state) in all non-loading, non-error states. */
+  footer?: ReactNode
 }
 
 /**
@@ -26,8 +32,9 @@ interface RecipeCarouselProps {
  * - Empty state when no recipes match filters
  * - ARIA attributes for screen reader accessibility (role="region", aria-roledescription="carousel")
  */
-export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, enabled = true }: RecipeCarouselProps) {
+export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, enabled = true, subtitle, emptyState, footer }: RecipeCarouselProps) {
   const { data: recipes, isLoading, isError, error } = useRecipeList(filters, { enabled })
+  const computedSubtitle = subtitle ? subtitle(recipes?.length) : undefined
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -93,7 +100,7 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, en
     >
       {/* Header with title and "See all" link */}
       <div className="flex items-center justify-between mb-3">
-        <SectionHeader>{title}</SectionHeader>
+        <SectionHeader subtitle={computedSubtitle}>{title}</SectionHeader>
         <button
           onClick={onSeeAll}
           className="flex items-center gap-1 text-sm text-olive hover:text-olive/80 transition-colors font-medium"
@@ -118,9 +125,11 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, en
         )}
 
         {!isLoading && !isError && recipes && recipes.length === 0 && (
-          <p className="text-sm text-text-secondary">
-            No recipes found for this category.
-          </p>
+          emptyState !== undefined ? emptyState : (
+            <p className="text-sm text-text-secondary">
+              No recipes found for this category.
+            </p>
+          )
         )}
 
         {!isLoading && !isError && recipes && recipes.length > 0 && (
@@ -175,6 +184,8 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, en
             )}
           </div>
         )}
+
+        {!isLoading && !isError && footer}
       </div>
     </section>
   )
