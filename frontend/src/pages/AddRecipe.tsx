@@ -5,7 +5,11 @@ import PageContainer from '../components/layout/PageContainer'
 import ImportPreviewCard from '../components/recipe/ImportPreviewCard'
 import SavedPageInput from '../components/recipe/SavedPageInput'
 import RecipeCard from '../components/recipe/RecipeCard'
+import SourceFailingAlert from '../components/recipe/SourceFailingAlert'
 import { useImportUrl, useImportHtml, useRecipe, useToggleBookmark } from '../api'
+import { useSourceHealth, failingSources } from '../api/hooks/useSourceHealth'
+import { useAuth } from '../contexts/AuthContext'
+import { sourceTypeForUrl, sourceName } from '../utils/sourceNames'
 import type { ImportResult } from '../api/types'
 
 // KitchenSanctuary blocks automated fetching — catch this client-side.
@@ -157,8 +161,20 @@ export default function AddRecipe() {
   const importHtml = useImportHtml()
   const bookmarkMutation = useToggleBookmark()
 
+  const { data: healthData, isLoading: healthLoading, isError: healthError } = useSourceHealth()
+  const { currentUser } = useAuth()
+
   const isKS = isKitchenSanctuaryUrl(linkUrl)
   const isFetchDisabled = linkUrl.trim().length === 0
+  const isCoordinator = currentUser?.role === 'coordinator'
+
+  // Find a failing source that matches the pasted URL — only when health data is ready
+  // and the URL is not KS (which uses its own nudge regardless of health).
+  const sourceTypeInUrl = sourceTypeForUrl(linkUrl)
+  const failingNudgeSource =
+    !isKS && sourceTypeInUrl !== null && !healthLoading && !healthError && healthData
+      ? (failingSources(healthData).find(f => f.source_type === sourceTypeInUrl) ?? null)
+      : null
 
   // ── Shared result handler ────────────────────────────────────────────────
 
@@ -414,6 +430,14 @@ export default function AddRecipe() {
         {/* Idle state: link input + saved page section */}
         {phase.kind === 'idle' && (
           <>
+            {/* Source health alert — renders nothing while loading or when all sources healthy */}
+            <SourceFailingAlert
+              statuses={healthData}
+              isLoading={healthLoading}
+              isError={healthError}
+              isCoordinator={isCoordinator}
+            />
+
             {/* Link input card */}
             <form
               onSubmit={handleLinkSubmit}
@@ -452,7 +476,7 @@ export default function AddRecipe() {
                 Works for HelloFresh and most recipe sites.
               </p>
 
-              {/* KitchenSanctuary intercept */}
+              {/* KitchenSanctuary intercept — text unchanged regardless of KS health */}
               {isKS ? (
                 <div className="mt-3 p-3 rounded-card bg-mocha-light border border-mocha-border">
                   <p className="text-[14px] font-medium text-text-primary">
@@ -481,6 +505,21 @@ export default function AddRecipe() {
                       Try the link anyway
                     </button>
                   </div>
+                </div>
+              ) : failingNudgeSource ? (
+                /* Failing-source nudge — shown when the pasted URL's source is currently failing */
+                <div className="mt-3 p-3 rounded-card bg-mocha-light border border-mocha-border">
+                  <p className="text-[13px] leading-normal text-mocha-dark">
+                    {sourceName(failingNudgeSource.source_type)} has been failing its daily
+                    check. You can paste the saved page instead.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => submitLink(linkUrl)}
+                    className="w-full h-11 mt-2 text-[14px] text-text-secondary"
+                  >
+                    Try the link anyway
+                  </button>
                 </div>
               ) : (
                 <button

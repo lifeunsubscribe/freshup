@@ -24,7 +24,27 @@ vi.mock('../api/hooks/useRecipeEngagement', () => ({
   useToggleLike: () => ({ mutate: vi.fn() }),
 }))
 
+// Source health — default: all healthy so the alert never shows in unrelated tests.
+vi.mock('../api/hooks/useSourceHealth', () => ({
+  useSourceHealth: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+  failingSources: vi.fn((s: Array<{ status: string }>) => s.filter(x => x.status === 'failing')),
+}))
+
+// Auth context — default: member so coordinator links never appear in unrelated tests.
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(() => ({
+    currentUser: { id: '1', name: 'Alex', email: 'alex@example.com', role: 'member' },
+    isAuthenticated: true,
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    switchUser: vi.fn(),
+  })),
+}))
+
 import { useImportUrl, useImportHtml, useRecipe, useToggleBookmark } from '../api'
+import { useSourceHealth } from '../api/hooks/useSourceHealth'
+import { useAuth } from '../contexts/AuthContext'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -520,6 +540,178 @@ describe('AddRecipe page', () => {
       await waitFor(() => {
         expect(screen.getByText(/network error/i)).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('source health alert', () => {
+    it('renders no alert when all sources are healthy', () => {
+      vi.mocked(useSourceHealth).mockReturnValue({
+        data: [{ source_type: 'hellofresh', status: 'healthy', checked_at: new Date().toISOString(), failing_since: null, detail: null, import_mode: 'link' }],
+        isLoading: false,
+        isError: false,
+      } as ReturnType<typeof useSourceHealth>)
+
+      renderWithProviders(<AddRecipe />)
+      expect(screen.queryByText(/have been failing/i)).not.toBeInTheDocument()
+    })
+
+    it('renders no alert while health query is loading', () => {
+      vi.mocked(useSourceHealth).mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+      } as ReturnType<typeof useSourceHealth>)
+
+      renderWithProviders(<AddRecipe />)
+      expect(screen.queryByText(/have been failing/i)).not.toBeInTheDocument()
+    })
+
+    it('renders no alert on health query error', () => {
+      vi.mocked(useSourceHealth).mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+      } as ReturnType<typeof useSourceHealth>)
+
+      renderWithProviders(<AddRecipe />)
+      expect(screen.queryByText(/have been failing/i)).not.toBeInTheDocument()
+    })
+
+    it('shows alert when a source is failing', () => {
+      vi.mocked(useSourceHealth).mockReturnValue({
+        data: [{ source_type: 'hellofresh', status: 'failing', checked_at: new Date().toISOString(), failing_since: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), detail: null, import_mode: 'link' }],
+        isLoading: false,
+        isError: false,
+      } as ReturnType<typeof useSourceHealth>)
+
+      renderWithProviders(<AddRecipe />)
+      expect(screen.getByText(/HelloFresh imports have been failing/i)).toBeInTheDocument()
+      expect(screen.getByText(/the saved page still works in the meantime/i)).toBeInTheDocument()
+    })
+
+    it('coordinator sees "See what the check found" link; member does not', () => {
+      vi.mocked(useSourceHealth).mockReturnValue({
+        data: [{ source_type: 'hellofresh', status: 'failing', checked_at: new Date().toISOString(), failing_since: new Date().toISOString(), detail: null, import_mode: 'link' }],
+        isLoading: false,
+        isError: false,
+      } as ReturnType<typeof useSourceHealth>)
+
+      // Member: no link
+      vi.mocked(useAuth).mockReturnValue({
+        currentUser: { id: '1', name: 'Alex', email: 'alex@example.com', role: 'member', dietary_profile: [], allergies: [], disliked_ingredients: [], favorite_ingredients: [], failed_login_attempts: 0, lockout_until: null, lockout_count: 0 },
+        isAuthenticated: true,
+        isLoading: false,
+        login: vi.fn(),
+        logout: vi.fn(),
+        switchUser: vi.fn(),
+      })
+      const { unmount } = renderWithProviders(<AddRecipe />)
+      expect(screen.queryByRole('link', { name: /see what the check found/i })).not.toBeInTheDocument()
+      unmount()
+
+      // Coordinator: link present
+      vi.mocked(useAuth).mockReturnValue({
+        currentUser: { id: '2', name: 'Sarah', email: 'sarah@example.com', role: 'coordinator', dietary_profile: [], allergies: [], disliked_ingredients: [], favorite_ingredients: [], failed_login_attempts: 0, lockout_until: null, lockout_count: 0 },
+        isAuthenticated: true,
+        isLoading: false,
+        login: vi.fn(),
+        logout: vi.fn(),
+        switchUser: vi.fn(),
+      })
+      renderWithProviders(<AddRecipe />)
+      const link = screen.getByRole('link', { name: /see what the check found/i })
+      expect(link).toBeInTheDocument()
+      expect(link).toHaveAttribute('href', '/profile#recipe-sources')
+    })
+  })
+
+  describe('failing-source link nudge', () => {
+    const failingHFStatus = {
+      source_type: 'hellofresh',
+      status: 'failing' as const,
+      checked_at: new Date().toISOString(),
+      failing_since: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      detail: null,
+      import_mode: 'link',
+    }
+
+    beforeEach(() => {
+      vi.mocked(useSourceHealth).mockReturnValue({
+        data: [failingHFStatus],
+        isLoading: false,
+        isError: false,
+      } as ReturnType<typeof useSourceHealth>)
+    })
+
+    it('shows the failing-source nudge when a hellofresh.com link is pasted while HF is failing', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AddRecipe />)
+
+      const input = screen.getByLabelText(/paste a link/i)
+      await user.type(input, 'https://www.hellofresh.com/recipes/sweet-chili-tofu-bowls')
+
+      await waitFor(() => {
+        expect(screen.getByText(/HelloFresh has been failing its daily check/i)).toBeInTheDocument()
+      })
+      expect(mockImportUrlMutate).not.toHaveBeenCalled()
+    })
+
+    it('"Try the link anyway" in the nudge posts to /scraper/import-url', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<AddRecipe />)
+
+      const input = screen.getByLabelText(/paste a link/i)
+      await user.type(input, 'https://www.hellofresh.com/recipes/sweet-chili-tofu-bowls')
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /try the link anyway/i })).toBeInTheDocument()
+      )
+
+      await user.click(screen.getByRole('button', { name: /try the link anyway/i }))
+
+      expect(mockImportUrlMutate).toHaveBeenCalledWith(
+        { url: 'https://www.hellofresh.com/recipes/sweet-chili-tofu-bowls' },
+        expect.any(Object),
+      )
+    })
+
+    it('shows normal "Fetch recipe" button when HF is healthy', async () => {
+      vi.mocked(useSourceHealth).mockReturnValue({
+        data: [{ ...failingHFStatus, status: 'healthy', failing_since: null }],
+        isLoading: false,
+        isError: false,
+      } as ReturnType<typeof useSourceHealth>)
+
+      const user = userEvent.setup()
+      renderWithProviders(<AddRecipe />)
+
+      const input = screen.getByLabelText(/paste a link/i)
+      await user.type(input, 'https://www.hellofresh.com/recipes/sweet-chili-tofu-bowls')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /fetch recipe/i })).toBeInTheDocument()
+      })
+      expect(screen.queryByText(/has been failing its daily check/i)).not.toBeInTheDocument()
+    })
+
+    it('KS URL shows KS nudge even when KS is failing — KS text unchanged', async () => {
+      vi.mocked(useSourceHealth).mockReturnValue({
+        data: [{ source_type: 'kitchen_sanctuary', status: 'failing', checked_at: new Date().toISOString(), failing_since: new Date().toISOString(), detail: null, import_mode: 'saved_page' }],
+        isLoading: false,
+        isError: false,
+      } as ReturnType<typeof useSourceHealth>)
+
+      const user = userEvent.setup()
+      renderWithProviders(<AddRecipe />)
+
+      const input = screen.getByLabelText(/paste a link/i)
+      await user.type(input, 'https://www.kitchensanctuary.com/recipe/')
+
+      await waitFor(() =>
+        expect(screen.getByText(/this one needs the saved page/i)).toBeInTheDocument()
+      )
+      // The failing-source nudge text must NOT appear for KS
+      expect(screen.queryByText(/has been failing its daily check/i)).not.toBeInTheDocument()
     })
   })
 })
