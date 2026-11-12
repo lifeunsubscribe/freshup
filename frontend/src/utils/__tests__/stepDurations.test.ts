@@ -116,6 +116,65 @@ describe('durationsInStep', () => {
       expect(durationsInStep('Bake for 2 Hours')).toEqual([120])
     })
   })
+
+  describe('compound: hours + minutes in one span', () => {
+    it('"1 hour 30 minutes" → [90]', () => {
+      expect(durationsInStep('cook for 1 hour 30 minutes')).toEqual([90])
+    })
+
+    it('"1 hour 30 minutes" produces exactly one value', () => {
+      expect(durationsInStep('1 hour 30 minutes')).toHaveLength(1)
+    })
+
+    it('"1 hr 30 min" → [90]', () => {
+      expect(durationsInStep('simmer for 1 hr 30 min')).toEqual([90])
+    })
+
+    it('"1h30" compact → [90]', () => {
+      expect(durationsInStep('cook 1h30')).toEqual([90])
+    })
+  })
+
+  describe('decimal minutes', () => {
+    it('"2.5 minutes" → [3] (ceiling)', () => {
+      expect(durationsInStep('blend for 2.5 minutes')).toEqual([3])
+    })
+
+    it('"0.5 min" → [1] (ceiling)', () => {
+      expect(durationsInStep('stir for 0.5 min')).toEqual([1])
+    })
+
+    it('"2,5 minutes" (comma decimal) → [3]', () => {
+      expect(durationsInStep('cook 2,5 minutes')).toEqual([3])
+    })
+  })
+
+  // Table-driven: reported bugs (#551 review) + DO NOT regressions
+  describe('table-driven: bugs and regressions', () => {
+    const cases: [string, string, number[]][] = [
+      // Three bugs from #551 review
+      ['decimal minutes "2.5 minutes"',  '2.5 minutes',         [3]],
+      ['decimal minutes "0.5 min"',      '0.5 min',             [1]],
+      ['fraction-hour i-flag "1½ Hours"','1½ Hours',            [90]],
+      ['compound word "1 hour 30 minutes"', '1 hour 30 minutes',[90]],
+      ['compound abbrev "1 hr 30 min"',  '1 hr 30 min',         [90]],
+      ['compact "1h30"',                 '1h30',                [90]],
+      // Case insensitivity
+      ['uppercase "20 MINUTES"',         '20 MINUTES',          [20]],
+      ['uppercase "2 HOURS"',            '2 HOURS',             [120]],
+      // DO NOT regressions
+      ['range "20-25 minutes"',          '20-25 minutes',       [25]],
+      ['seconds "90 seconds"',           '90 seconds',          [2]],
+      ['decimal hours "1.5 hours"',      '1.5 hours',           [90]],
+      ['no-number "a minute or two"',    'a minute or two',     []],
+      // Extra decimal minutes coverage
+      ['comma decimal "2,5 minutes"',    '2,5 minutes',         [3]],
+    ]
+
+    it.each(cases)('%s', (_label, input, expected) => {
+      expect(durationsInStep(input)).toEqual(expected)
+    })
+  })
 })
 
 describe('formatStartLabel', () => {
