@@ -9,6 +9,7 @@ import CookTab from '../components/recipe/CookTab'
 import NutritionTab from '../components/recipe/NutritionTab'
 import ActionBar from '../components/recipe/ActionBar'
 import AddToPlanSheet from '../components/recipe/AddToPlanSheet'
+import PantryReviewSheet from '../components/recipe/PantryReviewSheet'
 import SourceLine from '../components/recipe/SourceLine'
 import Pill from '../components/ui/Pill'
 import { useRecipe } from '../api/hooks/useRecipes'
@@ -32,6 +33,8 @@ export default function RecipeDetail() {
   const [engagementError, setEngagementError] = useState<string | null>(null)
   const [planConfirmation, setPlanConfirmation] = useState<string | null>(null)
   const [isPlanSheetOpen, setIsPlanSheetOpen] = useState(false)
+  const [isPantrySheetOpen, setIsPantrySheetOpen] = useState(false)
+  const [groceryConfirmation, setGroceryConfirmation] = useState<string | null>(null)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
     enabled: !!id,
@@ -232,6 +235,8 @@ export default function RecipeDetail() {
                 inventoryItems={inventoryItems}
                 stockStatus={stockStatus}
                 inventoryError={isInventoryError}
+                isInventoryLoading={isLoadingInventory}
+                onPantryReview={() => setIsPantrySheetOpen(true)}
               />
             )}
             {activeTab === 'cook' && (
@@ -261,17 +266,15 @@ export default function RecipeDetail() {
             <p className="text-sm text-green-800">{planConfirmation}</p>
           </div>
         )}
-        {isInventoryError && (
-          <div className="fixed bottom-20 left-4 right-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 shadow-lg z-40">
-            <p className="text-sm text-yellow-800">Unable to load pantry inventory. The "Add missing to list" button is temporarily unavailable.</p>
+        {groceryConfirmation && (
+          <div className="fixed bottom-20 left-4 right-4 bg-green-50 border border-green-200 rounded-lg p-3 shadow-lg z-40">
+            <p className="text-sm text-green-800">{groceryConfirmation}</p>
           </div>
         )}
         <ActionBar
           onCookThis={handleCookThis}
           onAddToPlan={() => setIsPlanSheetOpen(true)}
           isLoading={isLoadingRelation}
-          isInventoryLoading={isLoadingInventory || isInventoryError}
-          missingIngredients={stockStatus.outOfStock}
         />
       </>
 
@@ -281,6 +284,19 @@ export default function RecipeDetail() {
         recipeId={id!}
         defaultServings={selectedServings}
         onAdd={handleAddToPlan}
+      />
+
+      <PantryReviewSheet
+        open={isPantrySheetOpen}
+        onClose={() => setIsPantrySheetOpen(false)}
+        ingredients={recipe.ingredients}
+        stockStatus={stockStatus}
+        servingsMultiplier={servingsMultiplier}
+        onSuccess={(count) => {
+          setIsPantrySheetOpen(false)
+          setGroceryConfirmation(`Added ${count} to the grocery list.`)
+          setTimeout(() => setGroceryConfirmation(null), 4000)
+        }}
       />
     </>
   )

@@ -68,16 +68,21 @@ vi.mock('../api/hooks/usePlan', () => ({
 }))
 
 vi.mock('../api/hooks/useInventory', () => ({
-  useInventoryList: () => ({ data: [], isLoading: false, isError: false }),
+  useInventoryList: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
 }))
 
 vi.mock('../utils/pantryMatcher', () => ({
-  checkIngredientAvailability: () => ({
+  checkIngredientAvailability: vi.fn(() => ({
     inStock: [],
     outOfStock: [],
     totalCount: 0,
     inStockCount: 0,
-  }),
+  })),
+}))
+
+vi.mock('../api/hooks/useGrocery', () => ({
+  useCreateGroceryItem: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
+  useGroceryList: () => ({ data: [], refetch: vi.fn().mockResolvedValue({ data: [] }) }),
 }))
 
 // ── Render helper ─────────────────────────────────────────────────────────────
@@ -200,6 +205,87 @@ describe('RecipeDetail', () => {
 
       renderPage()
       expect(screen.queryByText(/view original/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('PantryCheck card', () => {
+    const mockIngredient = {
+      id: 'ing-1',
+      recipe_id: 'recipe-1',
+      ingredient_name: 'flour',
+      quantity: 2,
+      unit: 'cup',
+      variation_group: null,
+      variation_diet: null,
+      is_optional: false,
+      step_index: null,
+    }
+
+    beforeEach(async () => {
+      const matcher = await import('../utils/pantryMatcher')
+      vi.mocked(matcher.checkIngredientAvailability).mockReturnValue({
+        inStock: [],
+        outOfStock: [{ ingredient: mockIngredient, inStock: false }],
+        totalCount: 1,
+        inStockCount: 0,
+      })
+      const useRecipesModule = await import('../api/hooks/useRecipes')
+      vi.mocked(useRecipesModule.useRecipe).mockReturnValue({
+        data: {
+          id: 'recipe-1',
+          name: 'Mushroom Risotto',
+          source_type: 'manual',
+          source_url: null,
+          source_image: null,
+          steps: [],
+          notes: null,
+          tags: [],
+          cook_time_minutes: null,
+          prep_time_minutes: null,
+          base_servings: 4,
+          times_cooked: 0,
+          is_persisted: true,
+          variation_groups: null,
+          nutritional_info: null,
+          ingredients: [mockIngredient],
+        },
+        isLoading: false,
+        isError: false,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    })
+
+    it('shows k-of-n pantry card text', () => {
+      renderPage()
+      expect(screen.getByText('0 of 1 in the pantry.')).toBeInTheDocument()
+    })
+
+    it('opens the pantry review sheet when the card is tapped', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: /tap to review/i }))
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    })
+
+    it('shows pantry unavailable text when inventory fails to load', async () => {
+      const useInventoryModule = await import('../api/hooks/useInventory')
+      vi.mocked(useInventoryModule.useInventoryList).mockReturnValueOnce({
+        data: [],
+        isLoading: false,
+        isError: true,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      renderPage()
+      expect(screen.getByText('Pantry unavailable right now.')).toBeInTheDocument()
+    })
+
+    it('does not open the pantry sheet when inventory fails', async () => {
+      const useInventoryModule = await import('../api/hooks/useInventory')
+      vi.mocked(useInventoryModule.useInventoryList).mockReturnValueOnce({
+        data: [],
+        isLoading: false,
+        isError: true,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      renderPage()
+      expect(screen.queryByRole('button', { name: /tap to review/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
   })
 })

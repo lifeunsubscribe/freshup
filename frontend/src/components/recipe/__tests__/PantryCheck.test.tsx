@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import PantryCheck from '../PantryCheck'
 import type { PantryCheckResult } from '../../../utils/pantryMatcher'
 import type { RecipeIngredientResponse } from '../../../api/types'
@@ -11,136 +12,111 @@ describe('PantryCheck', () => {
     ingredient_name: 'flour',
     quantity: 1,
     unit: 'cup',
+    variation_group: null,
+    variation_diet: null,
+    is_optional: false,
     step_index: null,
     ...overrides,
   })
 
-  it('displays correct stock count summary', () => {
-    const stockStatus: PantryCheckResult = {
-      inStock: [
-        { ingredient: createIngredient({ id: 'ing-1', ingredient_name: 'flour' }), inStock: true },
-        { ingredient: createIngredient({ id: 'ing-2', ingredient_name: 'sugar' }), inStock: true },
-      ],
-      outOfStock: [
-        { ingredient: createIngredient({ id: 'ing-3', ingredient_name: 'salt' }), inStock: false },
-      ],
-      totalCount: 3,
-      inStockCount: 2,
-    }
+  const baseStockStatus: PantryCheckResult = {
+    inStock: [
+      { ingredient: createIngredient({ id: 'ing-1', ingredient_name: 'flour' }), inStock: true },
+      { ingredient: createIngredient({ id: 'ing-2', ingredient_name: 'sugar' }), inStock: true },
+    ],
+    outOfStock: [
+      { ingredient: createIngredient({ id: 'ing-3', ingredient_name: 'salt' }), inStock: false },
+    ],
+    totalCount: 3,
+    inStockCount: 2,
+  }
 
-    render(<PantryCheck stockStatus={stockStatus} />)
+  describe('card text', () => {
+    it('shows k-of-n line', () => {
+      render(<PantryCheck stockStatus={baseStockStatus} onReview={vi.fn()} />)
+      expect(screen.getByText('2 of 3 in the pantry.')).toBeInTheDocument()
+    })
 
-    expect(screen.getByText(/2 of 3 ingredients in stock/i)).toBeInTheDocument()
+    it('shows the review prompt subtitle', () => {
+      render(<PantryCheck stockStatus={baseStockStatus} onReview={vi.fn()} />)
+      expect(screen.getByText('Tap to review before adding.')).toBeInTheDocument()
+    })
+
+    it('calls onReview when tapped', async () => {
+      const onReview = vi.fn()
+      render(<PantryCheck stockStatus={baseStockStatus} onReview={onReview} />)
+      await userEvent.click(screen.getByRole('button'))
+      expect(onReview).toHaveBeenCalledTimes(1)
+    })
   })
 
-  it('lists in-stock ingredient names', () => {
-    const stockStatus: PantryCheckResult = {
-      inStock: [
-        { ingredient: createIngredient({ id: 'ing-1', ingredient_name: 'flour' }), inStock: true },
-        { ingredient: createIngredient({ id: 'ing-2', ingredient_name: 'sugar' }), inStock: true },
-      ],
-      outOfStock: [],
-      totalCount: 2,
-      inStockCount: 2,
-    }
+  describe('inventory error state', () => {
+    it('shows unavailable text when inventoryError is true', () => {
+      render(
+        <PantryCheck
+          stockStatus={baseStockStatus}
+          onReview={vi.fn()}
+          inventoryError
+        />
+      )
+      expect(screen.getByText('Pantry unavailable right now.')).toBeInTheDocument()
+    })
 
-    render(<PantryCheck stockStatus={stockStatus} />)
+    it('does not render a button when inventoryError is true', () => {
+      render(
+        <PantryCheck
+          stockStatus={baseStockStatus}
+          onReview={vi.fn()}
+          inventoryError
+        />
+      )
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    })
 
-    expect(screen.getByText(/flour, sugar are in stock/i)).toBeInTheDocument()
+    it('does not call onReview when inventoryError is true (no button to click)', () => {
+      const onReview = vi.fn()
+      render(
+        <PantryCheck
+          stockStatus={baseStockStatus}
+          onReview={onReview}
+          inventoryError
+        />
+      )
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+      expect(onReview).not.toHaveBeenCalled()
+    })
   })
 
-  it('uses singular "ingredient" for single item', () => {
-    const stockStatus: PantryCheckResult = {
-      inStock: [
-        { ingredient: createIngredient({ ingredient_name: 'flour' }), inStock: true },
-      ],
-      outOfStock: [],
-      totalCount: 1,
-      inStockCount: 1,
-    }
-
-    render(<PantryCheck stockStatus={stockStatus} />)
-
-    expect(screen.getByText(/1 of 1 ingredient in stock/i)).toBeInTheDocument()
-    expect(screen.getByText(/flour is in stock/i)).toBeInTheDocument()
+  describe('loading state', () => {
+    it('disables the button when isInventoryLoading is true', () => {
+      render(<PantryCheck stockStatus={baseStockStatus} onReview={vi.fn()} isInventoryLoading />)
+      expect(screen.getByRole('button')).toBeDisabled()
+    })
   })
 
-  it('shows missing ingredients count', () => {
-    const stockStatus: PantryCheckResult = {
-      inStock: [
-        { ingredient: createIngredient({ ingredient_name: 'flour' }), inStock: true },
-      ],
-      outOfStock: [
-        { ingredient: createIngredient({ id: 'ing-2', ingredient_name: 'sugar' }), inStock: false },
-        { ingredient: createIngredient({ id: 'ing-3', ingredient_name: 'salt' }), inStock: false },
-      ],
-      totalCount: 3,
-      inStockCount: 1,
-    }
+  describe('empty ingredient list', () => {
+    it('does not render when totalCount is 0', () => {
+      const emptyStatus: PantryCheckResult = {
+        inStock: [],
+        outOfStock: [],
+        totalCount: 0,
+        inStockCount: 0,
+      }
+      const { container } = render(<PantryCheck stockStatus={emptyStatus} onReview={vi.fn()} />)
+      expect(container.firstChild).toBeNull()
+    })
 
-    render(<PantryCheck stockStatus={stockStatus} />)
-
-    expect(screen.getByText(/2 ingredients needed from the store/i)).toBeInTheDocument()
-  })
-
-  it('uses singular "ingredient" for single missing item', () => {
-    const stockStatus: PantryCheckResult = {
-      inStock: [],
-      outOfStock: [
-        { ingredient: createIngredient({ ingredient_name: 'flour' }), inStock: false },
-      ],
-      totalCount: 1,
-      inStockCount: 0,
-    }
-
-    render(<PantryCheck stockStatus={stockStatus} />)
-
-    expect(screen.getByText(/1 ingredient needed from the store/i)).toBeInTheDocument()
-  })
-
-  it('shows all ingredients in stock message when nothing is missing', () => {
-    const stockStatus: PantryCheckResult = {
-      inStock: [
-        { ingredient: createIngredient({ id: 'ing-1', ingredient_name: 'flour' }), inStock: true },
-        { ingredient: createIngredient({ id: 'ing-2', ingredient_name: 'sugar' }), inStock: true },
-      ],
-      outOfStock: [],
-      totalCount: 2,
-      inStockCount: 2,
-    }
-
-    render(<PantryCheck stockStatus={stockStatus} />)
-
-    expect(screen.getByText(/All ingredients are in stock!/i)).toBeInTheDocument()
-  })
-
-  it('does not render when no ingredients', () => {
-    const stockStatus: PantryCheckResult = {
-      inStock: [],
-      outOfStock: [],
-      totalCount: 0,
-      inStockCount: 0,
-    }
-
-    const { container } = render(<PantryCheck stockStatus={stockStatus} />)
-
-    expect(container.firstChild).toBeNull()
-  })
-
-  it('handles empty in-stock list gracefully', () => {
-    const stockStatus: PantryCheckResult = {
-      inStock: [],
-      outOfStock: [
-        { ingredient: createIngredient({ ingredient_name: 'flour' }), inStock: false },
-      ],
-      totalCount: 1,
-      inStockCount: 0,
-    }
-
-    render(<PantryCheck stockStatus={stockStatus} />)
-
-    expect(screen.getByText(/0 of 1 ingredient in stock/i)).toBeInTheDocument()
-    expect(screen.getByText(/1 ingredient needed from the store/i)).toBeInTheDocument()
-    expect(screen.queryByText(/are in stock/i)).not.toBeInTheDocument()
+    it('does not render even with inventoryError when totalCount is 0', () => {
+      const emptyStatus: PantryCheckResult = {
+        inStock: [],
+        outOfStock: [],
+        totalCount: 0,
+        inStockCount: 0,
+      }
+      const { container } = render(
+        <PantryCheck stockStatus={emptyStatus} onReview={vi.fn()} inventoryError />
+      )
+      expect(container.firstChild).toBeNull()
+    })
   })
 })
