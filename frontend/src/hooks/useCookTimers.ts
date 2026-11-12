@@ -24,8 +24,9 @@ function reducer(state: CookTimer[], action: TimerAction): CookTimer[] {
         state: 'running',
       }]
     case 'TICK': {
-      const hasExpired = state.some(t => t.state === 'running' && action.now >= t.endsAt)
-      if (!hasExpired) return state
+      // Bail out only when no timers are running; while running we must return a
+      // new reference every tick so TimerPills re-renders its Date.now() countdown.
+      if (!state.some(t => t.state === 'running')) return state
       return state.map(timer =>
         timer.state === 'running' && action.now >= timer.endsAt
           ? { ...timer, state: 'done' }

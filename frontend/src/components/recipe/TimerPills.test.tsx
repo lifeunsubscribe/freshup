@@ -35,6 +35,19 @@ describe('TimerPills', () => {
       expect(screen.getByText(/2:30/)).toBeInTheDocument()
     })
 
+    it('countdown advances when time advances', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(NOW)
+      const timer = makeTimer({ endsAt: NOW + 300_000 }) // 5:00
+      const { rerender } = render(<TimerPills timers={[timer]} onDismiss={vi.fn()} />)
+      expect(screen.getByText(/5:00/)).toBeInTheDocument()
+
+      vi.advanceTimersByTime(60_000)
+      rerender(<TimerPills timers={[timer]} onDismiss={vi.fn()} />)
+      expect(screen.getByText(/4:00/)).toBeInTheDocument()
+      vi.useRealTimers()
+    })
+
     it('running pill is not a button (non-interactive)', () => {
       render(<TimerPills timers={[makeTimer()]} onDismiss={vi.fn()} />)
       // The running timer div does not have role="button"

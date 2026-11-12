@@ -62,12 +62,24 @@ describe('durationsInStep', () => {
   })
 
   describe('seconds', () => {
-    it('rounds up any N seconds to 1 minute', () => {
+    it('rounds up seconds less than 60 to 1 minute', () => {
       expect(durationsInStep('blend for 30 seconds')).toEqual([1])
     })
 
     it('handles "secs" abbreviation', () => {
       expect(durationsInStep('stir for 10 secs')).toEqual([1])
+    })
+
+    it('rounds 90 seconds up to 2 minutes', () => {
+      expect(durationsInStep('blend for 90 seconds')).toEqual([2])
+    })
+
+    it('rounds 120 seconds up to 2 minutes', () => {
+      expect(durationsInStep('blend for 120 seconds')).toEqual([2])
+    })
+
+    it('floors 0 seconds to 1 minute minimum', () => {
+      expect(durationsInStep('wait for 0 seconds')).toEqual([1])
     })
   })
 

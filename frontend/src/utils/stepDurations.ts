@@ -20,7 +20,7 @@ function mask(text: string, start: number, end: number): string {
  *   - "N hours / N hrs"  → N × 60
  *   - "N h"              → N × 60
  *   - "N minutes / N min"→ N
- *   - "N seconds"        → 1 (ceiling)
+ *   - "N seconds"        → ceil(N/60), min 1
  *   - "minute/minutes" without a leading number → ignored
  *
  * Returns distinct values sorted ascending.
@@ -74,7 +74,7 @@ export function durationsInStep(step: string): number[] {
   // ── 7. Seconds: N seconds/secs → ceil(N/60) min ──────────────────────────
   const secRe = /\b(\d+)\s*(?:seconds?|secs?)\b/gi
   for (const m of [...text.matchAll(secRe)]) {
-    result.add(Math.ceil(parseInt(m[1]) / 60))
+    result.add(Math.max(1, Math.ceil(parseInt(m[1]) / 60)))
   }
 
   return [...result].sort((a, b) => a - b)
