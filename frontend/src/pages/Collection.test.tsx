@@ -546,8 +546,18 @@ describe('Regression — 0-card child advances the walk', () => {
     })
 
     renderCollection()
-    triggerObserver() // cursor=0 → child-empty loads and settles with 0 cards; settledSet.size
-                      // dep triggers re-subscribe (new observer registered in observers[])
+    triggerObserver() // cursor=0 → child-empty query enabled; with settledSet.size in effect deps,
+                      // the 0-card child settling triggers re-subscribe before we call again
+
+    // The settledSet.size dep must cause the effect to re-run after child-empty settles:
+    // observers[0] disconnects and a new observer registers at observers[1].
+    // Without the dep this never happens and observers.length stays at 1 — the stall.
+    await waitFor(() => {
+      expect(observers.length).toBe(2)
+      expect(observers[0].active).toBe(false) // old observer disconnected by re-subscribe
+      expect(observers[1].active).toBe(true)  // new observer ready to advance cursor
+    })
+
     triggerObserver() // new observer fires → cursor=1 → child-full loads
 
     await waitFor(() => {
