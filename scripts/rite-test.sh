@@ -25,7 +25,10 @@ py="$root/.venv/bin/python"
 [ -x "$py" ] || py="$main/.venv/bin/python"
 if [ -x "$py" ]; then
   echo "[rite-test] backend: $py -m pytest"
-  (cd "$root" && "$py" -m pytest -q -p no:cacheprovider) || status=1
+  # -n auto (pytest-xdist, already a dependency): 1866 tests in ~106 s instead of
+  # ~430 s on this Mac, measured 2026-11-12; SQLite fixtures are per test, so
+  # workers do not collide.
+  (cd "$root" && "$py" -m pytest -q -p no:cacheprovider -n auto) || status=1
 else
   echo "[rite-test] backend: no .venv found in $root or $main" >&2
   status=1
