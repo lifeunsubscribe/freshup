@@ -38,7 +38,8 @@
 
 | Feature | Backend | Frontend |
 |---|---|---|
-| "I cooked this" button | `POST /recipes/{id}/cook`, `GET /recipes/{id}/cook-history` (#520) | not built |
+| "I cooked this" button | `POST /recipes/{id}/cook`, `GET /recipes/{id}/cook-history` (#520) | done in #548 |
+| Rating after cooking (gate + UI) | `POST /rate` gate enforced in #508; `GET /cook-history` (#520) | done in #549 — `RatingLine`, `JustCookedStrip`, merged-relation `useRateRecipe` |
 | Viewed-but-not-cooked feed signal | `POST /recipes/{id}/view` (#520); `feed_service` does not consume it yet | not built |
 | Add-to-plan from a recipe card | `POST /plan/entries` (#517) | not built |
 | Per-meal opt-out | `PUT /plan/entries/{id}/opt-out` (#518) | not built |

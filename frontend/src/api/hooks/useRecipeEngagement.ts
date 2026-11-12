@@ -18,6 +18,10 @@ import { apiClient, ApiException } from '../client'
 import type { BookmarkCreate, CookEventResponse, UserRecipeRelationResponse } from '../types'
 import { recipeKeys } from './useRecipes'
 
+/** Cache key for a single user's cook events on a recipe. */
+const cookHistoryKey = (recipeId: string) =>
+  [...recipeKeys.detail(recipeId), 'cook-history'] as const
+
 /**
  * The relation a recipe has when the user has never engaged with it.
  *
@@ -205,6 +209,29 @@ export function useCookRecipe() {
     onSettled: (_data, _error, { recipeId }) => {
       queryClient.invalidateQueries({ queryKey: recipeKeys.detail(recipeId) })
       queryClient.invalidateQueries({ queryKey: relationKeys.mine })
+      queryClient.invalidateQueries({ queryKey: cookHistoryKey(recipeId) })
     },
+  })
+}
+
+/**
+ * Current user's cook events for a recipe, newest first.
+ *
+ * Returns an empty array when the user has never cooked it — this is the
+ * signal that rating is gated (the backend also enforces it, but the UI
+ * reads this to decide which state to render).
+ */
+export function useCookHistory(
+  recipeId: string,
+  options?: Omit<UseQueryOptions<CookEventResponse[]>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery<CookEventResponse[]>({
+    queryKey: cookHistoryKey(recipeId),
+    queryFn: async () =>
+      apiClient<CookEventResponse[]>(`/recipes/${recipeId}/cook-history`, {
+        method: 'GET',
+      }),
+    staleTime: 60 * 1000,
+    ...options,
   })
 }

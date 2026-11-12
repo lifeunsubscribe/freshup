@@ -26,9 +26,11 @@ vi.mock('../contexts/AuthContext', () => ({
 // ── API hooks ──────────────────────────────────────────────────────────────────
 
 const mockCookMutateAsync = vi.fn().mockResolvedValue({})
+const mockRateMutateAsync = vi.fn().mockResolvedValue({})
 const mockCreateEntryMutateAsync = vi.fn().mockResolvedValue({})
 
 vi.mock('../api/hooks/useRecipes', () => ({
+  useRateRecipe: vi.fn(() => ({ mutateAsync: mockRateMutateAsync })),
   useRecipe: vi.fn(() => ({
     data: {
       id: 'recipe-1',
@@ -55,12 +57,20 @@ vi.mock('../api/hooks/useRecipes', () => ({
 
 vi.mock('../api/hooks/useRecipeEngagement', () => ({
   useMyRecipeRelation: () => ({
-    data: { is_bookmarked: false, is_liked: false },
+    data: {
+      is_bookmarked: false,
+      is_liked: false,
+      rating: null,
+      rating_photos: null,
+      rating_comment: null,
+      menu_id: null,
+    },
     isLoading: false,
   }),
   useToggleBookmark: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useToggleLike: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useCookRecipe: () => ({ mutateAsync: mockCookMutateAsync }),
+  useCookHistory: vi.fn(() => ({ data: [] })),
 }))
 
 vi.mock('../api/hooks/usePlan', () => ({
@@ -102,6 +112,7 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   mockCookMutateAsync.mockReset().mockResolvedValue({})
+  mockRateMutateAsync.mockReset().mockResolvedValue({})
   mockCreateEntryMutateAsync.mockReset().mockResolvedValue({})
 })
 
@@ -319,6 +330,85 @@ describe('RecipeDetail', () => {
       await userEvent.click(screen.getByRole('button', { name: /new timer/i }))
       await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
       expect(screen.getByText(/new timer/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('RatingLine', () => {
+    it('shows the muted gate sentence when user has never cooked (cookHistory empty)', () => {
+      // Default mock has useCookHistory returning []
+      renderPage()
+      expect(
+        screen.getByText(/ratings open up after the first cook/i)
+      ).toBeInTheDocument()
+    })
+
+    it('shows inline stars when user has cook history and no rating', async () => {
+      const engagement = await import('../api/hooks/useRecipeEngagement')
+      vi.mocked(engagement.useCookHistory).mockReturnValueOnce({
+        data: [{ id: 'ev-1', user_id: 'user-1', recipe_id: 'recipe-1', cooked_at: '2026-01-01', meal_plan_entry_id: null, notes: null }],
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      renderPage()
+      expect(screen.getByRole('radiogroup', { name: /rating, 1 to 5/i })).toBeInTheDocument()
+    })
+  })
+
+  describe('JustCookedStrip', () => {
+    it('replaces the action bar after a successful cook', async () => {
+      renderPage()
+      expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
+      expect(screen.queryByRole('radiogroup', { name: /rating, 1 to 5/i })).not.toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await waitFor(() =>
+        expect(screen.getByRole('radiogroup', { name: /rating, 1 to 5/i })).toBeInTheDocument()
+      )
+      expect(screen.queryByRole('button', { name: /i cooked this/i })).not.toBeInTheDocument()
+    })
+
+    it('"Not now" restores the action bar without calling useRateRecipe', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await waitFor(() => screen.getByRole('button', { name: /not now/i }))
+
+      await userEvent.click(screen.getByRole('button', { name: /not now/i }))
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
+      )
+      expect(mockRateMutateAsync).not.toHaveBeenCalled()
+    })
+
+    it('tapping a star posts to useRateRecipe and restores action bar after success', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await waitFor(() => screen.getByRole('radiogroup', { name: /rating, 1 to 5/i }))
+
+      await userEvent.click(screen.getByRole('radio', { name: /4 stars/i }))
+      await waitFor(() => expect(mockRateMutateAsync).toHaveBeenCalledTimes(1))
+
+      const call = mockRateMutateAsync.mock.calls[0][0]
+      expect(call.recipeId).toBe('recipe-1')
+      expect(call.rating).toBe(4)
+      expect(call.currentRelation.is_bookmarked).toBe(false)
+      expect(call.currentRelation.is_liked).toBe(false)
+    })
+
+    it('shows the gate sentence when useRateRecipe rejects with 403', async () => {
+      const gateError = Object.assign(new Error('Rate after cooking'), { status: 403 })
+      mockRateMutateAsync.mockRejectedValueOnce(gateError)
+
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await waitFor(() => screen.getByRole('radiogroup'))
+
+      await userEvent.click(screen.getByRole('radio', { name: /2 stars/i }))
+      await waitFor(() =>
+        // Two elements: RatingLine (cookCount=0 never-cooked gate) + JustCookedStrip (403 gate state)
+        expect(
+          screen.getAllByText(/ratings open up after the first cook/i)
+        ).toHaveLength(2)
+      )
+      // The strip is still visible (no retry, no dismiss)
+      expect(screen.queryByRole('button', { name: /i cooked this/i })).not.toBeInTheDocument()
     })
   })
 })
