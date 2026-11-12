@@ -210,6 +210,25 @@ describe('PantryReviewSheet', () => {
       expect(onClose).not.toHaveBeenCalled()
     })
 
+    it('preserves sentinel quantity (0.001) without scaling when servingsMultiplier is 2', async () => {
+      const sentinelIng = makeIngredient({ id: 'ing-5', ingredient_name: 'spice', quantity: 0.001, unit: 'tsp' })
+      const sentinelStockStatus: PantryCheckResult = {
+        inStock: [],
+        outOfStock: [{ ingredient: sentinelIng, inStock: false }],
+        totalCount: 1,
+        inStockCount: 0,
+      }
+      renderSheet({
+        ingredients: [sentinelIng],
+        stockStatus: sentinelStockStatus,
+        servingsMultiplier: 2,
+      })
+      await userEvent.click(screen.getByRole('button', { name: /add 1 to the grocery list/i }))
+      await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1))
+      const call = mockMutateAsync.mock.calls[0][0]
+      expect(call.quantity).toBe(0.001)
+    })
+
     it('shows "Failed" label on failed rows', async () => {
       mockMutateAsync.mockImplementation(({ item_name }: { item_name: string }) => {
         if (item_name === 'sugar') return Promise.reject(new Error('failed'))

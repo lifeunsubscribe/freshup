@@ -87,6 +87,13 @@ describe('PantryCheck', () => {
     })
   })
 
+  describe('loading state', () => {
+    it('disables the button when isInventoryLoading is true', () => {
+      render(<PantryCheck stockStatus={baseStockStatus} onReview={vi.fn()} isInventoryLoading />)
+      expect(screen.getByRole('button')).toBeDisabled()
+    })
+  })
+
   describe('empty ingredient list', () => {
     it('does not render when totalCount is 0', () => {
       const emptyStatus: PantryCheckResult = {
