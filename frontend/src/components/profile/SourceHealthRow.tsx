@@ -83,9 +83,11 @@ export default function SourceHealthRow({ source, isLoading = false }: Props) {
       {open && (
         <div className="px-3 pb-3">
           <div className="p-3 rounded-card bg-terra-light">
-            <p className="text-[13px] font-medium text-text-primary">What the check found.</p>
             {source.detail && (
-              <p className="text-[13px] leading-normal text-text-primary mt-1">{source.detail}</p>
+              <>
+                <p className="text-[13px] font-medium text-text-primary">What the check found.</p>
+                <p className="text-[13px] leading-normal text-text-primary mt-1">{source.detail}</p>
+              </>
             )}
             <p className="text-[12px] leading-[1.4] text-text-secondary mt-2">{stillWorks}</p>
           </div>
