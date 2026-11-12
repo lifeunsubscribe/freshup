@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import RecipeGrid from '../RecipeGrid'
@@ -144,12 +144,13 @@ describe('RecipeGrid', () => {
       expect(screen.getByText('Loading recipes...')).toBeInTheDocument()
     })
 
-    it('does not display loading message during pagination', async () => {
+    it('does not display loading message during pagination', () => {
       // The component keys the main message on `isLoading && offset === 0`, so
       // this has to actually paginate. Rendering once with isLoading:true left
       // offset at 0, where showing "Loading recipes..." is the correct
       // behaviour — the test was asserting against the first-load case.
-      const user = userEvent.setup()
+      // fireEvent is used instead of userEvent to avoid waiting for all 100
+      // card re-renders to settle, which exceeds the default 5 s timeout.
 
       // "Load More" only renders when a full page came back (hasMore is set
       // from recipes.length === RECIPES_PER_PAGE, which is 100).
@@ -175,8 +176,9 @@ describe('RecipeGrid', () => {
         />
       )
 
-      // Advance past the first page
-      await user.click(screen.getByRole('button', { name: /Load More Recipes/i }))
+      // Advance past the first page (synchronous click to avoid userEvent's
+      // async settling over 100 ConnectedRecipeCard renders)
+      fireEvent.click(screen.getByRole('button', { name: /Load More Recipes/i }))
 
       // Now a fetch is in flight for page 2
       vi.mocked(useRecipeList).mockReturnValue({
