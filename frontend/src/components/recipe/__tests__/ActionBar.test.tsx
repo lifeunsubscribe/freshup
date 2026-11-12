@@ -5,11 +5,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import ActionBar from '../ActionBar'
 
-vi.mock('../../../api/hooks/useGrocery', () => ({
-  useCreateGroceryItem: () => ({ mutateAsync: vi.fn() }),
-  useGroceryList: () => ({ data: [], refetch: vi.fn().mockResolvedValue({ data: [] }) }),
-}))
-
 let queryClient: QueryClient
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -51,6 +46,21 @@ describe('ActionBar', () => {
     expect(screen.queryByRole('button', { name: /heart/i })).not.toBeInTheDocument()
   })
 
+  it('does not render "Add missing to list" button', () => {
+    renderBar()
+    expect(screen.queryByRole('button', { name: /add missing to list/i })).not.toBeInTheDocument()
+  })
+
+  it('does not render a shopping cart button', () => {
+    renderBar()
+    // The shopping cart glyph button was removed; ActionBar now has exactly two buttons
+    const buttons = screen.getAllByRole('button')
+    expect(buttons).toHaveLength(2)
+    buttons.forEach(btn => {
+      expect(btn).not.toHaveAttribute('title', expect.stringContaining('ingredient'))
+    })
+  })
+
   it('calls onCookThis when "I cooked this" is clicked', async () => {
     const onCookThis = vi.fn().mockResolvedValue(undefined)
     renderBar({ onCookThis })
@@ -59,8 +69,6 @@ describe('ActionBar', () => {
   })
 
   describe('cook success state', () => {
-    // shouldAdvanceTime keeps React Query's internal timers moving; a fully frozen
-    // clock stalled the click and the test hit vitest's 5 s limit.
     beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
     afterEach(() => { vi.useRealTimers() })
 
@@ -72,8 +80,6 @@ describe('ActionBar', () => {
       await user.click(screen.getByRole('button', { name: /i cooked this/i }))
       expect(screen.getByText('Cooked!')).toBeInTheDocument()
 
-      // waitFor polls with the (faked) timers and never advances; step the clock
-      // inside act and assert synchronously instead.
       await act(async () => {
         vi.advanceTimersByTime(2001)
       })
@@ -86,10 +92,5 @@ describe('ActionBar', () => {
     renderBar({ onAddToPlan })
     await userEvent.click(screen.getByRole('button', { name: /add to plan/i }))
     expect(onAddToPlan).toHaveBeenCalledTimes(1)
-  })
-
-  it('renders shopping cart glyph button', () => {
-    renderBar()
-    expect(screen.getByRole('button', { name: /all ingredients in stock/i })).toBeInTheDocument()
   })
 })
