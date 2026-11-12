@@ -279,4 +279,36 @@ describe('CollectionRow', () => {
       expect(section).toHaveAttribute('id', 'hellofresh-quick-dinners')
     })
   })
+
+  describe('scroll arrow effect — cached remount path', () => {
+    it('registers scroll listener on the container when inView flips with pre-cached data', () => {
+      // Simulate a cached revisit: data is already populated before inView becomes true.
+      const cards = Array.from({ length: 5 }, (_, i) => makeCard(`card-${i}`))
+      setCollectionState({
+        data: {
+          slug: 'quick-dinners',
+          name: 'Quick Dinners',
+          source_type: 'hellofresh_web',
+          last_fetched_at: null,
+          children: [],
+          cards,
+          fetch_error: null,
+        },
+      })
+
+      const addEventSpy = vi.spyOn(Element.prototype, 'addEventListener')
+      renderRow()
+
+      // Before inView the scroll container is absent from the DOM; no 'scroll' listener yet.
+      const scrollCallsBefore = addEventSpy.mock.calls.filter(([event]) => event === 'scroll').length
+
+      triggerInView()
+
+      // After inView the container is rendered and the effect must re-run to attach the listener.
+      const scrollCallsAfter = addEventSpy.mock.calls.filter(([event]) => event === 'scroll').length
+      expect(scrollCallsAfter).toBeGreaterThan(scrollCallsBefore)
+
+      addEventSpy.mockRestore()
+    })
+  })
 })

@@ -74,7 +74,7 @@ export default function CollectionRow({ collection }: CollectionRowProps) {
       container.removeEventListener('scroll', updateScrollButtons)
       window.removeEventListener('resize', updateScrollButtons)
     }
-  }, [data])
+  }, [data, inView])
 
   const subtitle =
     collection.card_count > 0
