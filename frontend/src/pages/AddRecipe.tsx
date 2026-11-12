@@ -4,7 +4,7 @@ import { Link as LinkIcon, ChevronLeft, Info, RotateCcw } from 'lucide-react'
 import PageContainer from '../components/layout/PageContainer'
 import ImportPreviewCard from '../components/recipe/ImportPreviewCard'
 import SavedPageInput from '../components/recipe/SavedPageInput'
-import RecipeCard from '../components/recipe/RecipeCard'
+import ConnectedRecipeCard from '../components/recipe/ConnectedRecipeCard'
 import SourceFailingAlert from '../components/recipe/SourceFailingAlert'
 import { useImportUrl, useImportHtml, useRecipe, useToggleBookmark } from '../api'
 import { useSourceHealth, failingSources } from '../api/hooks/useSourceHealth'
@@ -118,7 +118,7 @@ function DuplicatePane({
       </p>
       {!isLoading && recipe && (
         <div className="w-[190px] mx-auto mt-4">
-          <RecipeCard
+          <ConnectedRecipeCard
             recipe={{
               id: recipe.id,
               name: recipe.name,

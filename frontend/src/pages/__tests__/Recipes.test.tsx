@@ -43,6 +43,8 @@ describe('Recipes Page', () => {
       tags: ['italian'],
       created_at: '2024-01-01',
       base_servings: 4,
+      is_bookmarked: false,
+      source_url: null,
     },
     {
       id: 'recipe-2',
@@ -53,6 +55,8 @@ describe('Recipes Page', () => {
       tags: ['mexican'],
       created_at: '2024-01-02',
       base_servings: 2,
+      is_bookmarked: true,
+      source_url: null,
     },
   ]
 

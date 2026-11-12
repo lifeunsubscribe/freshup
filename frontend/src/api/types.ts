@@ -314,6 +314,8 @@ export interface RecipeListResponse {
   cook_time_minutes: number | null;
   prep_time_minutes: number | null;
   base_servings: number;
+  is_bookmarked?: boolean;
+  source_url?: string | null;
 }
 
 export interface RecipeCreate {
