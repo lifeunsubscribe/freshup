@@ -1,5 +1,23 @@
 import { useState } from 'react'
 
+/** Read-only display of a numeric rating as numbered circles, 1–5. */
+export function StarDisplay({ rating }: { rating: number }) {
+  return (
+    <div className="flex gap-1" aria-label={`${rating} of 5`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <span
+          key={n}
+          className={`w-7 h-7 shrink-0 rounded-full text-[12px] font-medium flex items-center justify-center ${
+            n <= rating ? 'bg-olive text-cream-card' : 'bg-cream-icon text-text-muted'
+          }`}
+        >
+          {n}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 interface RatingLineProps {
   /** Number of cook events this user has for the recipe. 0 = never cooked. */
   cookCount: number

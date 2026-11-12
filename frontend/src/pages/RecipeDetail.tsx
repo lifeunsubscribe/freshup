@@ -14,6 +14,7 @@ import AddToPlanSheet from '../components/recipe/AddToPlanSheet'
 import PantryReviewSheet from '../components/recipe/PantryReviewSheet'
 import NewTimerSheet from '../components/recipe/NewTimerSheet'
 import SourceLine from '../components/recipe/SourceLine'
+import OutcomesSection from '../components/recipe/OutcomesSection'
 import Pill from '../components/ui/Pill'
 import { useRecipe, useRateRecipe } from '../api/hooks/useRecipes'
 import {
@@ -330,6 +331,8 @@ export default function RecipeDetail() {
               <NutritionTab nutritionalInfo={recipe.nutritional_info} />
             )}
           </div>
+
+          <OutcomesSection recipeId={id!} />
         </div>
       </PageContainer>
 
