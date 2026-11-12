@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Sheet from '../ui/Sheet'
 import type { MealType } from '../../api/types'
 
@@ -17,7 +17,10 @@ function buildDayOptions(): { label: string; value: string }[] {
   for (let i = 0; i < 7; i++) {
     const d = new Date(today)
     d.setDate(today.getDate() + i)
-    const iso = d.toISOString().slice(0, 10)
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const iso = `${year}-${month}-${day}`
     const label = i === 0 ? 'Today' : dayNames[d.getDay()]
     days.push({ label, value: iso })
   }
@@ -40,11 +43,19 @@ export default function AddToPlanSheet({
   onAdd,
 }: AddToPlanSheetProps) {
   const dayOptions = buildDayOptions()
-  const [selectedDate, setSelectedDate] = useState(dayOptions[0].value)
+  const [selectedDate, setSelectedDate] = useState(() => buildDayOptions()[0].value)
   const [selectedMeal, setSelectedMeal] = useState<MealType>('dinner')
   const [servings, setServings] = useState(defaultServings)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      setSelectedDate(buildDayOptions()[0].value)
+      setServings(defaultServings)
+      setError(null)
+    }
+  }, [open, defaultServings])
 
   const handleAdd = async () => {
     setIsSubmitting(true)

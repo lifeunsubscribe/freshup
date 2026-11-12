@@ -8,6 +8,7 @@ interface ActionBarProps {
   onCookThis: () => Promise<void>
   onAddToPlan: () => void
   isLoading?: boolean
+  isInventoryLoading?: boolean
   missingIngredients?: IngredientStockStatus[]
 }
 
@@ -24,6 +25,7 @@ export default function ActionBar({
   onCookThis,
   onAddToPlan,
   isLoading = false,
+  isInventoryLoading = false,
   missingIngredients = [],
 }: ActionBarProps) {
   const createGroceryItem = useCreateGroceryItem()
@@ -164,6 +166,8 @@ export default function ActionBar({
         setCookSuccess(false)
         cookSuccessTimeoutRef.current = null
       }, 2000)
+    } catch {
+      // error surfaced by parent via banner
     } finally {
       setIsCooking(false)
     }
@@ -186,7 +190,7 @@ export default function ActionBar({
           {/* Add missing to list button (pantry cross-reference; moves to #550) */}
           <button
             onClick={handleAddMissingToList}
-            disabled={isLoading || isAddingToList || allInStock || addToListSuccess}
+            disabled={isLoading || isInventoryLoading || isAddingToList || allInStock || addToListSuccess}
             className="flex-shrink-0 p-3 rounded-button border-2 border-warm-border bg-cream hover:bg-cream-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title={allInStock ? 'All ingredients are in stock' : addToListSuccess ? 'Ingredients added to list' : `Add ${missingCount} missing ingredient${missingCount === 1 ? '' : 's'} to grocery list`}
             aria-label={allInStock ? 'All ingredients in stock' : `Add ${missingCount} missing to list`}

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -58,19 +58,23 @@ describe('ActionBar', () => {
     await waitFor(() => expect(onCookThis).toHaveBeenCalledTimes(1))
   })
 
-  it('shows "Cooked!" for 2s after a successful cook', async () => {
-    vi.useFakeTimers()
-    const onCookThis = vi.fn().mockResolvedValue(undefined)
-    renderBar({ onCookThis })
+  describe('cook success state', () => {
+    beforeEach(() => { vi.useFakeTimers() })
+    afterEach(() => { vi.useRealTimers() })
 
-    await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
-    await waitFor(() => expect(screen.getByText('Cooked!')).toBeInTheDocument())
+    it('shows "Cooked!" for 2s after a successful cook', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) })
+      const onCookThis = vi.fn().mockResolvedValue(undefined)
+      renderBar({ onCookThis })
 
-    vi.advanceTimersByTime(2001)
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
-    )
-    vi.useRealTimers()
+      await user.click(screen.getByRole('button', { name: /i cooked this/i }))
+      expect(screen.getByText('Cooked!')).toBeInTheDocument()
+
+      vi.advanceTimersByTime(2001)
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
+      )
+    })
   })
 
   it('calls onAddToPlan when "Add to plan" is clicked', async () => {

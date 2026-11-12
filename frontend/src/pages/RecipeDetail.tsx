@@ -103,7 +103,15 @@ export default function RecipeDetail() {
 
   const handleCookThis = async () => {
     if (!id) return
-    await cookRecipe.mutateAsync({ recipeId: id })
+    setEngagementError(null)
+    try {
+      await cookRecipe.mutateAsync({ recipeId: id })
+    } catch (error) {
+      console.error('Could not record cook. Please try again.', error)
+      setEngagementError('Could not record cook. Please try again.')
+      setTimeout(() => setEngagementError(null), 5000)
+      throw error
+    }
   }
 
   const handleAddToPlan = async (date: string, mealType: MealType, servings: number) => {
@@ -261,7 +269,8 @@ export default function RecipeDetail() {
         <ActionBar
           onCookThis={handleCookThis}
           onAddToPlan={() => setIsPlanSheetOpen(true)}
-          isLoading={isLoadingRelation || isLoadingInventory || isInventoryError}
+          isLoading={isLoadingRelation}
+          isInventoryLoading={isLoadingInventory || isInventoryError}
           missingIngredients={stockStatus.outOfStock}
         />
       </>

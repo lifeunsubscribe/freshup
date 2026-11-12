@@ -25,12 +25,21 @@ export default function SourceLine({ sourceType, sourceUrl }: SourceLineProps) {
           }
         })()
 
+  const safeHref = (() => {
+    try {
+      const { protocol } = new URL(sourceUrl)
+      return protocol === 'https:' || protocol === 'http:' ? sourceUrl : '#'
+    } catch {
+      return '#'
+    }
+  })()
+
   return (
     <p className="text-sm text-text-secondary flex items-center gap-1 flex-wrap">
       <span>From {displayName}</span>
       <span aria-hidden="true">·</span>
       <a
-        href={sourceUrl}
+        href={safeHref}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-0.5 text-olive hover:text-olive-dark transition-colors"
