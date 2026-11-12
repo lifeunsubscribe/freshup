@@ -148,6 +148,22 @@ def pytest_configure(config):
     os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
     os.environ.setdefault("ENVIRONMENT", "test")
     os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "43200")
+    # Use cost 4 for the entire test session so bcrypt is fast.
+    # auth_service.pwd_context reads this once at module import time.
+    os.environ.setdefault("BCRYPT_ROUNDS", "4")
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Clear the in-memory rate-limit store before each test.
+
+    Without this, a test that exhausts a rate-limit window leaves state that
+    makes the next test start mid-window and fail when it expects a fresh quota.
+    Calling limiter.reset() guarantees every test starts from an empty store.
+    """
+    from src.middleware.rate_limit import limiter
+    limiter.reset()
+    yield
 
 
 @pytest.fixture(autouse=True)

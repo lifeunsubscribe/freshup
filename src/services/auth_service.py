@@ -5,11 +5,14 @@ Provides JWT token creation and validation for stateless authentication
 across household devices (phones, iPad terminal).
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from jose import jwt, JWTError, ExpiredSignatureError
 from passlib.context import CryptContext
 from src.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 # Custom exceptions for better error handling
@@ -29,7 +32,19 @@ class TokenInvalidError(TokenError):
 
 
 # Password hashing context (from Phase 1C - password hashing utilities)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def _build_pwd_context() -> CryptContext:
+    settings = get_settings()
+    rounds = settings.bcrypt_rounds
+    if rounds < 10 and settings.environment != "test":
+        logger.warning(
+            "BCRYPT_ROUNDS=%d is below the recommended minimum of 10 for production. "
+            "Set BCRYPT_ROUNDS >= 10 in production to maintain adequate password security.",
+            rounds,
+        )
+    return CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=rounds)
+
+
+pwd_context = _build_pwd_context()
 
 
 def hash_password(password: str) -> str:
