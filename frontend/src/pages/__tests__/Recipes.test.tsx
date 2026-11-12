@@ -111,6 +111,7 @@ describe('Recipes Page', () => {
       expect(sectionHeading('Mexican')).toBeInTheDocument()
       expect(sectionHeading('Asian')).toBeInTheDocument()
       expect(sectionHeading('Vegan')).toBeInTheDocument()
+      expect(sectionHeading('Kitchen Sanctuary')).toBeInTheDocument()
     })
 
     it('renders section navigation with all sections', () => {
@@ -124,13 +125,14 @@ describe('Recipes Page', () => {
       expect(screen.getByRole('button', { name: 'Mexican' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Asian' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Vegan' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Kitchen Sanctuary' })).toBeInTheDocument()
     })
 
     it('calls useRecipeList for each carousel section', () => {
       renderWithRouter(<Recipes />)
 
-      // Should be called 7 times (one for each section)
-      expect(useRecipeList).toHaveBeenCalledTimes(7)
+      // 7 library sections + 1 Kitchen Sanctuary section
+      expect(useRecipeList).toHaveBeenCalledTimes(8)
     })
 
     it('passes correct filters to each carousel', () => {
@@ -437,6 +439,61 @@ describe('Recipes Page', () => {
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Search recipes...')).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('Kitchen Sanctuary section', () => {
+    it('renders the Kitchen Sanctuary heading', () => {
+      renderWithRouter(<Recipes />)
+      expect(screen.getByRole('heading', { name: 'Kitchen Sanctuary.' })).toBeInTheDocument()
+    })
+
+    it('calls useRecipeList with source_type kitchen_sanctuary filter', () => {
+      renderWithRouter(<Recipes />)
+      expect(useRecipeList).toHaveBeenCalledWith(
+        expect.objectContaining({ source_type: 'kitchen_sanctuary', limit: 10 }),
+        expect.anything()
+      )
+    })
+
+    it('renders the subtitle with recipe count', () => {
+      // Default mock returns mockRecipes (2 items) for all calls
+      renderWithRouter(<Recipes />)
+      expect(screen.getByText('2 recipes · added by hand')).toBeInTheDocument()
+    })
+
+    it('renders the explanatory footer line and "Add a specific recipe" link', () => {
+      renderWithRouter(<Recipes />)
+      expect(screen.getByText(/Kitchen Sanctuary turns automated fetching away/)).toBeInTheDocument()
+      const link = screen.getByRole('link', { name: 'Add a specific recipe' })
+      expect(link).toBeInTheDocument()
+      expect(link).toHaveAttribute('href', '/recipes/add?source=kitchen_sanctuary')
+    })
+
+    it('renders the footer and no default empty message when Kitchen Sanctuary list is empty', () => {
+      vi.mocked(useRecipeList).mockImplementation((filters) => {
+        if ((filters as any).source_type === 'kitchen_sanctuary') {
+          return { data: [], isLoading: false, isError: false, error: null } as any
+        }
+        return { data: mockRecipes, isLoading: false, isError: false, error: null } as any
+      })
+      renderWithRouter(<Recipes />)
+      // Footer still present in empty state
+      expect(screen.getByText(/Kitchen Sanctuary turns automated fetching away/)).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Add a specific recipe' })).toBeInTheDocument()
+      // Default empty text is suppressed (emptyState={null})
+      expect(screen.queryByText('No recipes found for this category.')).not.toBeInTheDocument()
+    })
+
+    it('transitions to grid filtered by source_type when "See all" is clicked', async () => {
+      const user = userEvent.setup()
+      renderWithRouter(<Recipes />)
+
+      const ksSection = screen.getByRole('region', { name: 'Kitchen Sanctuary' })
+      const seeAllBtn = ksSection.querySelector('button[aria-label="See all kitchen sanctuary"]') as HTMLElement
+      await user.click(seeAllBtn)
+
+      expect(screen.getByRole('button', { name: 'Back to browse view' })).toBeInTheDocument()
     })
   })
 
