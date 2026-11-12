@@ -143,10 +143,10 @@ Verified by reading the repo at `976d2d0`. "Not found" means a search turned up 
 | Feed ranked by saves, likes and cooks | ADR section 0: feed scores on `UserRecipeRelation` and `times_cooked`; `UserCookEvent` and `UserRecipeView` are not wired in | Wire the cook and view signals into `feed_service` | Open |
 | Arrange rows (pin, reorder) | `Menu.sort_order` exists for menus; nothing found for browse rows | Needs per-user row order and pin storage | Open |
 | "Something different" row | `fallback_rows` exists on the home feed | Needs an always-present exploration row on browse | Open |
-| Rating only after cooking | ADR section 0: open, issue #508 | Backend gate still to build | Open; issue #508 is written and unblocked |
+| Rating only after cooking | ADR section 0: open, issue #508 | Backend gate still to build | Closed; frontend built in #549 |
 | Five-point rating | `UserRecipeRelation.rating` is a float validated 0.0 to 5.0 | Fits as designed | Fits |
 | Photo and "What changed" | `UserRecipeRelation.rating_photos` and `rating_comment` exist; `UserCookEvent.notes` exists (500 chars) | Decide which field holds the variation: per relation (one, overwritten) or per cook event (one each time). The mockup implies per cook event | Open question 2 |
-| Submitting a rating | ADR section 0 warns `POST /recipes/{id}/rate` is a whole-relation upsert that clears fields it is not sent | The rating sheet must send the complete relation, or the endpoint needs a partial update | Open |
+| Submitting a rating | ADR section 0 warns `POST /recipes/{id}/rate` is a whole-relation upsert that clears fields it is not sent | The rating sheet must send the complete relation, or the endpoint needs a partial update | Closed; `useRateRecipe` now merges the current relation in #549 |
 | "How it turned out" list | `GET /recipes/{id}/cook-history` and `GET /recipes/{id}/ratings` exist | Needs photos and comments per household member in one response | Open |
 | Ingredient pills per step | `RecipeIngredient.step_index` exists | Scraped recipes may all have `step_index = null`; pills then need a "General" group or a matching pass | Open; imported recipes have `step_index = null` |
 | "Start N min" on a step | Nothing found | Durations must be read from step text (deterministic pattern match) | Open |

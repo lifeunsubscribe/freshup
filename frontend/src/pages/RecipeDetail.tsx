@@ -8,17 +8,20 @@ import IngredientsTab from '../components/recipe/IngredientsTab'
 import CookTab from '../components/recipe/CookTab'
 import NutritionTab from '../components/recipe/NutritionTab'
 import ActionBar from '../components/recipe/ActionBar'
+import JustCookedStrip from '../components/recipe/JustCookedStrip'
+import RatingLine from '../components/recipe/RatingLine'
 import AddToPlanSheet from '../components/recipe/AddToPlanSheet'
 import PantryReviewSheet from '../components/recipe/PantryReviewSheet'
 import NewTimerSheet from '../components/recipe/NewTimerSheet'
 import SourceLine from '../components/recipe/SourceLine'
 import Pill from '../components/ui/Pill'
-import { useRecipe } from '../api/hooks/useRecipes'
+import { useRecipe, useRateRecipe } from '../api/hooks/useRecipes'
 import {
   useMyRecipeRelation,
   useToggleBookmark,
   useToggleLike,
   useCookRecipe,
+  useCookHistory,
 } from '../api/hooks/useRecipeEngagement'
 import { useCreatePlanEntry } from '../api/hooks/usePlan'
 import { useInventoryList } from '../api/hooks/useInventory'
@@ -38,6 +41,10 @@ export default function RecipeDetail() {
   const [isPantrySheetOpen, setIsPantrySheetOpen] = useState(false)
   const [isTimerSheetOpen, setIsTimerSheetOpen] = useState(false)
   const [groceryConfirmation, setGroceryConfirmation] = useState<string | null>(null)
+  // True while the JustCookedStrip is showing (this page visit only).
+  const [justCooked, setJustCooked] = useState(false)
+  // True after "Not now" — the offer is not shown again until the next cook.
+  const [sessionOfferDismissed, setSessionOfferDismissed] = useState(false)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
     enabled: !!id,
@@ -50,9 +57,12 @@ export default function RecipeDetail() {
 
   const { data: inventoryItems = [], isLoading: isLoadingInventory, isError: isInventoryError } = useInventoryList({})
 
+  const { data: cookHistory } = useCookHistory(id!, { enabled: !!id })
+
   const toggleLike = useToggleLike()
   const toggleBookmark = useToggleBookmark()
   const cookRecipe = useCookRecipe()
+  const rateRecipe = useRateRecipe()
   const createPlanEntry = useCreatePlanEntry()
 
   // Cook timers — frontend-only, cleared when the page unmounts
@@ -115,12 +125,34 @@ export default function RecipeDetail() {
     setEngagementError(null)
     try {
       await cookRecipe.mutateAsync({ recipeId: id })
+      setJustCooked(true)
+      setSessionOfferDismissed(false)
     } catch (error) {
       console.error('Could not record cook. Please try again.', error)
       setEngagementError('Could not record cook. Please try again.')
       setTimeout(() => setEngagementError(null), 5000)
       throw error
     }
+  }
+
+  const handleRate = async (stars: number) => {
+    if (!id || !myRelation) return
+    await rateRecipe.mutateAsync({
+      recipeId: id,
+      rating: stars,
+      currentRelation: {
+        is_bookmarked: myRelation.is_bookmarked,
+        is_liked: myRelation.is_liked,
+        rating_photos: myRelation.rating_photos ?? null,
+        rating_comment: myRelation.rating_comment ?? null,
+        menu_id: myRelation.menu_id ?? null,
+      },
+    })
+  }
+
+  const handleStripDismiss = () => {
+    setJustCooked(false)
+    setSessionOfferDismissed(true)
   }
 
   const handleAddToPlan = async (date: string, mealType: MealType, servings: number) => {
@@ -234,6 +266,12 @@ export default function RecipeDetail() {
             ))}
           </div>
 
+          <RatingLine
+            cookCount={sessionOfferDismissed ? 0 : (cookHistory?.length ?? 0)}
+            rating={myRelation?.rating ?? null}
+            onRate={handleRate}
+          />
+
           <ServingsControl
             selectedServings={selectedServings}
             onServingsChange={setSelectedServings}
@@ -287,11 +325,19 @@ export default function RecipeDetail() {
             <p className="text-sm text-green-800">{groceryConfirmation}</p>
           </div>
         )}
-        <ActionBar
-          onCookThis={handleCookThis}
-          onAddToPlan={() => setIsPlanSheetOpen(true)}
-          isLoading={isLoadingRelation}
-        />
+        {justCooked ? (
+          <JustCookedStrip
+            cookCount={recipe.times_cooked}
+            onRate={handleRate}
+            onDismiss={handleStripDismiss}
+          />
+        ) : (
+          <ActionBar
+            onCookThis={handleCookThis}
+            onAddToPlan={() => setIsPlanSheetOpen(true)}
+            isLoading={isLoadingRelation}
+          />
+        )}
       </>
 
       <AddToPlanSheet

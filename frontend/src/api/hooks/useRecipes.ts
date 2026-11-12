@@ -283,8 +283,21 @@ export function useDeleteRecipeIngredient() {
   });
 }
 
+/** Fields carried from the current relation when submitting a rating. */
+export interface RateRecipeCurrentRelation {
+  is_bookmarked: boolean;
+  is_liked: boolean;
+  rating_photos: string[] | null;
+  rating_comment: string | null;
+  menu_id: string | null;
+}
+
 /**
- * Rate recipe (upsert - create or update)
+ * Rate recipe (upsert — create or update).
+ *
+ * POST /rate is a whole-relation upsert: every field not sent is cleared.
+ * The mutationFn merges the new numeric rating over the caller's current
+ * relation so bookmark, like, photos, and comment are not silently wiped.
  */
 export function useRateRecipe() {
   const queryClient = useQueryClient();
@@ -292,18 +305,27 @@ export function useRateRecipe() {
   return useMutation({
     mutationFn: async ({
       recipeId,
-      data,
+      rating,
+      currentRelation,
     }: {
       recipeId: string;
-      data: UserRecipeRelationCreate;
+      rating: number;
+      currentRelation: RateRecipeCurrentRelation;
     }) => {
+      const body: UserRecipeRelationCreate = {
+        rating,
+        is_bookmarked: currentRelation.is_bookmarked,
+        is_liked: currentRelation.is_liked,
+        rating_photos: currentRelation.rating_photos,
+        rating_comment: currentRelation.rating_comment,
+        menu_id: currentRelation.menu_id,
+      };
       return apiClient<UserRecipeRelationResponse>(`/recipes/${recipeId}/rate`, {
         method: 'POST',
-        body: JSON.stringify(data),
+        body: JSON.stringify(body),
       });
     },
     onSuccess: (_, variables) => {
-      // Invalidate rating queries
       queryClient.invalidateQueries({
         queryKey: recipeKeys.myRating(variables.recipeId),
       });
