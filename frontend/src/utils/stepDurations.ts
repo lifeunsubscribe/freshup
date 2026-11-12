@@ -71,9 +71,10 @@ export function durationsInStep(step: string): number[] {
     result.add(parseInt(m[1]))
   }
 
-  // ── 7. Seconds: any N seconds/secs → 1 min (ceiling) ─────────────────────
-  if (/\b\d+\s*(?:seconds?|secs?)\b/i.test(text)) {
-    result.add(1)
+  // ── 7. Seconds: N seconds/secs → ceil(N/60) min ──────────────────────────
+  const secRe = /\b(\d+)\s*(?:seconds?|secs?)\b/gi
+  for (const m of [...text.matchAll(secRe)]) {
+    result.add(Math.ceil(parseInt(m[1]) / 60))
   }
 
   return [...result].sort((a, b) => a - b)

@@ -23,12 +23,15 @@ function reducer(state: CookTimer[], action: TimerAction): CookTimer[] {
         endsAt: action.endsAt,
         state: 'running',
       }]
-    case 'TICK':
+    case 'TICK': {
+      const hasExpired = state.some(t => t.state === 'running' && action.now >= t.endsAt)
+      if (!hasExpired) return state
       return state.map(timer =>
         timer.state === 'running' && action.now >= timer.endsAt
           ? { ...timer, state: 'done' }
           : timer
       )
+    }
     case 'DISMISS':
       return state.filter(t => t.id !== action.id)
     default:
