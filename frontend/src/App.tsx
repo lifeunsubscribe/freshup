@@ -12,6 +12,7 @@ import Pantry from './pages/Pantry'
 import Grocery from './pages/Grocery'
 import IShopped from './pages/IShopped'
 import Profile from './pages/Profile'
+import Collection from './pages/Collection'
 import NotFound from './pages/NotFound'
 import { ErrorBoundary } from './components/errors'
 import AuthErrorFallback from './components/errors/AuthErrorFallback'
@@ -96,6 +97,14 @@ function AppContent() {
           element={
             <ProtectedRoute>
               <Profile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/browse/hellofresh/:slug"
+          element={
+            <ProtectedRoute>
+              <Collection />
             </ProtectedRoute>
           }
         />
