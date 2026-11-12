@@ -6,7 +6,6 @@ across household devices (phones, iPad terminal).
 """
 
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from jose import jwt, JWTError, ExpiredSignatureError
@@ -34,8 +33,9 @@ class TokenInvalidError(TokenError):
 
 # Password hashing context (from Phase 1C - password hashing utilities)
 def _build_pwd_context() -> CryptContext:
-    rounds = int(os.getenv("BCRYPT_ROUNDS", "12"))
-    if rounds < 10 and os.getenv("ENVIRONMENT", "local") != "test":
+    settings = get_settings()
+    rounds = settings.bcrypt_rounds
+    if rounds < 10 and settings.environment != "test":
         logger.warning(
             "BCRYPT_ROUNDS=%d is below the recommended minimum of 10 for production. "
             "Set BCRYPT_ROUNDS >= 10 in production to maintain adequate password security.",
