@@ -88,6 +88,7 @@ vi.mock('../utils/pantryMatcher', () => ({
 // ── Render helper ─────────────────────────────────────────────────────────────
 
 let queryClient: QueryClient
+let user: ReturnType<typeof userEvent.setup>
 
 function wrapper({ children }: { children: ReactNode }) {
   return (
@@ -105,6 +106,7 @@ beforeEach(() => {
   mockCreateEntryMutateAsync.mockReset().mockResolvedValue({})
   mockRateMutateAsync.mockReset().mockResolvedValue({})
   vi.useFakeTimers()
+  user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) })
 })
 
 afterEach(() => {
@@ -124,7 +126,7 @@ describe('RecipeDetail', () => {
       // Under the title on every tab; the copy after the last step only exists
       // once the Cook & enjoy! tab is rendered.
       expect(screen.getAllByText(/view original/i)).toHaveLength(1)
-      await userEvent.click(screen.getByRole('button', { name: 'Cook & enjoy!' }))
+      await user.click(screen.getByRole('button', { name: 'Cook & enjoy!' }))
       expect(screen.getAllByText(/view original/i)).toHaveLength(2)
     })
 
@@ -139,7 +141,7 @@ describe('RecipeDetail', () => {
     it('calls useCookRecipe when clicked', async () => {
       renderPage()
       const btn = screen.getByRole('button', { name: /i cooked this/i })
-      await userEvent.click(btn)
+      await user.click(btn)
       await waitFor(() => expect(mockCookMutateAsync).toHaveBeenCalledTimes(1))
       expect(mockCookMutateAsync).toHaveBeenCalledWith({ recipeId: 'recipe-1' })
     })
@@ -153,16 +155,16 @@ describe('RecipeDetail', () => {
   describe('"Add to plan" sheet', () => {
     it('opens AddToPlanSheet when "Add to plan" is clicked', async () => {
       renderPage()
-      await userEvent.click(screen.getByRole('button', { name: /add to plan/i }))
+      await user.click(screen.getByRole('button', { name: /add to plan/i }))
       await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
     })
 
     it('calls useCreatePlanEntry when Add is confirmed in sheet', async () => {
       renderPage()
-      await userEvent.click(screen.getByRole('button', { name: /add to plan/i }))
+      await user.click(screen.getByRole('button', { name: /add to plan/i }))
       await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
 
-      await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
+      await user.click(screen.getByRole('button', { name: /^add$/i }))
       await waitFor(() => expect(mockCreateEntryMutateAsync).toHaveBeenCalledTimes(1))
 
       const call = mockCreateEntryMutateAsync.mock.calls[0][0]
@@ -173,9 +175,9 @@ describe('RecipeDetail', () => {
 
     it('shows confirmation banner after successful plan entry', async () => {
       renderPage()
-      await userEvent.click(screen.getByRole('button', { name: /add to plan/i }))
+      await user.click(screen.getByRole('button', { name: /add to plan/i }))
       await waitFor(() => screen.getByRole('dialog'))
-      await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
+      await user.click(screen.getByRole('button', { name: /^add$/i }))
       await waitFor(() =>
         expect(screen.getByText(/added to/i)).toBeInTheDocument()
       )
@@ -252,7 +254,7 @@ describe('RecipeDetail', () => {
       renderPage()
       expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
 
-      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await user.click(screen.getByRole('button', { name: /i cooked this/i }))
       await waitFor(() =>
         expect(screen.getByRole('radiogroup', { name: /rating/i })).toBeInTheDocument()
       )
@@ -261,11 +263,11 @@ describe('RecipeDetail', () => {
 
     it('"Not now" returns the ActionBar without calling rateRecipe', async () => {
       renderPage()
-      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await user.click(screen.getByRole('button', { name: /i cooked this/i }))
       await waitFor(() =>
         expect(screen.getByRole('button', { name: /not now/i })).toBeInTheDocument()
       )
-      await userEvent.click(screen.getByRole('button', { name: /not now/i }))
+      await user.click(screen.getByRole('button', { name: /not now/i }))
       await waitFor(() =>
         expect(screen.getByRole('button', { name: /i cooked this/i })).toBeInTheDocument()
       )
@@ -274,12 +276,12 @@ describe('RecipeDetail', () => {
 
     it('a star tap calls rateRecipe with the merged relation', async () => {
       renderPage()
-      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await user.click(screen.getByRole('button', { name: /i cooked this/i }))
       await waitFor(() =>
         expect(screen.getByRole('radiogroup', { name: /rating/i })).toBeInTheDocument()
       )
       const stars = screen.getByRole('radiogroup').querySelectorAll('button')
-      await userEvent.click(stars[4]) // star 5
+      await user.click(stars[4]) // star 5
 
       await waitFor(() => expect(mockRateMutateAsync).toHaveBeenCalledTimes(1))
       const call = mockRateMutateAsync.mock.calls[0][0]
@@ -290,12 +292,12 @@ describe('RecipeDetail', () => {
 
     it('ActionBar returns after the thanks delay', async () => {
       renderPage()
-      await userEvent.click(screen.getByRole('button', { name: /i cooked this/i }))
+      await user.click(screen.getByRole('button', { name: /i cooked this/i }))
       await waitFor(() =>
         expect(screen.getByRole('radiogroup', { name: /rating/i })).toBeInTheDocument()
       )
       const stars = screen.getByRole('radiogroup').querySelectorAll('button')
-      await userEvent.click(stars[2]) // star 3
+      await user.click(stars[2]) // star 3
 
       await waitFor(() =>
         expect(screen.getByText(/thanks\. rated 3 stars/i)).toBeInTheDocument()

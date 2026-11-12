@@ -4,8 +4,13 @@ import userEvent from '@testing-library/user-event'
 import JustCookedStrip from './JustCookedStrip'
 import { ApiException } from '../../api/client'
 
+let user: ReturnType<typeof userEvent.setup>
+
 describe('JustCookedStrip', () => {
-  beforeEach(() => { vi.useFakeTimers() })
+  beforeEach(() => {
+    vi.useFakeTimers()
+    user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) })
+  })
   afterEach(() => { vi.useRealTimers() })
 
   it('shows the cook count and five star buttons', () => {
@@ -33,7 +38,7 @@ describe('JustCookedStrip', () => {
         onDone={vi.fn()}
       />
     )
-    await userEvent.click(screen.getByRole('button', { name: /not now/i }))
+    await user.click(screen.getByRole('button', { name: /not now/i }))
     expect(onNotNow).toHaveBeenCalledTimes(1)
     expect(onRate).not.toHaveBeenCalled()
   })
@@ -49,7 +54,7 @@ describe('JustCookedStrip', () => {
       />
     )
     const buttons = screen.getByRole('radiogroup').querySelectorAll('button')
-    await userEvent.click(buttons[3]) // star 4
+    await user.click(buttons[3]) // star 4
     await waitFor(() =>
       expect(screen.getByText(/thanks\. rated 4 stars/i)).toBeInTheDocument()
     )
@@ -67,7 +72,7 @@ describe('JustCookedStrip', () => {
       />
     )
     const buttons = screen.getByRole('radiogroup').querySelectorAll('button')
-    await userEvent.click(buttons[0]) // star 1
+    await user.click(buttons[0]) // star 1
 
     await waitFor(() =>
       expect(screen.getByText(/thanks\. rated 1 star/i)).toBeInTheDocument()
@@ -91,7 +96,7 @@ describe('JustCookedStrip', () => {
       />
     )
     const buttons = screen.getByRole('radiogroup').querySelectorAll('button')
-    await userEvent.click(buttons[0])
+    await user.click(buttons[0])
 
     await waitFor(() =>
       expect(
@@ -116,7 +121,7 @@ describe('JustCookedStrip', () => {
       />
     )
     const buttons = screen.getByRole('radiogroup').querySelectorAll('button')
-    await userEvent.click(buttons[4]) // star 5
+    await user.click(buttons[4]) // star 5
     expect(onRate).toHaveBeenCalledWith(5)
   })
 })

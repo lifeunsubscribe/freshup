@@ -39,12 +39,12 @@ export default function JustCookedStrip({
         onDone()
       }, 2000)
     } catch (err) {
-      // 403 means the gate is still active (race or stale state) — show the gate
-      // sentence and stop; any other error is treated the same way (no retry).
+      // 403 means the gate is still active (race or stale state) — show the gate sentence.
+      // Any other error (network blip, 5xx) resets to idle so the user can retry.
       if (err instanceof ApiException && err.status === 403) {
         setState('gated')
       } else {
-        setState('gated')
+        setState('idle')
       }
     }
   }

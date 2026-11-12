@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 interface RatingLineProps {
   hasCooked: boolean
   rating: number | null
-  onRate: (stars: number) => void
+  onRate: (stars: number) => Promise<void>
 }
 
 function StarDisplay({ rating }: { rating: number }) {
@@ -24,10 +24,17 @@ export default function RatingLine({ hasCooked, rating, onRate }: RatingLineProp
     setEditing(false)
   }, [rating])
 
-  const handleStarClick = (n: number) => {
+  const handleStarClick = async (n: number) => {
+    const prevRating = displayRating
+    const prevEditing = editing
     setDisplayRating(n)
     setEditing(false)
-    onRate(n)
+    try {
+      await onRate(n)
+    } catch {
+      setDisplayRating(prevRating)
+      setEditing(prevEditing)
+    }
   }
 
   if (displayRating !== null && !editing) {

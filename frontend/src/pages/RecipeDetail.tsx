@@ -37,6 +37,8 @@ export default function RecipeDetail() {
   const [isPlanSheetOpen, setIsPlanSheetOpen] = useState(false)
   // True while the rating strip is shown (after a successful cook this visit).
   const [showRatingStrip, setShowRatingStrip] = useState(false)
+  // Captured at cook time so the strip shows the post-cook count before the query refetches.
+  const [justCookedCount, setJustCookedCount] = useState<number | null>(null)
 
   const { data: recipe, isLoading: isLoadingRecipe, isError: isRecipeError } = useRecipe(id!, {
     enabled: !!id,
@@ -114,6 +116,7 @@ export default function RecipeDetail() {
     setEngagementError(null)
     try {
       await cookRecipe.mutateAsync({ recipeId: id })
+      setJustCookedCount((recipe?.times_cooked ?? 0) + 1)
       setShowRatingStrip(true)
     } catch (error) {
       console.error('Could not record cook. Please try again.', error)
@@ -124,7 +127,7 @@ export default function RecipeDetail() {
   }
 
   const handleRate = async (stars: number) => {
-    if (!id || !myRelation) return
+    if (!id || !myRelation) throw new Error('Recipe relation not loaded')
     await rateRecipe.mutateAsync({
       recipeId: id,
       rating: stars,
@@ -298,7 +301,7 @@ export default function RecipeDetail() {
         )}
         {showRatingStrip ? (
           <JustCookedStrip
-            cookCount={recipe.times_cooked}
+            cookCount={justCookedCount ?? recipe.times_cooked + 1}
             onRate={handleRate}
             onNotNow={handleNotNow}
             onDone={handleRatingDone}
