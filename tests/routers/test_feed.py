@@ -1088,3 +1088,122 @@ class TestBrowseEndpoint:
             assert "title" in section
             assert "recipes" in section
             assert section["title"].endswith(".")  # Design system
+
+
+class TestFeedCardBookmarkAndSourceUrl:
+    """Feed cards (home and browse) carry is_bookmarked and source_url."""
+
+    def _persisted_recipe(self, db_session, name="Card Recipe", source_url=None, times_cooked=1, cook_time_minutes=20):
+        recipe = Recipe(
+            id=uuid4(),
+            name=name,
+            source_type="url_import",
+            source_url=source_url,
+            is_persisted=True,
+            times_cooked=times_cooked,
+            cook_time_minutes=cook_time_minutes,
+            base_servings=4,
+            tags=[],
+        )
+        db_session.add(recipe)
+        db_session.commit()
+        db_session.refresh(recipe)
+        return recipe
+
+    def _bookmark(self, db_session, user_id, recipe_id):
+        rel = UserRecipeRelation(
+            id=uuid4(),
+            user_id=user_id,
+            recipe_id=recipe_id,
+            is_bookmarked=True,
+        )
+        db_session.add(rel)
+        db_session.commit()
+
+    def _all_cards(self, feed_data):
+        """Flatten all recipe cards from every section of a home or browse response."""
+        cards = []
+        for key in ("make_now", "on_repeat"):
+            if key in feed_data:
+                cards.extend(feed_data[key].get("recipes", []))
+        for row_key in ("personalized_rows", "source_rows", "fallback_rows"):
+            if row_key in feed_data:
+                for row in feed_data[row_key]:
+                    cards.extend(row.get("recipes", []))
+        if "sections" in feed_data:
+            for section in feed_data["sections"]:
+                cards.extend(section.get("recipes", []))
+        return cards
+
+    def test_home_feed_cards_include_source_url(self, client, auth_headers, test_user, db_session):
+        """source_url appears on cards in the home feed fallback rows."""
+        url = "https://example.com/recipe"
+        self._persisted_recipe(db_session, source_url=url)
+
+        response = client.get("/feed/home", headers=auth_headers)
+        assert response.status_code == 200
+
+        cards = self._all_cards(response.json())
+        assert any(c["source_url"] == url for c in cards)
+
+    def test_home_feed_cards_is_bookmarked_true_for_caller(self, client, auth_headers, test_user, db_session):
+        """is_bookmarked is True on a home feed card the caller has bookmarked."""
+        recipe = self._persisted_recipe(db_session)
+        # _bookmark creates the relation with is_bookmarked=True; it also makes
+        # the recipe appear in fallback rows (popular, quick, new).
+        self._bookmark(db_session, test_user.id, recipe.id)
+
+        response = client.get("/feed/home", headers=auth_headers)
+        assert response.status_code == 200
+
+        cards = self._all_cards(response.json())
+        assert any(c["is_bookmarked"] is True for c in cards)
+
+    def test_home_feed_cards_is_bookmarked_false_when_not_bookmarked(
+        self, client, auth_headers, test_user, db_session
+    ):
+        """is_bookmarked is False on cards the caller has not bookmarked."""
+        self._persisted_recipe(db_session)
+
+        response = client.get("/feed/home", headers=auth_headers)
+        assert response.status_code == 200
+
+        cards = self._all_cards(response.json())
+        assert len(cards) > 0, "feed must return at least one card for this assertion to be meaningful"
+        assert all(c["is_bookmarked"] is False for c in cards)
+
+    def test_browse_feed_cards_include_source_url(self, client, auth_headers, test_user, db_session):
+        """source_url appears on cards in the browse feed."""
+        url = "https://example.com/browse-recipe"
+        self._persisted_recipe(db_session, source_url=url)
+
+        response = client.get("/feed/browse", headers=auth_headers)
+        assert response.status_code == 200
+
+        cards = self._all_cards(response.json())
+        assert any(c["source_url"] == url for c in cards)
+
+    def test_browse_feed_is_bookmarked_false_for_other_users_bookmark(
+        self, client, auth_headers, test_user, db_session
+    ):
+        """Another user's bookmark does not set is_bookmarked for the caller in browse."""
+        # Create a second user inline
+        other_user = User(
+            id=uuid4(),
+            email="other@example.com",
+            hashed_password="hashed",
+            name="Other User",
+            role=UserRole.member.value,
+        )
+        db_session.add(other_user)
+        db_session.commit()
+
+        recipe = self._persisted_recipe(db_session)
+        self._bookmark(db_session, other_user.id, recipe.id)  # other user bookmarks
+
+        response = client.get("/feed/browse", headers=auth_headers)  # test_user calls
+        assert response.status_code == 200
+
+        cards = self._all_cards(response.json())
+        assert len(cards) > 0, "feed must return at least one card for this assertion to be meaningful"
+        assert all(c["is_bookmarked"] is False for c in cards)

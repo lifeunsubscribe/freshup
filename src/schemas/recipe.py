@@ -182,6 +182,7 @@ class RecipeListResponse(BaseModel):
     id: UUID
     name: str
     source_type: str
+    source_url: Optional[str] = None
     source_image: Optional[str]
     prep_time_minutes: Optional[int]
     cook_time_minutes: Optional[int]
@@ -189,6 +190,7 @@ class RecipeListResponse(BaseModel):
     tags: list
     times_cooked: int
     created_by: Optional[UUID]
+    is_bookmarked: bool = False
 
 
 class RecipeIngredientCreate(BaseModel):

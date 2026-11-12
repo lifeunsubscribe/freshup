@@ -33,7 +33,7 @@ from src.schemas.menu import (
     MenuGenerateResponse,
 )
 from src.schemas.recipe import RecipeResponse, RecipeListResponse
-from src.services import menu_service
+from src.services import menu_service, feed_service
 
 logger = logging.getLogger(__name__)
 
@@ -258,8 +258,12 @@ def get_menu_recipes(
 
     try:
         recipes, total = menu_service.get_menu_recipes(menu_id, db, offset=offset, limit=limit)
-        # Convert Recipe objects to RecipeListResponse
-        recipe_list = [RecipeListResponse.model_validate(r) for r in recipes]
+        bookmarked_ids = feed_service.get_bookmarked_recipe_ids(current_user.id, db)
+        recipe_list = []
+        for r in recipes:
+            item = RecipeListResponse.model_validate(r)
+            item.is_bookmarked = r.id in bookmarked_ids
+            recipe_list.append(item)
         return MenuRecipesResponse(recipes=recipe_list, total=total)
     except SQLAlchemyError as e:
         logger.error(f"Database error retrieving recipes for menu {menu_id}")

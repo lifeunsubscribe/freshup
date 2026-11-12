@@ -796,6 +796,48 @@ def test_filter_evaluation_match_logic_any(client, auth_headers, test_user, db_s
     assert response.json()["manually_added"] is True
 
 
+def test_get_menu_recipes_is_bookmarked_true_for_caller(client, auth_headers, test_user, db_session):
+    """GET /menus/{id}/recipes sets is_bookmarked=True for a recipe the caller has bookmarked."""
+    menu = Menu(user_id=test_user.id, name="Bookmark Test Menu")
+    recipe = Recipe(name="Bookmarked Recipe", source_type="manual", created_by=test_user.id)
+    db_session.add_all([menu, recipe])
+    db_session.commit()
+
+    mr = MenuRecipe(menu_id=menu.id, recipe_id=recipe.id)
+    relation = UserRecipeRelation(user_id=test_user.id, recipe_id=recipe.id, is_bookmarked=True)
+    db_session.add_all([mr, relation])
+    db_session.commit()
+
+    response = client.get(f"/menus/{menu.id}/recipes", headers=auth_headers)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert data["recipes"][0]["is_bookmarked"] is True
+
+
+def test_get_menu_recipes_other_users_bookmark_does_not_set_flag(
+    client, auth_headers, test_user, other_user, db_session
+):
+    """Another user's bookmark does not set is_bookmarked for the caller in GET /menus/{id}/recipes."""
+    menu = Menu(user_id=test_user.id, name="Isolation Test Menu")
+    recipe = Recipe(name="Other Bookmarked Recipe", source_type="manual", created_by=test_user.id)
+    db_session.add_all([menu, recipe])
+    db_session.commit()
+
+    mr = MenuRecipe(menu_id=menu.id, recipe_id=recipe.id)
+    other_relation = UserRecipeRelation(user_id=other_user.id, recipe_id=recipe.id, is_bookmarked=True)
+    db_session.add_all([mr, other_relation])
+    db_session.commit()
+
+    response = client.get(f"/menus/{menu.id}/recipes", headers=auth_headers)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert data["recipes"][0]["is_bookmarked"] is False
+
+
 def test_manual_overrides_respected_in_autogeneration(client, auth_headers, test_user, db_session):
     """Test that manually_removed recipes are excluded and manually_added recipes are kept during auto-generation."""
     # Create recipes with italian tag

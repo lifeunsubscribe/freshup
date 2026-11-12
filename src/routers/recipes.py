@@ -52,6 +52,7 @@ from src.routers.recipe_helpers import (
     validate_step_index,
 )
 from src.services.recipe_service import trigger_persistence
+from src.services.feed_service import get_bookmarked_recipe_ids
 
 logger = logging.getLogger(__name__)
 
@@ -402,7 +403,16 @@ def list_recipes(
         .all()
     )
 
-    return recipes
+    # One extra query: the caller's bookmarked recipe IDs.  Fetched once here
+    # so each card is O(1) set membership, not a per-card relation fetch.
+    bookmarked_ids = get_bookmarked_recipe_ids(current_user.id, db)
+
+    result = []
+    for recipe in recipes:
+        item = RecipeListResponse.model_validate(recipe)
+        item.is_bookmarked = recipe.id in bookmarked_ids
+        result.append(item)
+    return result
 
 
 @router.get("/my-relations", response_model=list[UserRecipeRelationResponse])
