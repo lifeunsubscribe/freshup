@@ -1169,6 +1169,7 @@ class TestFeedCardBookmarkAndSourceUrl:
         assert response.status_code == 200
 
         cards = self._all_cards(response.json())
+        assert len(cards) > 0, "feed must return at least one card for this assertion to be meaningful"
         assert all(c["is_bookmarked"] is False for c in cards)
 
     def test_browse_feed_cards_include_source_url(self, client, auth_headers, test_user, db_session):
@@ -1204,4 +1205,5 @@ class TestFeedCardBookmarkAndSourceUrl:
         assert response.status_code == 200
 
         cards = self._all_cards(response.json())
+        assert len(cards) > 0, "feed must return at least one card for this assertion to be meaningful"
         assert all(c["is_bookmarked"] is False for c in cards)
