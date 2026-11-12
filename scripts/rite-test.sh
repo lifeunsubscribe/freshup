@@ -14,41 +14,50 @@
 # this script by absolute path and older worktrees still get tested.
 set -u
 
-root=$(git rev-parse --show-toplevel 2>/dev/null || { cd "$(dirname "$0")/.." && pwd; })
-main=$(git -C "$root" worktree list --porcelain | sed -n 's/^worktree //p' | head -1)
-main=${main:-$root}
+# Everything runs inside main(): bash parses a function completely before
+# executing it, so editing this file while a gate is running it (it is
+# referenced by absolute path from .rite/config) cannot corrupt the run.
+# The call and the exit share one line for the same reason.
+main() {
 
-status=0
+  root=$(git rev-parse --show-toplevel 2>/dev/null || { cd "$(dirname "$0")/.." && pwd; })
+  main=$(git -C "$root" worktree list --porcelain | sed -n 's/^worktree //p' | head -1)
+  main=${main:-$root}
 
-# --- backend -----------------------------------------------------------------
-py="$root/.venv/bin/python"
-[ -x "$py" ] || py="$main/.venv/bin/python"
-if [ -x "$py" ]; then
-  echo "[rite-test] backend: $py -m pytest"
-  # -n auto (pytest-xdist, already a dependency): 1866 tests in ~106 s instead of
-  # ~430 s on this Mac, measured 2026-11-12; SQLite fixtures are per test, so
-  # workers do not collide.
-  (cd "$root" && "$py" -m pytest -q -p no:cacheprovider -n auto) || status=1
-else
-  echo "[rite-test] backend: no .venv found in $root or $main" >&2
-  status=1
-fi
+  status=0
 
-# --- frontend ----------------------------------------------------------------
-fe="$root/frontend"
-if [ -f "$fe/package.json" ]; then
-  if [ ! -e "$fe/node_modules" ]; then
-    if [ -d "$main/frontend/node_modules" ]; then
-      ln -s "$main/frontend/node_modules" "$fe/node_modules"
-      echo "[rite-test] frontend: linked node_modules from $main"
-    else
-      echo "[rite-test] frontend: no node_modules in $fe or $main/frontend; run npm ci there" >&2
-      exit 1
-    fi
+  # --- backend -----------------------------------------------------------------
+  py="$root/.venv/bin/python"
+  [ -x "$py" ] || py="$main/.venv/bin/python"
+  if [ -x "$py" ]; then
+    echo "[rite-test] backend: $py -m pytest"
+    # -n auto (pytest-xdist, already a dependency): 1866 tests in ~106 s instead of
+    # ~430 s on this Mac, measured 2026-11-12; SQLite fixtures are per test, so
+    # workers do not collide.
+    (cd "$root" && "$py" -m pytest -q -p no:cacheprovider -n auto) || status=1
+  else
+    echo "[rite-test] backend: no .venv found in $root or $main" >&2
+    status=1
   fi
-  echo "[rite-test] frontend: tsc (build config) + vitest run"
-  (cd "$fe" && npx tsc --project tsconfig.build.json) || status=1
-  (cd "$fe" && npx vitest run) || status=1
-fi
 
-exit $status
+  # --- frontend ----------------------------------------------------------------
+  fe="$root/frontend"
+  if [ -f "$fe/package.json" ]; then
+    if [ ! -e "$fe/node_modules" ]; then
+      if [ -d "$main/frontend/node_modules" ]; then
+        ln -s "$main/frontend/node_modules" "$fe/node_modules"
+        echo "[rite-test] frontend: linked node_modules from $main"
+      else
+        echo "[rite-test] frontend: no node_modules in $fe or $main/frontend; run npm ci there" >&2
+        exit 1
+      fi
+    fi
+    echo "[rite-test] frontend: tsc (build config) + vitest run"
+    (cd "$fe" && npx tsc --project tsconfig.build.json) || status=1
+    (cd "$fe" && npx vitest run) || status=1
+  fi
+
+  return $status
+}
+
+main "$@"; exit $?
