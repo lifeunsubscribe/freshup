@@ -271,6 +271,7 @@ export default function RecipeDetail() {
             cookCount={cookHistory?.length ?? 0}
             rating={myRelation?.rating ?? null}
             onRate={handleRate}
+            disabled={!myRelation}
           />
 
           <ServingsControl

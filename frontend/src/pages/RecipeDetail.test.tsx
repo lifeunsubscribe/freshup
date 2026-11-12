@@ -402,9 +402,10 @@ describe('RecipeDetail', () => {
 
       await userEvent.click(screen.getByRole('radio', { name: /2 stars/i }))
       await waitFor(() =>
+        // Two elements: RatingLine (cookCount=0 never-cooked gate) + JustCookedStrip (403 gate state)
         expect(
-          screen.getByText(/ratings open up after the first cook/i)
-        ).toBeInTheDocument()
+          screen.getAllByText(/ratings open up after the first cook/i)
+        ).toHaveLength(2)
       )
       // The strip is still visible (no retry, no dismiss)
       expect(screen.queryByRole('button', { name: /i cooked this/i })).not.toBeInTheDocument()

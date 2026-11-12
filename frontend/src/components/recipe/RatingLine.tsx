@@ -5,9 +5,11 @@ interface RatingLineProps {
   cookCount: number
   rating: number | null
   onRate: (stars: number) => Promise<void>
+  /** Disable the star buttons (e.g. while myRelation is still loading). */
+  disabled?: boolean
 }
 
-export default function RatingLine({ cookCount, rating, onRate }: RatingLineProps) {
+export default function RatingLine({ cookCount, rating, onRate, disabled = false }: RatingLineProps) {
   const [editing, setEditing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
@@ -60,7 +62,7 @@ export default function RatingLine({ cookCount, rating, onRate }: RatingLineProp
             role="radio"
             aria-checked={n === rating}
             aria-label={`${n} star${n !== 1 ? 's' : ''}`}
-            disabled={submitting}
+            disabled={submitting || disabled}
             onClick={() => handleStarTap(n)}
             className={`w-11 h-11 shrink-0 rounded-full text-[14px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
               n <= (rating ?? 0)
