@@ -666,6 +666,32 @@ class TestRecipeFiltering:
         # All except Curry Pizza
         assert len(data) == 4
 
+    def test_filter_by_liked_returns_only_callers_likes(
+        self, client, auth_headers, test_user, test_user2, sample_recipes, db_session
+    ):
+        """liked=true is the caller's favorites: their likes only, not bookmarks or other users' likes."""
+        from src.db.models.user_recipe import UserRecipeRelation
+
+        liked, bookmarked_only, liked_by_other = sample_recipes[0], sample_recipes[1], sample_recipes[2]
+        db_session.add_all([
+            UserRecipeRelation(user_id=test_user.id, recipe_id=liked.id, is_liked=True),
+            UserRecipeRelation(user_id=test_user.id, recipe_id=bookmarked_only.id, is_bookmarked=True),
+            UserRecipeRelation(user_id=test_user2.id, recipe_id=liked_by_other.id, is_liked=True),
+        ])
+        db_session.commit()
+
+        response = client.get("/recipes?liked=true", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert [r["id"] for r in response.json()] == [str(liked.id)]
+
+    def test_filter_by_liked_with_no_likes_is_empty(self, client, auth_headers, sample_recipes):
+        """A user who has liked nothing has no favorites, rather than seeing every recipe."""
+        response = client.get("/recipes?liked=true", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert response.json() == []
+
     def test_combined_filters_and_logic(self, client, auth_headers, sample_recipes):
         """Test multiple filters combine with AND logic."""
         # Filter: source_type=manual AND tag=quick AND max_cook_time=20

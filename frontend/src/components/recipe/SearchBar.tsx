@@ -6,6 +6,9 @@ interface SearchBarProps {
   onChange: (value: string) => void
   placeholder?: string
   debounceMs?: number
+  autoFocus?: boolean
+  /** Called with the current (undebounced) text when the input loses focus. */
+  onBlur?: (value: string) => void
 }
 
 /**
@@ -17,8 +20,16 @@ interface SearchBarProps {
  * - Auto-triggers grid view when user types
  * - Returns to carousel view when cleared
  * - Debounced input to prevent excessive updates
+ * - Escape clears the text and blurs the input
  */
-export default function SearchBar({ value, onChange, placeholder = 'Search recipes...', debounceMs = 300 }: SearchBarProps) {
+export default function SearchBar({
+  value,
+  onChange,
+  placeholder = 'Search recipes...',
+  debounceMs = 300,
+  autoFocus = false,
+  onBlur,
+}: SearchBarProps) {
   const [localValue, setLocalValue] = useState(value)
 
   // Sync local value with prop value when it changes externally (e.g., clear button from parent)
@@ -55,6 +66,15 @@ export default function SearchBar({ value, onChange, placeholder = 'Search recip
         type="text"
         value={localValue}
         onChange={(e) => setLocalValue(e.target.value)}
+        onBlur={() => onBlur?.(localValue)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            handleClear()
+            e.currentTarget.blur()
+          }
+        }}
+        autoFocus={autoFocus}
+        aria-label="Search recipes"
         placeholder={placeholder}
         className="w-full pl-10 pr-10 py-2.5 rounded-lg border border-warm-border bg-white text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
       />

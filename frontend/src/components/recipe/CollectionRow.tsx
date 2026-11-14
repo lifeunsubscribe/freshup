@@ -4,13 +4,26 @@ import { ChevronRight, ChevronLeft } from 'lucide-react'
 import SectionHeader from '../ui/SectionHeader'
 import CatalogCard from './CatalogCard'
 import { useCollection } from '../../api/hooks/useCatalog'
+import { sourceName } from '../../utils/sourceNames'
 import type { CollectionSummary } from '../../api/types'
+
+/** Cards per row — matches the library carousels on the Recipes page. */
+const MAX_ROW_CARDS = 20
 
 interface CollectionRowProps {
   collection: CollectionSummary
+  /** Called with the card count once loaded, so the page can drop nav entries for hidden rows. */
+  onCountChange?: (count: number) => void
 }
 
-export default function CollectionRow({ collection }: CollectionRowProps) {
+/**
+ * One HelloFresh collection as a lazily-loaded carousel.
+ *
+ * The row fetches when it scrolls near the viewport and renders nothing once
+ * loaded with no cards (including a failed fetch with nothing stored), so the
+ * page never shows an empty row.
+ */
+export default function CollectionRow({ collection, onCountChange }: CollectionRowProps) {
   // inView flips true once the row is within 200px of the viewport and never resets.
   const [inView, setInView] = useState(false)
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -76,17 +89,27 @@ export default function CollectionRow({ collection }: CollectionRowProps) {
     }
   }, [data, inView])
 
-  const subtitle =
+  const loadedCount = inView && !isLoading && !isFetching && data ? data.cards.length : undefined
+  useEffect(() => {
+    if (loadedCount !== undefined) onCountChange?.(loadedCount)
+  }, [loadedCount, onCountChange])
+
+  const countText =
     collection.card_count > 0
       ? `${collection.card_count} recipe${collection.card_count === 1 ? '' : 's'}`
       : inView && !isLoading && !isFetching && data
         ? `${data.cards.length} recipe${data.cards.length === 1 ? '' : 's'}`
         : 'Not loaded yet'
+  // Source goes in each row's byline, not a section header, so rows from
+  // different sources can sit side by side and still say where they're from.
+  const subtitle = `${countText} · ${sourceName('hellofresh')}`
 
-  const cards = data?.cards.slice(0, 10) ?? []
+  const cards = data?.cards.slice(0, MAX_ROW_CARDS) ?? []
   const fetchError = data?.fetch_error ?? null
   const isLoadingRow = inView && (isLoading || isFetching)
   const browseUrl = `/browse/hellofresh/${collection.slug}`
+
+  if (loadedCount === 0) return null
 
   return (
     <section
@@ -167,16 +190,6 @@ export default function CollectionRow({ collection }: CollectionRowProps) {
             <p className="text-xs text-mocha mt-2">Could not bring in more right now.</p>
           )}
         </div>
-      )}
-
-      {/* fetch_error with no stored cards */}
-      {inView && !isLoadingRow && cards.length === 0 && fetchError && (
-        <p className="text-xs text-mocha">Could not bring in more right now.</p>
-      )}
-
-      {/* Empty — no error, no cards */}
-      {inView && !isLoadingRow && cards.length === 0 && !fetchError && data && (
-        <p className="text-sm text-text-secondary">Nothing here yet.</p>
       )}
     </section>
   )

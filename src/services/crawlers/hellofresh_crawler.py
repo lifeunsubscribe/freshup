@@ -44,7 +44,9 @@ _RECIPE_PATH = re.compile(r"^/recipes/[^/]+-[0-9a-f]{24}/?$")
 
 # CDN prefix for recipe card images on collection pages.
 # Usage: HF_IMAGE_PREFIX + imagePath (e.g. "/image/zucchini-cf443dcd.jpg")
-HF_IMAGE_PREFIX = "https://img.hellofresh.com/f_auto,fl_lossy,q_auto,w_600"
+# The imagePath in __NEXT_DATA__ is relative to the hellofresh_s3 bucket; without
+# that segment the CDN returns 404 for every card.
+HF_IMAGE_PREFIX = "https://img.hellofresh.com/f_auto,fl_lossy,q_auto,w_600/hellofresh_s3"
 
 # Matches a __NEXT_DATA__ script tag and captures its JSON content.
 _NEXT_DATA_RE = re.compile(
@@ -263,30 +265,44 @@ class HelloFreshCrawler:
             self.rate_limiter.set_domain_delay(self.domain, crawl_delay)
             logger.info(f"Using Crawl-delay from robots.txt: {crawl_delay}s")
 
-    def fetch_collection(self, slug: str) -> CollectionPage:
+    def fetch_collection(self, slug: str, url: Optional[str] = None) -> CollectionPage:
         """
         Fetch and parse a HelloFresh collection page by its slug.
 
-        Builds the URL as ``{base_url}/recipes/{slug}``, checks robots.txt,
+        Uses ``url`` when given (the stored URL, which carries the parent
+        segment for nested pages such as ``/recipes/grain-recipes/arborio-rice``),
+        otherwise builds ``{base_url}/recipes/{slug}``. Checks robots.txt,
         respects the rate limiter, then delegates parsing to
         :func:`parse_collection_page`.
 
+        A nested slug fetched without its parent segment is served HelloFresh's
+        ``/recipes`` hub instead of a 404, so the parsed page's slug must match
+        the requested one; anything else is rejected rather than stored under
+        the wrong collection.
+
         Args:
             slug: Collection slug, e.g. ``"vegetarian-recipes"``.
+            url:  Full collection URL; must be a ``/recipes/...`` path on the
+                  crawler's host whose last segment is ``slug``.
 
         Returns:
             Parsed :class:`~src.schemas.catalog.CollectionPage`.
 
         Raises:
+            ValueError: If ``slug`` is malformed or ``url`` is not a collection
+                URL for ``slug`` on this host.
             CrawlerNetworkError: If robots.txt disallows the URL, or if the
                 HTTP request fails.
             CrawlerParseError: If the response cannot be parsed as a valid
-                collection page.
+                collection page, or is a different collection than requested.
         """
         if not _SLUG_RE.fullmatch(slug):
             raise ValueError(f"Invalid collection slug: {slug!r}")
 
-        url = f"{self.base_url}/recipes/{slug}"
+        if url is None:
+            url = f"{self.base_url}/recipes/{slug}"
+        elif not self._is_collection_url_for(url, slug):
+            raise ValueError(f"URL {url!r} is not a collection URL for slug {slug!r}")
 
         if not self.robots_parser.can_fetch(url):
             raise CrawlerNetworkError(f"robots.txt disallows fetching {url}")
@@ -301,7 +317,28 @@ class HelloFreshCrawler:
                 f"Failed to fetch collection page {url}: {exc}"
             ) from exc
 
-        return parse_collection_page(response.text, url)
+        page = parse_collection_page(response.text, url)
+        if page.slug != slug:
+            raise CrawlerParseError(
+                f"Requested collection {slug!r} but {url} served {page.slug!r}"
+            )
+        return page
+
+    def _is_collection_url_for(self, url: str, slug: str) -> bool:
+        """True when ``url`` is ``/recipes/[<parent>/...]<slug>`` on this host."""
+        parsed = urlparse(url)
+        base = urlparse(self.base_url)
+        if parsed.scheme != base.scheme or parsed.netloc != base.netloc:
+            return False
+        if parsed.query or parsed.fragment:
+            return False
+        segments = parsed.path.strip("/").split("/")
+        return (
+            len(segments) >= 2
+            and segments[0] == "recipes"
+            and segments[-1] == slug
+            and all(_SLUG_RE.fullmatch(seg) for seg in segments)
+        )
 
     def _build_error_message_with_context(
         self,

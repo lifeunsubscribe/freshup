@@ -3,21 +3,36 @@ import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import PageContainer from '../components/layout/PageContainer'
 import CatalogCard from '../components/recipe/CatalogCard'
+import TagChips from '../components/recipe/TagChips'
 import CollectionTail, { type TailState } from '../components/recipe/CollectionTail'
-import FilterChips, { type RecipeFilters } from '../components/recipe/FilterChips'
+import FilterChips, { type RecipeFilters, type TimeRange } from '../components/recipe/FilterChips'
 import { useCollection } from '../api/hooks/useCatalog'
 import type { CardResponse, CollectionSummary } from '../api/types'
+import { CARD_GRID_CLASS } from '../components/recipe/cardGrid'
 
 // ── filter helper ─────────────────────────────────────────────────────────────
 
+// Catalog cards carry a saved flag, HelloFresh's prep time (its total time) and
+// derived tags, so those are the filters that can apply here.
 function applyFilters(cards: CardResponse[], filters: RecipeFilters): CardResponse[] {
   return cards.filter((card) => {
     if (filters.saved_only && !card.is_persisted) return false
-    if (filters.under_30_min) {
-      if (card.prep_time_minutes === null || card.prep_time_minutes > 30) return false
+    if (filters.card_tags?.length && !filters.card_tags.every((t) => card.tags?.includes(t))) return false
+    if (filters.card_tags_excluded?.some((t) => card.tags?.includes(t))) return false
+    if (filters.max_cook_time !== undefined) {
+      if (card.prep_time_minutes === null || card.prep_time_minutes > filters.max_cook_time) return false
     }
     return true
   })
+}
+
+/** Slider bounds from the cards' own times, snapped to 5 min; null when there is no spread. */
+function timeRangeOf(cards: CardResponse[]): TimeRange | null {
+  const times = cards.map((c) => c.prep_time_minutes).filter((t): t is number => t !== null)
+  if (times.length === 0) return null
+  const min = Math.floor(Math.min(...times) / 5) * 5
+  const max = Math.ceil(Math.max(...times) / 5) * 5
+  return max > min ? { min, max } : null
 }
 
 // ── ChildSection ──────────────────────────────────────────────────────────────
@@ -74,14 +89,14 @@ function ChildSection({ child, source, enabled, index, filters, onSettled, onFai
       </h3>
 
       {(isLoading || isFetching) && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className={CARD_GRID_CLASS}>
           <div className="h-40 rounded-[10px] bg-warm-gray/40 animate-pulse" aria-hidden="true" />
           <div className="h-40 rounded-[10px] bg-warm-gray/40 animate-pulse" aria-hidden="true" />
         </div>
       )}
 
       {!isLoading && !isFetching && filteredCards.length > 0 && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className={CARD_GRID_CLASS}>
           {filteredCards.map((card) => (
             <CatalogCard
               key={card.id}
@@ -187,7 +202,7 @@ export default function Collection() {
         <div className="pt-6">
           <div className="h-6 w-32 bg-warm-gray/40 rounded animate-pulse mb-2" />
           <div className="h-4 w-20 bg-warm-gray/40 rounded animate-pulse mb-6" />
-          <div className="grid grid-cols-2 gap-3">
+          <div className={CARD_GRID_CLASS}>
             {[...Array(4)].map((_, i) => (
               <div key={i} className="h-40 rounded-[10px] bg-warm-gray/40 animate-pulse" />
             ))}
@@ -256,11 +271,32 @@ export default function Collection() {
         </div>
 
         {/* Filter chips */}
-        <FilterChips filters={filters} onFilterChange={setFilters} enableBooleanChips={true} />
+        <FilterChips
+          filters={filters}
+          onFilterChange={setFilters}
+          enableBooleanChips={true}
+          showSource={false}
+          showCuisine={false}
+          timeRange={timeRangeOf(parentCards)}
+        />
+
+        {/* This list's own shared tags (3+ cards each) */}
+        <TagChips
+          options={parent!.tag_options ?? []}
+          included={filters.card_tags ?? []}
+          excluded={filters.card_tags_excluded ?? []}
+          onChange={(included, excluded) =>
+            setFilters({
+              ...filters,
+              card_tags: included.length ? included : undefined,
+              card_tags_excluded: excluded.length ? excluded : undefined,
+            })
+          }
+        />
 
         {/* Parent cards grid */}
         {filteredParentCards.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3">
+          <div className={CARD_GRID_CLASS}>
             {filteredParentCards.map((card) => (
               <CatalogCard
                 key={card.id}

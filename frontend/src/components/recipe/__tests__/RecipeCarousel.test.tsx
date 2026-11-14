@@ -184,7 +184,7 @@ describe('RecipeCarousel', () => {
   })
 
   describe('empty state', () => {
-    it('displays empty message when no recipes are returned', () => {
+    it('renders nothing when no recipes are returned', () => {
       vi.mocked(useRecipeList).mockReturnValue({
         data: [],
         isLoading: false,
@@ -200,7 +200,8 @@ describe('RecipeCarousel', () => {
         />
       )
 
-      expect(screen.getByText('No recipes found for this category.')).toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Quick meals' })).not.toBeInTheDocument()
+      expect(screen.queryByText('Quick meals')).not.toBeInTheDocument()
     })
   })
 
@@ -389,65 +390,53 @@ describe('RecipeCarousel', () => {
     })
   })
 
-  describe('emptyState prop', () => {
-    it('shows default empty message when emptyState is not provided', () => {
+  describe('onCountChange', () => {
+    it('reports the loaded recipe count', () => {
       vi.mocked(useRecipeList).mockReturnValue({
-        data: [],
+        data: mockRecipes,
         isLoading: false,
         isError: false,
         error: null,
       } as any)
+      const onCountChange = vi.fn()
 
       renderWithRouter(
-        <RecipeCarousel
-          title="Quick meals"
-          filters={mockFilters}
-          onSeeAll={mockOnSeeAll}
-        />
+        <RecipeCarousel title="Quick meals" filters={mockFilters} onSeeAll={mockOnSeeAll} onCountChange={onCountChange} />
       )
 
-      expect(screen.getByText('No recipes found for this category.')).toBeInTheDocument()
+      expect(onCountChange).toHaveBeenCalledWith(mockRecipes.length)
     })
 
-    it('renders custom emptyState instead of default when provided', () => {
+    it('reports 0 for an empty row so the page can drop its nav entry', () => {
       vi.mocked(useRecipeList).mockReturnValue({
         data: [],
         isLoading: false,
         isError: false,
         error: null,
       } as any)
+      const onCountChange = vi.fn()
 
       renderWithRouter(
-        <RecipeCarousel
-          title="Quick meals"
-          filters={mockFilters}
-          onSeeAll={mockOnSeeAll}
-          emptyState={<p>Custom empty message</p>}
-        />
+        <RecipeCarousel title="Quick meals" filters={mockFilters} onSeeAll={mockOnSeeAll} onCountChange={onCountChange} />
       )
 
-      expect(screen.getByText('Custom empty message')).toBeInTheDocument()
-      expect(screen.queryByText('No recipes found for this category.')).not.toBeInTheDocument()
+      expect(onCountChange).toHaveBeenCalledWith(0)
     })
 
-    it('shows nothing when emptyState={null}', () => {
+    it('does not report while loading', () => {
       vi.mocked(useRecipeList).mockReturnValue({
-        data: [],
-        isLoading: false,
+        data: undefined,
+        isLoading: true,
         isError: false,
         error: null,
       } as any)
+      const onCountChange = vi.fn()
 
       renderWithRouter(
-        <RecipeCarousel
-          title="Quick meals"
-          filters={mockFilters}
-          onSeeAll={mockOnSeeAll}
-          emptyState={null}
-        />
+        <RecipeCarousel title="Quick meals" filters={mockFilters} onSeeAll={mockOnSeeAll} onCountChange={onCountChange} />
       )
 
-      expect(screen.queryByText('No recipes found for this category.')).not.toBeInTheDocument()
+      expect(onCountChange).not.toHaveBeenCalled()
     })
   })
 
@@ -472,7 +461,7 @@ describe('RecipeCarousel', () => {
       expect(screen.getByText('Footer line here')).toBeInTheDocument()
     })
 
-    it('renders footer content in empty state', () => {
+    it('does not render footer when the row is empty', () => {
       vi.mocked(useRecipeList).mockReturnValue({
         data: [],
         isLoading: false,
@@ -485,12 +474,11 @@ describe('RecipeCarousel', () => {
           title="Quick meals"
           filters={mockFilters}
           onSeeAll={mockOnSeeAll}
-          emptyState={null}
           footer={<p>Footer in empty state</p>}
         />
       )
 
-      expect(screen.getByText('Footer in empty state')).toBeInTheDocument()
+      expect(screen.queryByText('Footer in empty state')).not.toBeInTheDocument()
     })
 
     it('does not render footer during loading', () => {

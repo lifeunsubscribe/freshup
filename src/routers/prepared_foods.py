@@ -98,7 +98,7 @@ def list_prepared_foods(
     limit: int = Query(default=50, ge=1, le=100, description="Maximum number of items to return"),
     offset: int = Query(default=0, ge=0, description="Number of items to skip"),
     type: Optional[str] = Query(default=None, description="Filter by type (complete_meal, batch_portion, component_ingredient)"),
-    storage_location: Optional[str] = Query(default=None, description="Filter by storage location (pantry, fridge, freezer)"),
+    storage_location: Optional[str] = Query(default=None, description="Filter by storage location (pantry, fridge, freezer, counter)"),
     shareability: Optional[str] = Query(default=None, description="Filter by shareability (shared, reserved, personal)"),
     expiring_soon: Optional[bool] = Query(default=None, description="Filter items expiring within 7 days"),
     expiring_within_days: Optional[int] = Query(default=None, ge=1, description="Filter items expiring within N days"),

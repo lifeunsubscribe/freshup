@@ -1,3 +1,5 @@
+import { CARD_GRID_CLASS } from './cardGrid'
+
 export type TailState =
   | 'bringing-in-more'
   | 'more-arrived'
@@ -14,7 +16,7 @@ export default function CollectionTail({ state, newCount = 0 }: CollectionTailPr
     return (
       <div className="mt-6 space-y-3">
         {/* Skeleton row */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className={CARD_GRID_CLASS}>
           <div className="h-40 rounded-[10px] bg-warm-gray/40 animate-pulse" aria-hidden="true" />
           <div className="h-40 rounded-[10px] bg-warm-gray/40 animate-pulse" aria-hidden="true" />
         </div>

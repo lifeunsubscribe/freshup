@@ -59,6 +59,7 @@ const makeCard = (id: string, overrides: Partial<CardResponse> = {}): CardRespon
   recipe_url: `https://hellofresh.com/${id}`,
   recipe_id: null,
   is_persisted: false,
+  tags: [],
   ...overrides,
 })
 
@@ -83,10 +84,10 @@ function triggerInView() {
   })
 }
 
-const renderRow = (collection: CollectionSummary = baseCollection) =>
+const renderRow = (collection: CollectionSummary = baseCollection, onCountChange?: (n: number) => void) =>
   render(
     <BrowserRouter>
-      <CollectionRow collection={collection} />
+      <CollectionRow collection={collection} onCountChange={onCountChange} />
     </BrowserRouter>
   )
 
@@ -161,8 +162,8 @@ describe('CollectionRow', () => {
       expect(screen.getByText('Loading…')).toBeInTheDocument()
     })
 
-    it('shows up to 10 cards when loaded', () => {
-      const cards = Array.from({ length: 12 }, (_, i) => makeCard(`card-${i}`))
+    it('shows up to 20 cards when loaded', () => {
+      const cards = Array.from({ length: 25 }, (_, i) => makeCard(`card-${i}`))
       setCollectionState({
         data: {
           slug: 'quick-dinners',
@@ -171,17 +172,18 @@ describe('CollectionRow', () => {
           last_fetched_at: null,
           children: [],
           cards,
+          tag_options: [],
           fetch_error: null,
         },
       })
       renderRow()
       triggerInView()
-      // Max 10 cards rendered
+      // Max 20 cards rendered
       const listItems = screen.getAllByRole('listitem')
-      expect(listItems).toHaveLength(10)
+      expect(listItems).toHaveLength(20)
     })
 
-    it('shows "Nothing here yet." when cards is empty and no error', () => {
+    it('renders nothing and reports 0 once loaded with no cards', () => {
       setCollectionState({
         data: {
           slug: 'quick-dinners',
@@ -190,12 +192,15 @@ describe('CollectionRow', () => {
           last_fetched_at: null,
           children: [],
           cards: [],
+          tag_options: [],
           fetch_error: null,
         },
       })
-      renderRow()
+      const onCountChange = vi.fn()
+      renderRow(baseCollection, onCountChange)
       triggerInView()
-      expect(screen.getByText('Nothing here yet.')).toBeInTheDocument()
+      expect(screen.queryByRole('region')).not.toBeInTheDocument()
+      expect(onCountChange).toHaveBeenCalledWith(0)
     })
 
     it('shows the error note with stored cards on fetch_error', () => {
@@ -208,6 +213,7 @@ describe('CollectionRow', () => {
           last_fetched_at: null,
           children: [],
           cards,
+          tag_options: [],
           fetch_error: 'upstream timeout',
         },
       })
@@ -217,7 +223,7 @@ describe('CollectionRow', () => {
       expect(screen.getByText('Could not bring in more right now.')).toBeInTheDocument()
     })
 
-    it('shows only the error note when fetch_error and no cards', () => {
+    it('renders nothing when fetch_error and no cards', () => {
       setCollectionState({
         data: {
           slug: 'quick-dinners',
@@ -226,13 +232,14 @@ describe('CollectionRow', () => {
           last_fetched_at: null,
           children: [],
           cards: [],
+          tag_options: [],
           fetch_error: 'upstream timeout',
         },
       })
       renderRow()
       triggerInView()
-      expect(screen.queryByRole('list')).not.toBeInTheDocument()
-      expect(screen.getByText('Could not bring in more right now.')).toBeInTheDocument()
+      expect(screen.queryByRole('region')).not.toBeInTheDocument()
+      expect(screen.queryByText('Could not bring in more right now.')).not.toBeInTheDocument()
     })
   })
 
@@ -249,23 +256,23 @@ describe('CollectionRow', () => {
     it('shows "{count} recipes" when card_count > 0', () => {
       setCollectionState({ isLoading: false })
       renderRow({ ...baseCollection, card_count: 7 })
-      expect(screen.getByText('7 recipes')).toBeInTheDocument()
+      expect(screen.getByText('7 recipes · HelloFresh')).toBeInTheDocument()
     })
 
     it('shows "1 recipe" (singular) when card_count is 1', () => {
       setCollectionState({ isLoading: false })
       renderRow({ ...baseCollection, card_count: 1 })
-      expect(screen.getByText('1 recipe')).toBeInTheDocument()
+      expect(screen.getByText('1 recipe · HelloFresh')).toBeInTheDocument()
     })
 
     it('shows "Not loaded yet" before inView when card_count is 0', () => {
       setCollectionState({ isLoading: false })
       renderRow({ ...baseCollection, card_count: 0 })
-      expect(screen.getByText('Not loaded yet')).toBeInTheDocument()
+      expect(screen.getByText('Not loaded yet · HelloFresh')).toBeInTheDocument()
     })
   })
 
-  describe('section id for SectionNav scroll', () => {
+  describe('section id (anchor target)', () => {
     it('section element has id hellofresh-{slug}', () => {
       setCollectionState({ isLoading: false })
       const { container } = renderRow()
@@ -286,6 +293,7 @@ describe('CollectionRow', () => {
           last_fetched_at: null,
           children: [],
           cards,
+          tag_options: [],
           fetch_error: null,
         },
       })

@@ -28,6 +28,7 @@ export interface RecipeCardProps {
     prep_time_minutes: number | null
     tags: string[]
     is_bookmarked?: boolean
+    source_image?: string | null
   }
   variant?: 'grid' | 'carousel'
   isLastVisible?: boolean
@@ -45,7 +46,6 @@ export interface RecipeCardProps {
   householdContext?: {
     timesCooked: number
   }
-  imageUrl?: string
   servings?: number
   showAllInStockBadge?: boolean
 }
@@ -62,7 +62,9 @@ export interface RecipeCardProps {
  * - Metadata: cook time, servings, cuisine tag with " · " separator
  * - Household context: "✓ Cooked Nx" (olive) or "Never cooked" (mocha)
  * - Grid variant: fills container width (use in 2-column grid)
- * - Carousel variant: min-width 150px with flex-shrink-0
+ * - Carousel variant: fixed 160px wide (same as CatalogCard rows), flex-shrink-0
+ * - Fills its row's height with the saved-state line pinned to the bottom, so
+ *   cards with short titles or missing metadata line up with their neighbours
  * - Last-visible variant: opacity 0.7 for carousel fade effect
  * - Clickable: navigates to /recipes/:id
  */
@@ -75,11 +77,10 @@ export default function RecipeCard({
   isBookmarked = false,
   onBookmarkToggle,
   householdContext,
-  imageUrl,
   servings,
   showAllInStockBadge,
 }: RecipeCardProps) {
-  const { id, name, source_type, cook_time_minutes, tags } = recipe
+  const { id, name, source_type, cook_time_minutes, tags, source_image } = recipe
 
   // Track image loading errors
   const [imageError, setImageError] = useState(false)
@@ -110,7 +111,7 @@ export default function RecipeCard({
 
   // Variant-specific classes
   const containerClasses = `
-    ${variant === 'carousel' ? 'min-w-[150px] flex-shrink-0' : ''}
+    ${variant === 'carousel' ? 'w-[160px] flex-shrink-0' : ''}
     ${isLastVisible ? 'opacity-70' : ''}
   `.trim()
 
@@ -118,16 +119,16 @@ export default function RecipeCard({
     <Link
       to={`/recipes/${id}`}
       aria-label={`${name}, ${isBookmarked ? 'saved' : 'not saved yet'}`}
-      className={`block bg-white rounded-[10px] overflow-hidden shadow-sm hover:shadow-md transition-shadow ${containerClasses}`}
+      className={`flex flex-col bg-white rounded-[10px] overflow-hidden shadow-sm hover:shadow-md transition-shadow ${containerClasses}`}
     >
       {/* Image container with 4:3 aspect ratio and overlays */}
       {/* paddingBottom: 75% creates 4:3 aspect ratio (3/4 = 0.75) */}
       <div className="relative w-full" style={{ paddingBottom: '75%' }}>
         {/* Image */}
         <div className="absolute inset-0 bg-warm-gray">
-          {imageUrl && !imageError ? (
+          {source_image && !imageError ? (
             <img
-              src={imageUrl}
+              src={source_image}
               alt={name}
               className="w-full h-full object-cover"
               onError={() => setImageError(true)}
@@ -190,8 +191,8 @@ export default function RecipeCard({
         </div>
       </div>
 
-      {/* Content section */}
-      <div className="p-3">
+      {/* Content section — grows to fill the card so the saved line sits at the bottom */}
+      <div className="p-3 flex-1 flex flex-col">
         {/* Recipe name: 13px/500, truncate at 2 lines */}
         <h3 className="text-[13px] font-medium text-text-primary line-clamp-2 mb-2">
           {name}
@@ -220,7 +221,7 @@ export default function RecipeCard({
         </div>
 
         {/* Saved state — identical classes and copy to CatalogCard */}
-        <div className="flex items-center gap-1 text-xs">
+        <div className="mt-auto flex items-center gap-1 text-xs">
           <Bookmark
             size={14}
             className={isBookmarked ? 'fill-olive stroke-olive' : 'stroke-mocha'}

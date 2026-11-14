@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import RecipeGrid from '../RecipeGrid'
 import { useRecipeList } from '../../../api'
 import type { RecipeFilters } from '../FilterChips'
+import { CARD_GRID_CLASS } from '../cardGrid'
 
 // Mock the API hook
 vi.mock('../../../api', () => ({
@@ -279,7 +280,7 @@ describe('RecipeGrid', () => {
   })
 
   describe('recipe grid display', () => {
-    it('renders recipes in a 2-column grid', () => {
+    it('renders recipes in the shared card grid', () => {
       vi.mocked(useRecipeList).mockReturnValue({
         data: mockRecipes,
         isLoading: false,
@@ -296,8 +297,8 @@ describe('RecipeGrid', () => {
         />
       )
 
-      const grid = container.querySelector('.grid-cols-2')
-      expect(grid).toBeInTheDocument()
+      const grid = container.querySelector('.grid')
+      expect(grid?.className).toBe(CARD_GRID_CLASS)
     })
 
     it('renders all recipe cards', () => {
@@ -620,7 +621,7 @@ describe('RecipeGrid', () => {
   })
 
   describe('responsive grid', () => {
-    it('applies 2-column grid layout', () => {
+    it('uses 2 columns on phones and 200px-minimum auto-fill columns from sm up', () => {
       vi.mocked(useRecipeList).mockReturnValue({
         data: mockRecipes,
         isLoading: false,
@@ -638,7 +639,7 @@ describe('RecipeGrid', () => {
       )
 
       const grid = container.querySelector('.grid')
-      expect(grid).toHaveClass('grid-cols-2')
+      expect(grid).toHaveClass('grid-cols-2', 'sm:grid-cols-[repeat(auto-fill,minmax(200px,1fr))]')
     })
 
     it('applies gap between grid items', () => {

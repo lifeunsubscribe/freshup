@@ -59,7 +59,7 @@ export default function CatalogCard({ card, collectionSlug, isNew = false }: Cat
           handleTap()
         }
       }}
-      className="block w-full text-left bg-white rounded-[10px] overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer min-h-[44px]"
+      className="flex flex-col h-full w-full text-left bg-white rounded-[10px] overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer min-h-[44px]"
     >
       {/* Image with 4:3 aspect ratio — same sizing as RecipeCard so both sit in one row without a seam */}
       <div className="relative w-full" style={{ paddingBottom: '75%' }}>
@@ -91,7 +91,8 @@ export default function CatalogCard({ card, collectionSlug, isNew = false }: Cat
         )}
       </div>
 
-      <div className="p-3">
+      {/* Grows to fill the card so the saved line sits at the bottom, matching RecipeCard */}
+      <div className="p-3 flex-1 flex flex-col">
         <h3 className="text-[13px] font-medium text-text-primary line-clamp-2 mb-1">
           {card.name}
         </h3>
@@ -106,7 +107,7 @@ export default function CatalogCard({ card, collectionSlug, isNew = false }: Cat
           {ratingDisplay && <span>{ratingDisplay}</span>}
         </div>
 
-        <div className="flex items-center gap-1 text-xs">
+        <div className="mt-auto flex items-center gap-1 text-xs">
           <Bookmark
             size={14}
             className={card.is_persisted ? 'fill-olive stroke-olive' : 'stroke-mocha'}

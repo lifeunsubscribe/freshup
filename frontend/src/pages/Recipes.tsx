@@ -1,61 +1,83 @@
 import { useState, useCallback } from 'react'
-import { Link } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Plus, Search } from 'lucide-react'
 import PageContainer from '../components/layout/PageContainer'
 import PageTitle from '../components/ui/PageTitle'
+import SectionHeader from '../components/ui/SectionHeader'
 import SearchBar from '../components/recipe/SearchBar'
-import SectionNav from '../components/recipe/SectionNav'
+import ThemeBar, { type ThemeFilter } from '../components/recipe/ThemeBar'
 import RecipeCarousel from '../components/recipe/RecipeCarousel'
 import RecipeGrid from '../components/recipe/RecipeGrid'
 import CollectionRow from '../components/recipe/CollectionRow'
 import MoreCollectionsSheet from '../components/recipe/MoreCollectionsSheet'
-import SectionHeader from '../components/ui/SectionHeader'
 import Pill from '../components/ui/Pill'
+import { buildPageRows } from '../components/recipe/themeRows'
 import { useCollections } from '../api/hooks/useCatalog'
+import { useThemes } from '../api/hooks/useThemes'
+import type { RecipeListFilters } from '../api'
 import type { RecipeFilters } from '../components/recipe/FilterChips'
-import type { CollectionSummary } from '../api/types'
 
 /**
  * Recipes page - Primary recipe discovery interface
  *
  * View Modes:
- * - Carousel view (default): Multiple horizontal carousels by category
+ * - Carousel view (default): whole lists as horizontal carousels
  * - Grid view: 2-column grid with search and filters
  *
- * Features:
- * - Search bar transitions to grid view on input
- * - Sticky section navigation in carousel view
- * - "See all" links transition to filtered grid view
- * - Back button returns to carousel view
- * - Recipe cards navigate to /recipes/:id
+ * Carousel view is shaped by the theme bar (Cuisine, Main ingredient, Dish
+ * type, Diet, Meal type, Source), held in the URL so back/forward work:
+ * - no params:            your rows, then the fullest few lists per theme
+ * - ?theme=cuisine:       every list from that theme ("See all")
+ * - ?filter=cuisine:thai: your rows containing a Thai recipe, then every Thai list
+ * Several filters (one per theme) apply together, also on a theme page.
+ * Lists are always shown whole and each names its own source.
+ *
+ * Also: search icon expands into an inline input (typing switches to grid);
+ * "See all" on a row opens the grid filtered to that row.
  */
-function sortCollections(collections: CollectionSummary[]): CollectionSummary[] {
-  const withCards = collections.filter((c) => c.card_count > 0).sort((a, b) => b.card_count - a.card_count)
-  const withoutCards = collections.filter((c) => c.card_count === 0).sort((a, b) => a.name.localeCompare(b.name))
-  return [...withCards, ...withoutCards]
+function parseFilters(raw: string[]): ThemeFilter[] {
+  const filters: ThemeFilter[] = []
+  for (const entry of raw) {
+    const [theme, value] = entry.split(':')
+    // One value per theme: a later duplicate theme is ignored
+    if (theme && value && !filters.some((f) => f.theme === theme)) filters.push({ theme, value })
+  }
+  return filters
 }
 
 export default function Recipes() {
   const [viewMode, setViewMode] = useState<'carousel' | 'grid'>('carousel')
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
   const [filters, setFilters] = useState<RecipeFilters>({})
   const [showOnlyInStock, setShowOnlyInStock] = useState(false)
   const [showMoreCollections, setShowMoreCollections] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
 
+  const themeKey = searchParams.get('theme')
+  const themeFilters = parseFilters(searchParams.getAll('filter'))
+
+  const setThemeState = (theme: string | null, filters: ThemeFilter[]) => {
+    const next = new URLSearchParams()
+    if (theme) next.set('theme', theme)
+    filters.forEach((f) => next.append('filter', `${f.theme}:${f.value}`))
+    setSearchParams(next)
+  }
+
+  // Selecting a value sets that theme's filter, keeping the others; selecting
+  // the active value again clears it.
+  const toggleFilter = (picked: ThemeFilter) => {
+    const others = themeFilters.filter((f) => f.theme !== picked.theme)
+    const alreadyActive = themeFilters.some((f) => f.theme === picked.theme && f.value === picked.value)
+    setThemeState(themeKey, alreadyActive ? others : [...others, picked])
+  }
+
+  // Listing collections seeds the catalog on first use, so wait for it before
+  // asking for themes (which only read what is stored).
   const { data: allCollections, isLoading: collectionsLoading } = useCollections('hellofresh_web')
-  const sortedCollections = allCollections ? sortCollections(allCollections) : []
-  const displayedCollections = sortedCollections.slice(0, 6)
-
-  // Define carousel sections
-  const sections = [
-    { id: 'favorites', label: 'Your favorites', filters: { limit: 10 } },
-    { id: 'quick-meals', label: 'Quick meals', filters: { limit: 10, max_cook_time: 30 } },
-    { id: 'recently-added', label: 'Recently added', filters: { limit: 10 } },
-    { id: 'italian', label: 'Italian', filters: { limit: 10, tag: 'italian' } },
-    { id: 'mexican', label: 'Mexican', filters: { limit: 10, tag: 'mexican' } },
-    { id: 'asian', label: 'Asian', filters: { limit: 10, tag: 'asian' } },
-    { id: 'vegan', label: 'Vegan', filters: { limit: 10, tag: 'vegan' } },
-  ]
+  const { data: themes } = useThemes({ enabled: !collectionsLoading })
+  const { rows, heading } = buildPageRows(themes, themeKey, themeFilters)
+  const onMainPage = !themeKey && themeFilters.length === 0
 
   // Handle search input - transition to grid view when typing
   const handleSearchChange = useCallback((value: string) => {
@@ -69,13 +91,14 @@ export default function Recipes() {
   }, [filters])
 
   // Handle "See all" button - transition to grid with filter
-  const handleSeeAll = useCallback((sectionFilters: { limit?: number; max_cook_time?: number; tag?: string; source_type?: string }) => {
+  const handleSeeAll = useCallback((sectionFilters: RecipeListFilters) => {
     // Extract only RecipeFilters properties (exclude limit which is for carousel only)
-    const { max_cook_time, tag, source_type } = sectionFilters
+    const { max_cook_time, tag, source_type, liked } = sectionFilters
     const gridFilters: RecipeFilters = {}
     if (max_cook_time !== undefined) gridFilters.max_cook_time = max_cook_time
     if (tag !== undefined) gridFilters.tag = tag
     if (source_type !== undefined) gridFilters.source_type = source_type
+    if (liked) gridFilters.liked = true
     setFilters(gridFilters)
     setViewMode('grid')
   }, [])
@@ -84,27 +107,48 @@ export default function Recipes() {
   const handleBack = () => {
     setViewMode('carousel')
     setSearchQuery('')
+    setSearchOpen(false)
     setFilters({})
   }
 
   return (
     <PageContainer>
       <div className="py-6 space-y-4">
-        {/* Page title + Add a recipe entry */}
+        {/* Page title + search + Add a recipe entry */}
         <div className="flex items-center justify-between gap-3">
           <PageTitle>Recipes</PageTitle>
-          <Link
-            to="/recipes/add"
-            className="shrink-0 h-11 px-4 rounded-button bg-olive text-white text-[14px] font-medium inline-flex items-center gap-2"
-            aria-label="Add a recipe"
-          >
-            <Plus size={18} />
-            Add a recipe
-          </Link>
+          <div className="flex items-center gap-2 min-w-0">
+            {searchOpen || searchQuery ? (
+              <div className="w-72 max-w-full">
+                <SearchBar
+                  value={searchQuery}
+                  onChange={handleSearchChange}
+                  autoFocus
+                  onBlur={(value) => {
+                    if (!value) setSearchOpen(false)
+                  }}
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSearchOpen(true)}
+                className="shrink-0 h-11 w-11 rounded-button border border-warm-border bg-white text-text-secondary hover:text-text-primary inline-flex items-center justify-center transition-colors"
+                aria-label="Search recipes"
+              >
+                <Search size={18} />
+              </button>
+            )}
+            <Link
+              to="/recipes/add"
+              className="shrink-0 h-11 px-4 rounded-button bg-olive text-white text-[14px] font-medium inline-flex items-center gap-2"
+              aria-label="Add a recipe"
+            >
+              <Plus size={18} />
+              Add a recipe
+            </Link>
+          </div>
         </div>
-
-        {/* Search bar */}
-        <SearchBar value={searchQuery} onChange={handleSearchChange} />
 
         {/* "Show what I can make now" toggle (Phase 1: Display only, non-functional) */}
         <div className="flex items-center gap-3 mb-4">
@@ -126,76 +170,46 @@ export default function Recipes() {
         {/* Carousel view */}
         {viewMode === 'carousel' && (
           <>
-            {/* Section navigation — library sections + HelloFresh collection rows */}
-            <SectionNav
-              sections={[
-                ...sections.map((s) => ({ id: s.id, label: s.label })),
-                { id: 'kitchen-sanctuary', label: 'Kitchen Sanctuary' },
-                ...displayedCollections.map((c) => ({
-                  id: `hellofresh-${c.slug}`,
-                  label: c.name,
-                })),
-              ]}
+            <ThemeBar
+              themes={themes ?? []}
+              activeTheme={themeKey}
+              activeFilters={themeFilters}
+              onSelectValue={toggleFilter}
+              onSeeAll={(theme) => setThemeState(theme, themeFilters)}
+              onClear={() => setThemeState(null, [])}
             />
 
-            {/* Library carousels */}
+            {heading && <SectionHeader subtitle={heading.subtitle}>{heading.title}</SectionHeader>}
+
             <div className="space-y-6">
-              {sections.map((section) => (
-                <RecipeCarousel
-                  key={section.id}
-                  title={section.label}
-                  filters={section.filters}
-                  onSeeAll={() => handleSeeAll(section.filters)}
-                  sectionId={section.id}
-                />
-              ))}
-            </div>
-
-            {/* Kitchen Sanctuary section — grows only by hand via saved-page import */}
-            <div className="mt-6">
-              <RecipeCarousel
-                title="Kitchen Sanctuary"
-                sectionId="kitchen-sanctuary"
-                filters={{ source_type: 'kitchen_sanctuary', limit: 10 }}
-                onSeeAll={() => handleSeeAll({ source_type: 'kitchen_sanctuary', limit: 10 })}
-                subtitle={(n) => `${n ?? 0} recipes · added by hand`}
-                emptyState={null}
-                footer={
-                  <p className="mt-3 text-sm text-text-secondary">
-                    Kitchen Sanctuary turns automated fetching away, so this row grows only when someone adds a recipe.{' '}
-                    <Link
-                      to="/recipes/add?source=kitchen_sanctuary"
-                      className="text-olive hover:text-olive/80 transition-colors"
-                    >
-                      Add a specific recipe
-                    </Link>
-                  </p>
-                }
-              />
-            </div>
-
-            {/* HelloFresh section */}
-            <div className="space-y-6 mt-6">
-              {/* Section header "From HelloFresh." */}
-              <SectionHeader>From HelloFresh</SectionHeader>
-
-              {/* Skeleton while list is loading (cold start) */}
-              {collectionsLoading && (
-                <p className="text-sm text-text-secondary">Loading collections…</p>
+              {rows.map((row) =>
+                row.kind === 'library' ? (
+                  <RecipeCarousel
+                    key={row.id}
+                    sectionId={row.id}
+                    title={row.title}
+                    filters={row.filters}
+                    subtitle={row.subtitle}
+                    showIf={row.showIf}
+                    onSeeAll={() => handleSeeAll(row.filters)}
+                  />
+                ) : (
+                  <CollectionRow key={row.id} collection={row.collection} />
+                )
               )}
 
-              {displayedCollections.map((collection) => (
-                <CollectionRow key={collection.slug} collection={collection} />
-              ))}
+              {collectionsLoading && (
+                <p className="text-sm text-text-secondary">Loading HelloFresh collections…</p>
+              )}
 
-              {/* "More collections" button — only when there are collections */}
-              {!collectionsLoading && allCollections && allCollections.length > 0 && (
+              {/* Everything else in the catalog, themed or not (e.g. Hall of Fame) */}
+              {onMainPage && !collectionsLoading && allCollections && allCollections.length > 0 && (
                 <button
                   onClick={() => setShowMoreCollections(true)}
                   className="w-full py-3 text-sm text-olive font-medium hover:text-olive/80 transition-colors text-left"
-                  aria-label="More collections"
+                  aria-label="More HelloFresh collections"
                 >
-                  More collections…
+                  More HelloFresh collections…
                 </button>
               )}
             </div>

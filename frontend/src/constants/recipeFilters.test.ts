@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   SOURCE_TYPE_OPTIONS,
-  COOK_TIME_OPTIONS,
   TAG_OPTIONS,
   getSourceTypeLabel,
-  getCookTimeLabel,
   getTagLabel,
 } from './recipeFilters'
 
@@ -16,18 +14,6 @@ describe('recipeFilters', () => {
         { value: 'manual', label: 'My recipes' },
         { value: 'hellofresh_card', label: 'HelloFresh' },
         { value: 'ad_hoc', label: 'Ad-hoc' },
-      ])
-    })
-  })
-
-  describe('COOK_TIME_OPTIONS', () => {
-    it('contains expected cook time options', () => {
-      expect(COOK_TIME_OPTIONS).toHaveLength(4)
-      expect(COOK_TIME_OPTIONS).toEqual([
-        { value: 15, label: '15 min or less' },
-        { value: 30, label: '30 min or less' },
-        { value: 45, label: '45 min or less' },
-        { value: 60, label: '1 hour or less' },
       ])
     })
   })
@@ -69,80 +55,6 @@ describe('recipeFilters', () => {
     it('is case-sensitive', () => {
       expect(getSourceTypeLabel('Manual')).toBe('Manual')
       expect(getSourceTypeLabel('MANUAL')).toBe('MANUAL')
-    })
-  })
-
-  describe('getCookTimeLabel', () => {
-    describe('with numeric input', () => {
-      it('returns correct label for known cook times', () => {
-        expect(getCookTimeLabel(15)).toBe('15 min or less')
-        expect(getCookTimeLabel(30)).toBe('30 min or less')
-        expect(getCookTimeLabel(45)).toBe('45 min or less')
-        expect(getCookTimeLabel(60)).toBe('1 hour or less')
-      })
-
-      it('returns fallback format for unknown cook times', () => {
-        expect(getCookTimeLabel(10)).toBe('10 min')
-        expect(getCookTimeLabel(20)).toBe('20 min')
-        expect(getCookTimeLabel(90)).toBe('90 min')
-        expect(getCookTimeLabel(120)).toBe('120 min')
-      })
-
-      it('handles zero', () => {
-        expect(getCookTimeLabel(0)).toBe('0 min')
-      })
-
-      it('handles negative numbers', () => {
-        expect(getCookTimeLabel(-5)).toBe('-5 min')
-      })
-    })
-
-    describe('with string input', () => {
-      it('converts string to number and returns correct label for known cook times', () => {
-        expect(getCookTimeLabel('15')).toBe('15 min or less')
-        expect(getCookTimeLabel('30')).toBe('30 min or less')
-        expect(getCookTimeLabel('45')).toBe('45 min or less')
-        expect(getCookTimeLabel('60')).toBe('1 hour or less')
-      })
-
-      it('converts string to number and returns fallback for unknown cook times', () => {
-        expect(getCookTimeLabel('10')).toBe('10 min')
-        expect(getCookTimeLabel('90')).toBe('90 min')
-      })
-
-      it('handles string zero', () => {
-        expect(getCookTimeLabel('0')).toBe('0 min')
-      })
-
-      it('handles invalid numeric strings gracefully', () => {
-        expect(getCookTimeLabel('invalid')).toBe('invalid')
-        expect(getCookTimeLabel('abc')).toBe('abc')
-      })
-
-      it('handles empty string', () => {
-        expect(getCookTimeLabel('')).toBe('0 min')
-      })
-
-      it('handles decimal strings', () => {
-        expect(getCookTimeLabel('15.5')).toBe('15.5 min')
-        expect(getCookTimeLabel('30.7')).toBe('30.7 min')
-      })
-    })
-
-    describe('type coercion edge cases', () => {
-      it('handles whitespace in strings', () => {
-        expect(getCookTimeLabel(' 15 ')).toBe('15 min or less')
-        expect(getCookTimeLabel('  30  ')).toBe('30 min or less')
-      })
-
-      it('handles scientific notation strings', () => {
-        expect(getCookTimeLabel('1e2')).toBe('100 min')
-      })
-
-      it('handles Infinity', () => {
-        expect(getCookTimeLabel(Infinity)).toBe('Infinity')
-        expect(getCookTimeLabel(-Infinity)).toBe('-Infinity')
-      })
     })
   })
 

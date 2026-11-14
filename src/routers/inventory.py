@@ -196,7 +196,7 @@ def list_inventory_items(
     limit: int = Query(default=50, ge=1, le=100, description="Maximum number of items to return"),
     offset: int = Query(default=0, ge=0, description="Number of items to skip"),
     category: Optional[str] = Query(default=None, description="Filter by category (e.g., produce, dairy, protein)"),
-    storage_location: Optional[str] = Query(default=None, description="Filter by storage location (pantry, fridge, freezer)"),
+    storage_location: Optional[str] = Query(default=None, description="Filter by storage location (pantry, fridge, freezer, counter)"),
     shareability: Optional[str] = Query(default=None, description="Filter by shareability (shared, reserved, personal)"),
     is_staple: Optional[bool] = Query(default=None, description="Filter by staple status"),
     expiring_soon: Optional[bool] = Query(default=None, description="Filter items expiring within 7 days"),

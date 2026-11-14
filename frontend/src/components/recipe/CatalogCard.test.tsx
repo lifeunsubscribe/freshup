@@ -40,6 +40,7 @@ const baseCard: CardResponse = {
   recipe_url: 'https://hellofresh.com/recipes/lemon-herb-chicken',
   recipe_id: null,
   is_persisted: false,
+  tags: [],
 }
 
 const mockMutate = vi.fn()

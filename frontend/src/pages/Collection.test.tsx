@@ -5,10 +5,10 @@
  * AC1 — parent cards + header count render from mocked CollectionDetail
  * AC2 — no child request until sentinel; one-at-a-time walk; second waits for first to settle
  * AC3 — caught-up tail after last child; 429 → could-not, no further requests
- * AC4 — "Saved only" and "Under 30 min" chips filter client-side
+ * AC4 — "Saved only" and the "Max time" slider filter client-side
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import Collection from './Collection'
@@ -78,6 +78,7 @@ function makeCard(id: string, overrides: Partial<CardResponse> = {}): CardRespon
     recipe_url: `https://example.com/${id}`,
     recipe_id: null,
     is_persisted: false,
+    tags: [],
     ...overrides,
   }
 }
@@ -90,6 +91,7 @@ function makeDetail(slug: string, overrides: Partial<CollectionDetail> = {}): Co
     last_fetched_at: null,
     children: [],
     cards: [],
+    tag_options: [],
     fetch_error: null,
     ...overrides,
   }
@@ -391,6 +393,7 @@ describe('AC3 — tail states', () => {
     })
     const failedChild = makeDetail(childASlug, {
       cards: [],
+      tag_options: [],
       fetch_error: 'Scrape failed',
     })
 
@@ -588,7 +591,7 @@ describe('Regression — non-404 error shows correct error view', () => {
 
 // ── AC4: client-side chips ─────────────────────────────────────────────────────
 
-describe('AC4 — Saved only and Under 30 min filters', () => {
+describe('AC4 — Saved only and Max time filters', () => {
   const parentDetail = makeDetail('quick-meals', {
     cards: [
       makeCard('saved-fast', { name: 'Saved Fast', is_persisted: true, prep_time_minutes: 20 }),
@@ -629,13 +632,21 @@ describe('AC4 — Saved only and Under 30 min filters', () => {
     })
   })
 
-  it('"Under 30 min" hides cards with prep_time_minutes > 30 or null', async () => {
+  it('offers only filters catalog cards can answer: no source or cuisine dropdowns', async () => {
+    renderCollection()
+    await waitFor(() => expect(screen.getByText('Saved Fast')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Max time' })).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('All sources')).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue('All cuisines')).not.toBeInTheDocument()
+  })
+
+  it('"Max time" hides cards over the slider value (starting at 30)', async () => {
     const user = userEvent.setup()
     renderCollection()
 
     await waitFor(() => expect(screen.getByText('Saved Fast')).toBeInTheDocument())
 
-    await user.click(screen.getByRole('button', { name: /under 30 min/i }))
+    await user.click(screen.getByRole('button', { name: 'Max time' }))
 
     await waitFor(() => {
       expect(screen.getByText('Saved Fast')).toBeInTheDocument()
@@ -645,14 +656,31 @@ describe('AC4 — Saved only and Under 30 min filters', () => {
     })
   })
 
-  it('both chips can be active together (AND logic)', async () => {
+  it('the slider spans the list’s own times and actually filters', async () => {
+    const user = userEvent.setup()
+    renderCollection()
+    await waitFor(() => expect(screen.getByText('Saved Fast')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Max time' }))
+
+    const slider = screen.getByRole('slider', { name: 'Maximum time in minutes' })
+    expect(slider).toHaveAttribute('min', '15')
+    expect(slider).toHaveAttribute('max', '60')
+
+    fireEvent.change(slider, { target: { value: '15' } })
+    await waitFor(() => {
+      expect(screen.getByText('Unsaved Fast')).toBeInTheDocument()
+      expect(screen.queryByText('Saved Fast')).not.toBeInTheDocument()
+    })
+  })
+
+  it('both filters can be active together (AND logic)', async () => {
     const user = userEvent.setup()
     renderCollection()
 
     await waitFor(() => expect(screen.getByText('Saved Fast')).toBeInTheDocument())
 
     await user.click(screen.getByRole('button', { name: /saved only/i }))
-    await user.click(screen.getByRole('button', { name: /under 30 min/i }))
+    await user.click(screen.getByRole('button', { name: 'Max time' }))
 
     await waitFor(() => {
       // Only "Saved Fast" matches both: is_persisted=true AND prep_time=20
@@ -663,3 +691,85 @@ describe('AC4 — Saved only and Under 30 min filters', () => {
     })
   })
 })
+
+// ── In-list tag chips ──────────────────────────────────────────────────────────
+
+describe('In-list tag chips', () => {
+  const detail = makeDetail('african-recipes', {
+    cards: [
+      makeCard('lamb-rice', { name: 'Lamb Rice', tags: ['ingredient:lamb', 'side:rice'] }),
+      makeCard('lamb-carrot', { name: 'Lamb Carrot', tags: ['ingredient:lamb', 'side:carrots'] }),
+      makeCard('lamb-plain', { name: 'Lamb Plain', tags: ['ingredient:lamb'] }),
+      makeCard('stew-rice', { name: 'Stew Rice', tags: ['side:rice'] }),
+    ],
+    tag_options: [
+      { key: 'ingredient:lamb', label: 'Lamb', kind: 'main', count: 3 },
+      { key: 'side:rice', label: 'with rice', kind: 'side', count: 3 },
+    ],
+  })
+
+  beforeEach(() => {
+    vi.mocked(useCollection).mockReturnValue({ data: detail, ...idle } as never)
+  })
+
+  it('offers the list’s own tags, split into what it is and what it is served with', async () => {
+    renderCollection()
+    await waitFor(() => expect(screen.getByText('Lamb Rice')).toBeInTheDocument())
+    expect(within(screen.getByRole('group', { name: 'Has' })).getByRole('button', { name: /Lamb\s*3/ })).toBeInTheDocument()
+    expect(within(screen.getByRole('group', { name: 'Served with' })).getByRole('button', { name: /with rice\s*3/ })).toBeInTheDocument()
+  })
+
+  it('selecting a tag keeps only cards carrying it; a second tag narrows further', async () => {
+    const user = userEvent.setup()
+    renderCollection()
+    await waitFor(() => expect(screen.getByText('Lamb Rice')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /Lamb\s*3/ }))
+    await waitFor(() => expect(screen.queryByText('Stew Rice')).not.toBeInTheDocument())
+    expect(screen.getByText('Lamb Plain')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /with rice\s*3/ }))
+    await waitFor(() => expect(screen.queryByText('Lamb Plain')).not.toBeInTheDocument())
+    expect(screen.getByText('Lamb Rice')).toBeInTheDocument()
+    expect(screen.queryByText('Lamb Carrot')).not.toBeInTheDocument()
+  })
+
+  it('a second click turns a tag into an exclusion: has rice, no lamb', async () => {
+    const user = userEvent.setup()
+    renderCollection()
+    await waitFor(() => expect(screen.getByText('Lamb Rice')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /with rice\s*3/ }))
+    const lamb = screen.getByRole('button', { name: /Lamb\s*3/ })
+    await user.click(lamb) // include
+    await user.click(lamb) // exclude
+
+    expect(screen.getByRole('button', { name: 'no Lamb' })).toHaveAttribute('aria-pressed', 'mixed')
+    await waitFor(() => expect(screen.queryByText('Lamb Rice')).not.toBeInTheDocument())
+    expect(screen.getByText('Stew Rice')).toBeInTheDocument()
+    expect(screen.queryByText('Lamb Plain')).not.toBeInTheDocument()
+    expect(screen.getByText(/not safe for allergies/)).toBeInTheDocument()
+  })
+
+  it('a third click clears the tag', async () => {
+    const user = userEvent.setup()
+    renderCollection()
+    await waitFor(() => expect(screen.getByText('Lamb Rice')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /Lamb\s*3/ }))
+    await user.click(screen.getByRole('button', { name: /Lamb\s*3/ }))
+    await user.click(screen.getByRole('button', { name: 'no Lamb' }))
+
+    expect(screen.getByRole('button', { name: /Lamb\s*3/ })).toHaveAttribute('aria-pressed', 'false')
+    await waitFor(() => expect(screen.getByText('Lamb Plain')).toBeInTheDocument())
+    expect(screen.getByText('Stew Rice')).toBeInTheDocument()
+  })
+
+  it('shows no tag chips when the list has none worth offering', async () => {
+    vi.mocked(useCollection).mockReturnValue({ data: { ...detail, tag_options: [] }, ...idle } as never)
+    renderCollection()
+    await waitFor(() => expect(screen.getByText('Lamb Rice')).toBeInTheDocument())
+    expect(screen.queryByRole('group', { name: 'Has' })).not.toBeInTheDocument()
+  })
+})
+

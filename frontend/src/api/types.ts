@@ -316,6 +316,7 @@ export interface RecipeListResponse {
   base_servings: number;
   is_bookmarked?: boolean;
   source_url?: string | null;
+  source_image?: string | null;
 }
 
 export interface RecipeCreate {
@@ -532,6 +533,38 @@ export interface CollectionSummary {
   last_fetched_at: string | null;
 }
 
+// ============================================================================
+// Theme Types (GET /themes)
+// ============================================================================
+
+/** A catalog collection under a theme value. Same shape CollectionRow takes. */
+export interface ThemeCollection extends CollectionSummary {
+  source_type: string;
+  /** "theme:value" keys its cards also appear under (via other collections). */
+  contains: string[];
+}
+
+/** One value of a theme (e.g. Italian) and the whole lists behind it. */
+export interface ThemeValue {
+  value: string;
+  label: string;
+  /** Query the user's recipes for this value by this tag... */
+  library_tag: string | null;
+  /** ...or by this source type (source theme). */
+  library_source_type: string | null;
+  library_count: number;
+  /** Lowercase tags / source types that count as this value, for "list contains it" checks. */
+  match_tags: string[];
+  match_source_types: string[];
+  collections: ThemeCollection[];
+}
+
+export interface Theme {
+  key: string;
+  label: string;
+  values: ThemeValue[];
+}
+
 export interface CardResponse {
   id: string;
   name: string;
@@ -543,6 +576,17 @@ export interface CardResponse {
   recipe_url: string;
   recipe_id: string | null;
   is_persisted: boolean;
+  /** Derived tag keys: main tags from the name and overlapping collections, "side:" tags from the headline. */
+  tags: string[];
+}
+
+/** A tag offered as an in-list filter: carried by 3+ (but not all) of the list's cards. */
+export interface TagOption {
+  key: string;
+  label: string;
+  /** "main" = what the dish is; "side" = what it is served with. */
+  kind: 'main' | 'side';
+  count: number;
 }
 
 export interface CollectionDetail {
@@ -552,6 +596,7 @@ export interface CollectionDetail {
   last_fetched_at: string | null;
   children: CollectionSummary[];
   cards: CardResponse[];
+  tag_options: TagOption[];
   fetch_error: string | null;
 }
 

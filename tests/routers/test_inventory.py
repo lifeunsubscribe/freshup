@@ -745,6 +745,26 @@ class TestFilterInventoryItems:
         assert len(data) == 1
         assert data[0]["name"] == "Apple"
 
+    def test_counter_storage_location_is_valid(self, client, auth_headers, test_user, db_session):
+        """
+        The frontend offers a Counter tab and badge state; the backend once
+        rejected it, so selecting Counter broke the whole Pantry page.
+        """
+        db_session.add(InventoryItem(
+            name="Bananas",
+            quantity=6.0,
+            unit="count",
+            category="produce",
+            storage_location="counter",
+            added_by=test_user.id,
+        ))
+        db_session.commit()
+
+        response = client.get("/inventory?storage_location=counter", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert [i["name"] for i in response.json()] == ["Bananas"]
+
     def test_filter_by_storage_location(self, client, auth_headers, test_user, db_session):
         """Should filter items by storage location."""
         # Create items with different storage locations
@@ -2328,6 +2348,31 @@ class TestFreezeThawActions:
 
         assert response.status_code == 422
         assert "freezer" in response.json()["detail"][0]["msg"].lower()
+
+    def test_thaw_to_counter_fails(self, client, auth_headers, test_user, db_session):
+        """Counter is a valid storage location but not a safe thaw destination."""
+        from datetime import datetime, timezone
+        item = InventoryItem(
+            name="Frozen Shrimp",
+            quantity=1.0,
+            unit="lb",
+            category="protein",
+            storage_location="freezer",
+            frozen_date=datetime.now(timezone.utc),
+            added_by=test_user.id,
+        )
+        db_session.add(item)
+        db_session.commit()
+        db_session.refresh(item)
+
+        response = client.post(
+            f"/inventory/{item.id}/thaw",
+            headers=auth_headers,
+            json={"destination": "counter"}
+        )
+
+        assert response.status_code == 422
+        assert "counter" in response.json()["detail"][0]["msg"].lower()
 
     def test_thaw_invalid_destination_fails(self, client, auth_headers, test_user, db_session):
         """Should return 422 when destination is not a valid enum value."""

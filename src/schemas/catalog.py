@@ -100,8 +100,21 @@ class CardResponse(BaseModel):
     is_persisted: bool = Field(
         description="True when the linked Recipe is persisted (bookmarked); false when card is unimported or the imported recipe is unpersisted"
     )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Derived tag keys (see src/services/card_tags.py): main tags from the name and overlapping collections, side: tags from the headline",
+    )
 
     model_config = {"from_attributes": True}
+
+
+class TagOption(BaseModel):
+    """A tag offered as a filter on one list: carried by enough of its cards."""
+
+    key: str
+    label: str
+    kind: str = Field(description='"main" (what the dish is) or "side" (what it is served with)')
+    count: int
 
 
 class CollectionDetail(BaseModel):
@@ -113,6 +126,10 @@ class CollectionDetail(BaseModel):
     last_fetched_at: Optional[datetime] = None
     children: list[CollectionSummary] = Field(default_factory=list)
     cards: list[CardResponse] = Field(default_factory=list)
+    tag_options: list[TagOption] = Field(
+        default_factory=list,
+        description="Tags carried by at least 3 of this list's cards, offered as in-list filters",
+    )
     fetch_error: Optional[str] = Field(
         default=None,
         description="Sanitized message when the latest fetch attempt failed but stored cards are available",

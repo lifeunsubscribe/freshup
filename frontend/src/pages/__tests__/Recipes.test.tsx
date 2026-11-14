@@ -20,6 +20,11 @@ vi.mock('../../api/hooks/useRecipeEngagement', () => ({
 // The "From HelloFresh" section (#545) reads the catalog through React Query.
 // An empty, settled list keeps these library-view tests focused on what they
 // already assert; the catalog section has its own tests in ../Recipes.test.tsx.
+// Theme lists come from GET /themes; empty here keeps these tests on the
+// user's own rows. Theme behaviour is covered in ../Recipes.test.tsx.
+vi.mock('../../api/hooks/useThemes', () => ({
+  useThemes: () => ({ data: [] }),
+}))
 vi.mock('../../api/hooks/useCatalog', () => ({
   useCollections: () => ({ data: [], isLoading: false, isError: false }),
   useCollection: () => ({ data: undefined, isLoading: false, isError: false }),
@@ -30,6 +35,12 @@ vi.mock('../../api/hooks/useCatalog', () => ({
 // Helper to render component with Router context
 const renderWithRouter = (ui: React.ReactElement) => {
   return render(<BrowserRouter>{ui}</BrowserRouter>)
+}
+
+/** Search is collapsed behind an icon in the header; click it to reveal the input. */
+async function openSearch(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Search recipes' }))
+  return screen.getByPlaceholderText('Search recipes...')
 }
 
 describe('Recipes Page', () => {
@@ -77,9 +88,27 @@ describe('Recipes Page', () => {
       expect(screen.getByText('Recipes')).toBeInTheDocument()
     })
 
-    it('renders search bar', () => {
+    it('renders a search icon button instead of an always-visible search bar', () => {
       renderWithRouter(<Recipes />)
-      expect(screen.getByPlaceholderText('Search recipes...')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Search recipes' })).toBeInTheDocument()
+      expect(screen.queryByPlaceholderText('Search recipes...')).not.toBeInTheDocument()
+    })
+
+    it('expands the search icon into a focused input', async () => {
+      const user = userEvent.setup({ delay: null })
+      renderWithRouter(<Recipes />)
+      const input = await openSearch(user)
+      expect(input).toHaveFocus()
+      expect(screen.queryByRole('button', { name: 'Search recipes' })).not.toBeInTheDocument()
+    })
+
+    it('collapses back to the icon when the empty input loses focus', async () => {
+      const user = userEvent.setup({ delay: null })
+      renderWithRouter(<Recipes />)
+      await openSearch(user)
+      await user.click(screen.getByText('Recipes'))
+      expect(screen.getByRole('button', { name: 'Search recipes' })).toBeInTheDocument()
+      expect(screen.queryByPlaceholderText('Search recipes...')).not.toBeInTheDocument()
     })
 
     it('renders in PageContainer', () => {
@@ -90,73 +119,43 @@ describe('Recipes Page', () => {
   })
 
   describe('carousel view (default)', () => {
+    const sectionHeading = (label: string) => screen.getByRole('heading', { name: `${label}.` })
+
     it('displays carousel view by default', () => {
       renderWithRouter(<Recipes />)
-
-      // Should show section navigation
-      expect(screen.getByRole('button', { name: 'Your favorites' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Quick meals' })).toBeInTheDocument()
-    })
-
-    it('renders all carousel sections', () => {
-      renderWithRouter(<Recipes />)
-
-      // Query the carousel <h2>s specifically: each section label also appears
-      // as a SectionNav button, so a bare getByText matches two elements.
-      // SectionHeader appends the design system's olive period, so the
-      // accessible name carries a trailing ".".
-      const sectionHeading = (label: string) =>
-        screen.getByRole('heading', { name: `${label}.` })
-
       expect(sectionHeading('Your favorites')).toBeInTheDocument()
-      expect(sectionHeading('Quick meals')).toBeInTheDocument()
+      expect(screen.getByRole('navigation', { name: 'Recipe themes' })).toBeInTheDocument()
+    })
+
+    it("leads with the user's own rows", () => {
+      renderWithRouter(<Recipes />)
+      expect(sectionHeading('Your favorites')).toBeInTheDocument()
       expect(sectionHeading('Recently added')).toBeInTheDocument()
-      expect(sectionHeading('Italian')).toBeInTheDocument()
-      expect(sectionHeading('Mexican')).toBeInTheDocument()
-      expect(sectionHeading('Asian')).toBeInTheDocument()
-      expect(sectionHeading('Vegan')).toBeInTheDocument()
-      expect(sectionHeading('Kitchen Sanctuary')).toBeInTheDocument()
+      expect(sectionHeading('Quick meals')).toBeInTheDocument()
     })
 
-    it('renders section navigation with all sections', () => {
+    it('has no hard-coded cuisine rows; theme lists come from /themes', () => {
       renderWithRouter(<Recipes />)
-
-      // Section nav should have all section links
-      expect(screen.getByRole('button', { name: 'Your favorites' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Quick meals' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Recently added' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Italian' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Mexican' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Asian' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Vegan' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Kitchen Sanctuary' })).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Italian.' })).not.toBeInTheDocument()
+      expect(useRecipeList).not.toHaveBeenCalledWith(expect.objectContaining({ tag: 'italian' }), expect.anything())
     })
 
-    it('calls useRecipeList for each carousel section', () => {
+    it("calls useRecipeList once per own row", () => {
       renderWithRouter(<Recipes />)
-
-      // 7 library sections + 1 Kitchen Sanctuary section
-      expect(useRecipeList).toHaveBeenCalledTimes(8)
+      const distinct = new Set(vi.mocked(useRecipeList).mock.calls.map(([f]) => JSON.stringify(f)))
+      expect(distinct.size).toBe(3)
     })
 
     it('passes correct filters to each carousel', () => {
       renderWithRouter(<Recipes />)
 
-      // Verify quick-meals section has max_cook_time filter
+      // Your favorites is the user's liked recipes, not every recipe
       expect(useRecipeList).toHaveBeenCalledWith(
-        expect.objectContaining({
-          limit: 10,
-          max_cook_time: 30,
-        }),
+        expect.objectContaining({ limit: 20, liked: true }),
         expect.anything()
       )
-
-      // Verify italian section has tag filter
       expect(useRecipeList).toHaveBeenCalledWith(
-        expect.objectContaining({
-          limit: 10,
-          tag: 'italian',
-        }),
+        expect.objectContaining({ limit: 20, max_cook_time: 30 }),
         expect.anything()
       )
     })
@@ -175,7 +174,7 @@ describe('Recipes Page', () => {
       const user = userEvent.setup({ delay: null })
       renderWithRouter(<Recipes />)
 
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
       await user.type(searchInput, 'pasta')
 
       // Wait for debounce and state update
@@ -189,22 +188,22 @@ describe('Recipes Page', () => {
       const user = userEvent.setup({ delay: null })
       renderWithRouter(<Recipes />)
 
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
       await user.type(searchInput, 'taco')
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: 'Back to browse view' })).toBeInTheDocument()
       })
 
-      // Section nav should not be visible in grid mode
-      expect(screen.queryByRole('button', { name: 'Your favorites' })).not.toBeInTheDocument()
+      // Carousel rows should not be visible in grid mode
+      expect(screen.queryByRole('heading', { name: 'Your favorites.' })).not.toBeInTheDocument()
     })
 
     it('returns to carousel view when search is cleared and no filters active', async () => {
       const user = userEvent.setup({ delay: null })
       renderWithRouter(<Recipes />)
 
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
 
       // Type and then clear
       await user.type(searchInput, 'soup')
@@ -217,7 +216,7 @@ describe('Recipes Page', () => {
 
       // Should return to carousel view
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Your favorites' })).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'Your favorites.' })).toBeInTheDocument()
       })
     })
 
@@ -226,7 +225,7 @@ describe('Recipes Page', () => {
       renderWithRouter(<Recipes />)
 
       // Type in search to enter grid mode
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
       await user.type(searchInput, 'pasta')
 
       await waitFor(() => {
@@ -265,30 +264,11 @@ describe('Recipes Page', () => {
       renderWithRouter(<Recipes />)
 
       // Click "See all" on Quick meals (has max_cook_time: 30 filter)
-      const seeAllButtons = screen.getAllByRole('button', { name: /see all/i })
-      const quickMealsSeeAll = seeAllButtons[1] // Second carousel is quick meals
+      await user.click(screen.getByRole('button', { name: 'See all quick meals' }))
 
-      await user.click(quickMealsSeeAll)
-
-      // Should show grid with filter chip for cook time
+      // Grid opens with the time filter on at 30 min
       await waitFor(() => {
-        expect(screen.getByText('Max 30 min or less')).toBeInTheDocument()
-      })
-    })
-
-    it('applies tag filter when "See all" clicked on cuisine section', async () => {
-      const user = userEvent.setup()
-      renderWithRouter(<Recipes />)
-
-      // Click "See all" on Italian section (has tag: 'italian' filter)
-      const seeAllButtons = screen.getAllByRole('button', { name: /see all/i })
-      const italianSeeAll = seeAllButtons[3] // Fourth carousel is Italian
-
-      await user.click(italianSeeAll)
-
-      // Should show grid with cuisine filter chip
-      await waitFor(() => {
-        expect(screen.getByText('Cuisine: Italian')).toBeInTheDocument()
+        expect(screen.getByText('up to 30 min')).toBeInTheDocument()
       })
     })
   })
@@ -299,7 +279,7 @@ describe('Recipes Page', () => {
       renderWithRouter(<Recipes />)
 
       // Enter grid mode via search
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
       await user.type(searchInput, 'chicken')
 
       await waitFor(() => {
@@ -312,7 +292,7 @@ describe('Recipes Page', () => {
 
       // Should return to carousel view
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Your favorites' })).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'Your favorites.' })).toBeInTheDocument()
       })
     })
 
@@ -321,7 +301,7 @@ describe('Recipes Page', () => {
       renderWithRouter(<Recipes />)
 
       // Enter grid mode and add search + filter
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
       await user.type(searchInput, 'pasta')
 
       await waitFor(() => {
@@ -335,11 +315,11 @@ describe('Recipes Page', () => {
       const backButton = screen.getByRole('button', { name: 'Back to browse view' })
       await user.click(backButton)
 
-      // Search should be cleared
+      // Search should be cleared and collapsed back to the icon
       await waitFor(() => {
-        const clearedInput = screen.getByPlaceholderText('Search recipes...') as HTMLInputElement
-        expect(clearedInput.value).toBe('')
+        expect(screen.getByRole('button', { name: 'Search recipes' })).toBeInTheDocument()
       })
+      expect(screen.queryByPlaceholderText('Search recipes...')).not.toBeInTheDocument()
 
       // Should be in carousel mode (no filter dropdowns visible)
       expect(screen.queryByDisplayValue('All sources')).not.toBeInTheDocument()
@@ -352,10 +332,10 @@ describe('Recipes Page', () => {
       renderWithRouter(<Recipes />)
 
       // Start in carousel mode
-      expect(screen.getByRole('button', { name: 'Your favorites' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Your favorites.' })).toBeInTheDocument()
 
       // Enter search -> grid mode
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
       await user.type(searchInput, 'curry')
 
       await waitFor(() => {
@@ -370,7 +350,7 @@ describe('Recipes Page', () => {
       const user = userEvent.setup({ delay: null })
       renderWithRouter(<Recipes />)
 
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
 
       // Enter grid mode
       await user.type(searchInput, 'test')
@@ -383,7 +363,7 @@ describe('Recipes Page', () => {
       await user.click(backButton)
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Your favorites' })).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'Your favorites.' })).toBeInTheDocument()
       })
 
       // Enter grid mode again via "See all"
@@ -398,12 +378,12 @@ describe('Recipes Page', () => {
   })
 
   describe('integration between components', () => {
-    it('SearchBar, SectionNav, and RecipeCarousel work together in carousel view', () => {
+    it('search button, ThemeBar, and RecipeCarousel work together in carousel view', () => {
       renderWithRouter(<Recipes />)
 
       // All three components should be visible
-      expect(screen.getByPlaceholderText('Search recipes...')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Quick meals' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Search recipes' })).toBeInTheDocument()
+      expect(screen.getByRole('navigation', { name: 'Recipe themes' })).toBeInTheDocument()
       expect(screen.getAllByRole('button', { name: /see all/i }).length).toBeGreaterThan(0)
     })
 
@@ -411,7 +391,7 @@ describe('Recipes Page', () => {
       const user = userEvent.setup({ delay: null })
       renderWithRouter(<Recipes />)
 
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
       await user.type(searchInput, 'burger')
 
       await waitFor(() => {
@@ -436,7 +416,7 @@ describe('Recipes Page', () => {
       const user = userEvent.setup({ delay: null })
       renderWithRouter(<Recipes />)
 
-      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      const searchInput = await openSearch(user)
       await user.type(searchInput, 'salad')
 
       // Input should still be accessible
@@ -446,68 +426,13 @@ describe('Recipes Page', () => {
     })
   })
 
-  describe('Kitchen Sanctuary section', () => {
-    it('renders the Kitchen Sanctuary heading', () => {
-      renderWithRouter(<Recipes />)
-      expect(screen.getByRole('heading', { name: 'Kitchen Sanctuary.' })).toBeInTheDocument()
-    })
-
-    it('calls useRecipeList with source_type kitchen_sanctuary filter', () => {
-      renderWithRouter(<Recipes />)
-      expect(useRecipeList).toHaveBeenCalledWith(
-        expect.objectContaining({ source_type: 'kitchen_sanctuary', limit: 10 }),
-        expect.anything()
-      )
-    })
-
-    it('renders the subtitle with recipe count', () => {
-      // Default mock returns mockRecipes (2 items) for all calls
-      renderWithRouter(<Recipes />)
-      expect(screen.getByText('2 recipes · added by hand')).toBeInTheDocument()
-    })
-
-    it('renders the explanatory footer line and "Add a specific recipe" link', () => {
-      renderWithRouter(<Recipes />)
-      expect(screen.getByText(/Kitchen Sanctuary turns automated fetching away/)).toBeInTheDocument()
-      const link = screen.getByRole('link', { name: 'Add a specific recipe' })
-      expect(link).toBeInTheDocument()
-      expect(link).toHaveAttribute('href', '/recipes/add?source=kitchen_sanctuary')
-    })
-
-    it('renders the footer and no default empty message when Kitchen Sanctuary list is empty', () => {
-      vi.mocked(useRecipeList).mockImplementation((filters) => {
-        if ((filters as any).source_type === 'kitchen_sanctuary') {
-          return { data: [], isLoading: false, isError: false, error: null } as any
-        }
-        return { data: mockRecipes, isLoading: false, isError: false, error: null } as any
-      })
-      renderWithRouter(<Recipes />)
-      // Footer still present in empty state
-      expect(screen.getByText(/Kitchen Sanctuary turns automated fetching away/)).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: 'Add a specific recipe' })).toBeInTheDocument()
-      // Default empty text is suppressed (emptyState={null})
-      expect(screen.queryByText('No recipes found for this category.')).not.toBeInTheDocument()
-    })
-
-    it('transitions to grid filtered by source_type when "See all" is clicked', async () => {
-      const user = userEvent.setup()
-      renderWithRouter(<Recipes />)
-
-      const ksSection = screen.getByRole('region', { name: 'Kitchen Sanctuary' })
-      const seeAllBtn = ksSection.querySelector('button[aria-label="See all kitchen sanctuary"]') as HTMLElement
-      await user.click(seeAllBtn)
-
-      expect(screen.getByRole('button', { name: 'Back to browse view' })).toBeInTheDocument()
-    })
-  })
-
   describe('carousel section configuration', () => {
     it('configures favorites section correctly', () => {
       renderWithRouter(<Recipes />)
 
       expect(useRecipeList).toHaveBeenCalledWith(
         expect.objectContaining({
-          limit: 10,
+          limit: 20,
         }),
         expect.anything()
       )
@@ -518,39 +443,8 @@ describe('Recipes Page', () => {
 
       expect(useRecipeList).toHaveBeenCalledWith(
         expect.objectContaining({
-          limit: 10,
+          limit: 20,
           max_cook_time: 30,
-        }),
-        expect.anything()
-      )
-    })
-
-    it('configures cuisine sections with tag filters', () => {
-      renderWithRouter(<Recipes />)
-
-      // Check Italian section
-      expect(useRecipeList).toHaveBeenCalledWith(
-        expect.objectContaining({
-          limit: 10,
-          tag: 'italian',
-        }),
-        expect.anything()
-      )
-
-      // Check Mexican section
-      expect(useRecipeList).toHaveBeenCalledWith(
-        expect.objectContaining({
-          limit: 10,
-          tag: 'mexican',
-        }),
-        expect.anything()
-      )
-
-      // Check Asian section
-      expect(useRecipeList).toHaveBeenCalledWith(
-        expect.objectContaining({
-          limit: 10,
-          tag: 'asian',
         }),
         expect.anything()
       )

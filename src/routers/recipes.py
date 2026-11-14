@@ -292,6 +292,7 @@ def list_recipes(
     max_prep_time: Optional[int] = Query(default=None, ge=0, description="Filter by maximum prep time in minutes"),
     search: Optional[str] = Query(default=None, min_length=2, max_length=255, description="Search recipes by name (case-insensitive partial match)"),
     has_variation: Optional[bool] = Query(default=None, description="Filter by variation groups presence (true/false)"),
+    liked: bool = Query(default=False, description="Only recipes the current user has liked (their favorites)"),
 ):
     """
     List all recipes with filtering and pagination.
@@ -315,6 +316,7 @@ def list_recipes(
         max_prep_time: Filter by maximum prep time (recipes with prep_time_minutes <= max_prep_time)
         search: Search recipes by name (case-insensitive partial match, LIKE wildcards escaped)
         has_variation: Filter by variation groups presence (true for recipes with variations, false for none)
+        liked: When true, only recipes the current user has liked
 
     Returns:
         list[RecipeListResponse]: List of all recipes matching filters
@@ -393,6 +395,17 @@ def list_recipes(
                     func.cast(Recipe.variation_groups, String) == '{}'
                 )
             )
+
+    # Apply liked filter (the caller's favorites; likes are per-user)
+    if liked:
+        liked_ids = (
+            db.query(UserRecipeRelation.recipe_id)
+            .filter(
+                UserRecipeRelation.user_id == current_user.id,
+                UserRecipeRelation.is_liked.is_(True),
+            )
+        )
+        query = query.filter(Recipe.id.in_(liked_ids))
 
     # Apply ordering and pagination
     # Order by created_at to show most recently added recipes first

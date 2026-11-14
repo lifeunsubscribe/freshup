@@ -31,14 +31,16 @@ describe('RecipeCard', () => {
       expect(link).toHaveAttribute('href', '/recipes/recipe-123')
     })
 
-    it('displays "No image" placeholder when imageUrl is not provided', () => {
+    it('displays "No image" placeholder when recipe has no source_image', () => {
       renderWithRouter(<RecipeCard recipe={mockRecipe} />)
       expect(screen.getByText('No image')).toBeInTheDocument()
     })
 
-    it('renders image when imageUrl is provided', () => {
+    it('renders recipe.source_image as the thumbnail', () => {
       renderWithRouter(
-        <RecipeCard recipe={mockRecipe} imageUrl="https://example.com/image.jpg" />
+        <RecipeCard
+          recipe={{ ...mockRecipe, source_image: 'https://example.com/image.jpg' }}
+        />
       )
       const image = screen.getByAltText('Sweet Potato Chickpea Curry')
       expect(image).toHaveAttribute('src', 'https://example.com/image.jpg')
@@ -46,7 +48,9 @@ describe('RecipeCard', () => {
 
     it('displays "No image" placeholder when image fails to load', () => {
       renderWithRouter(
-        <RecipeCard recipe={mockRecipe} imageUrl="https://example.com/broken-image.jpg" />
+        <RecipeCard
+          recipe={{ ...mockRecipe, source_image: 'https://example.com/broken-image.jpg' }}
+        />
       )
       const image = screen.getByAltText('Sweet Potato Chickpea Curry')
 
@@ -310,7 +314,7 @@ describe('RecipeCard', () => {
     it('renders grid variant by default', () => {
       const { container } = renderWithRouter(<RecipeCard recipe={mockRecipe} />)
       const link = container.querySelector('a')
-      expect(link?.className).not.toContain('min-w-[150px]')
+      expect(link?.className).not.toContain('w-[160px]')
       expect(link?.className).not.toContain('flex-shrink-0')
     })
 
@@ -319,7 +323,7 @@ describe('RecipeCard', () => {
         <RecipeCard recipe={mockRecipe} variant="carousel" />
       )
       const link = container.querySelector('a')
-      expect(link?.className).toContain('min-w-[150px]')
+      expect(link?.className).toContain('w-[160px]')
       expect(link?.className).toContain('flex-shrink-0')
     })
 
@@ -344,7 +348,7 @@ describe('RecipeCard', () => {
         <RecipeCard recipe={mockRecipe} variant="carousel" isLastVisible={true} />
       )
       const link = container.querySelector('a')
-      expect(link?.className).toContain('min-w-[150px]')
+      expect(link?.className).toContain('w-[160px]')
       expect(link?.className).toContain('flex-shrink-0')
       expect(link?.className).toContain('opacity-70')
     })

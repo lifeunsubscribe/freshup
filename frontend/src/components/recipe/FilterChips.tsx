@@ -1,37 +1,68 @@
 import { X } from 'lucide-react'
 import {
   SOURCE_TYPE_OPTIONS,
-  COOK_TIME_OPTIONS,
   TAG_OPTIONS,
   getSourceTypeLabel,
-  getCookTimeLabel,
   getTagLabel,
 } from '../../constants/recipeFilters'
 
 export interface RecipeFilters {
   source_type?: string
   tag?: string
+  /** Maximum time in minutes; set by the time slider. */
   max_cook_time?: number
+  /** Only the current user's liked recipes — set by "See all" on Your favorites. */
+  liked?: boolean
   saved_only?: boolean
-  under_30_min?: boolean
+  /** Catalog card tag keys that must all be present (in-list tag filter). */
+  card_tags?: string[]
+  /** Catalog card tag keys that must all be absent ("no Chicken"). */
+  card_tags_excluded?: string[]
 }
+
+/** Bounds for the time slider, in minutes. */
+export interface TimeRange {
+  min: number
+  max: number
+}
+
+const DEFAULT_TIME_RANGE: TimeRange = { min: 10, max: 90 }
+const TIME_STEP = 5
+/** Where the slider lands when the time filter is first switched on. */
+const DEFAULT_MAX_TIME = 30
 
 interface FilterChipsProps {
   filters: RecipeFilters
   onFilterChange: (filters: RecipeFilters) => void
+  /** Show the "Saved only" chip. */
   enableBooleanChips?: boolean
+  /**
+   * Show the source / cuisine dropdowns. Turn off where they cannot apply:
+   * a single-source list, or catalog cards, which carry no source or tags.
+   */
+  showSource?: boolean
+  showCuisine?: boolean
+  /** Slider bounds; pass the list's own min/max times when known. Null hides the time filter. */
+  timeRange?: TimeRange | null
 }
 
 /**
  * FilterChips component for recipe grid view filtering
  *
  * Features:
- * - Displays active filters as removable chips
- * - Filter dropdowns for source_type, tag, and cook_time
- * - Each chip has X button to remove filter
+ * - "Saved only" chip (optional)
+ * - One time control: a "Max time" toggle that reveals a slider
+ * - Source and cuisine dropdowns where they make sense, with removable chips
  * - Filters combine with AND logic
  */
-export default function FilterChips({ filters, onFilterChange, enableBooleanChips = false }: FilterChipsProps) {
+export default function FilterChips({
+  filters,
+  onFilterChange,
+  enableBooleanChips = false,
+  showSource = true,
+  showCuisine = true,
+  timeRange = DEFAULT_TIME_RANGE,
+}: FilterChipsProps) {
   const removeFilter = (key: keyof RecipeFilters) => {
     const newFilters = { ...filters }
     delete newFilters[key]
@@ -46,108 +77,108 @@ export default function FilterChips({ filters, onFilterChange, enableBooleanChip
     }
   }
 
-  const toggleBool = (key: 'saved_only' | 'under_30_min') => {
-    if (filters[key]) {
-      removeFilter(key)
+  const chipClass = (on: boolean) =>
+    `px-3 py-1 rounded-full text-xs border transition-colors ${
+      on
+        ? 'bg-olive text-cream border-olive'
+        : 'bg-white text-text-primary border-warm-border hover:bg-warm-gray/30'
+    }`
+
+  const selectClass =
+    'px-3 py-1.5 rounded-full border border-warm-border bg-white text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent'
+
+  const timeOn = filters.max_cook_time !== undefined
+  const toggleTime = () => {
+    if (timeOn || !timeRange) {
+      removeFilter('max_cook_time')
     } else {
-      setFilter(key, true)
+      const start = Math.min(Math.max(DEFAULT_MAX_TIME, timeRange.min), timeRange.max)
+      setFilter('max_cook_time', start)
     }
   }
 
+  const showDropdowns = showSource || showCuisine
+
   return (
     <div className="space-y-3">
-      {/* Boolean toggle chips (Saved only / Under 30 min) */}
-      {enableBooleanChips && (
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {enableBooleanChips && (
           <button
-            onClick={() => toggleBool('saved_only')}
-            className={`px-3 py-1 rounded-full text-xs border transition-colors ${
-              filters.saved_only
-                ? 'bg-olive text-cream border-olive'
-                : 'bg-white text-text-primary border-warm-border hover:bg-warm-gray/30'
-            }`}
+            onClick={() => (filters.saved_only ? removeFilter('saved_only') : setFilter('saved_only', true))}
+            className={chipClass(!!filters.saved_only)}
             aria-pressed={!!filters.saved_only}
           >
             Saved only
           </button>
-          <button
-            onClick={() => toggleBool('under_30_min')}
-            className={`px-3 py-1 rounded-full text-xs border transition-colors ${
-              filters.under_30_min
-                ? 'bg-olive text-cream border-olive'
-                : 'bg-white text-text-primary border-warm-border hover:bg-warm-gray/30'
-            }`}
-            aria-pressed={!!filters.under_30_min}
+        )}
+
+        {timeRange && (
+          <>
+            <button onClick={toggleTime} className={chipClass(timeOn)} aria-pressed={timeOn}>
+              Max time
+            </button>
+            {timeOn && (
+              <label className="inline-flex items-center gap-2 text-xs text-text-primary">
+                <input
+                  type="range"
+                  min={timeRange.min}
+                  max={timeRange.max}
+                  step={TIME_STEP}
+                  value={filters.max_cook_time}
+                  onChange={(e) => setFilter('max_cook_time', Number(e.target.value))}
+                  aria-label="Maximum time in minutes"
+                  className="w-40 accent-olive"
+                />
+                <span className="tabular-nums w-20">up to {filters.max_cook_time} min</span>
+              </label>
+            )}
+          </>
+        )}
+
+        {showSource && (
+          <select
+            value={filters.source_type || ''}
+            onChange={(e) => setFilter('source_type', e.target.value)}
+            className={selectClass}
           >
-            Under 30 min
-          </button>
-        </div>
-      )}
+            <option value="">All sources</option>
+            {SOURCE_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        )}
 
-      {/* Filter dropdowns */}
-      <div className="flex flex-wrap gap-2">
-        {/* Source type filter */}
-        <select
-          value={filters.source_type || ''}
-          onChange={(e) => setFilter('source_type', e.target.value)}
-          className="px-3 py-1.5 rounded-full border border-warm-border bg-white text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
-        >
-          <option value="">All sources</option>
-          {SOURCE_TYPE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-
-        {/* Cook time filter */}
-        <select
-          value={filters.max_cook_time || ''}
-          onChange={(e) => setFilter('max_cook_time', e.target.value ? Number(e.target.value) : undefined)}
-          className="px-3 py-1.5 rounded-full border border-warm-border bg-white text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
-        >
-          <option value="">Any time</option>
-          {COOK_TIME_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-
-        {/* Tag filter */}
-        <select
-          value={filters.tag || ''}
-          onChange={(e) => setFilter('tag', e.target.value)}
-          className="px-3 py-1.5 rounded-full border border-warm-border bg-white text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-olive focus:border-transparent"
-        >
-          <option value="">All cuisines</option>
-          {TAG_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        {showCuisine && (
+          <select
+            value={filters.tag || ''}
+            onChange={(e) => setFilter('tag', e.target.value)}
+            className={selectClass}
+          >
+            <option value="">All cuisines</option>
+            {TAG_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
-      {/* Active filter chips */}
-      {(filters.source_type || filters.tag || filters.max_cook_time) && (
+      {/* Active dropdown filters as removable chips */}
+      {showDropdowns && ((showSource && filters.source_type) || (showCuisine && filters.tag)) && (
         <div className="flex flex-wrap gap-2">
-          {filters.source_type && (
+          {showSource && filters.source_type && (
             <FilterChip
               label={`Source: ${getSourceTypeLabel(filters.source_type)}`}
               onRemove={() => removeFilter('source_type')}
             />
           )}
-          {filters.tag && (
+          {showCuisine && filters.tag && (
             <FilterChip
               label={`Cuisine: ${getTagLabel(filters.tag)}`}
               onRemove={() => removeFilter('tag')}
-            />
-          )}
-          {filters.max_cook_time && (
-            <FilterChip
-              label={`Max ${getCookTimeLabel(filters.max_cook_time)}`}
-              onRemove={() => removeFilter('max_cook_time')}
             />
           )}
         </div>
@@ -175,4 +206,3 @@ function FilterChip({ label, onRemove }: FilterChipProps) {
     </div>
   )
 }
-

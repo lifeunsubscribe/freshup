@@ -173,6 +173,35 @@ class TestSeedHellofreshCollections:
         total = db_session.query(SourceCollection).filter_by(source_type=HELLOFRESH_SOURCE).count()
         assert total == 2
 
+    def test_nested_urls_seed_as_children_of_their_url_parent(self, db_session):
+        """
+        /recipes/<parent>/<slug> is a sub-collection (usually an ingredient), not
+        a top-level category. Seeding them all as top-level once filled the
+        Recipes page with rows like "Arborio rice" and "Bacon".
+        """
+        sitemap = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.hellofresh.com/recipes/grain-recipes</loc></url>
+  <url><loc>https://www.hellofresh.com/recipes/grain-recipes/arborio-rice</loc></url>
+</urlset>
+"""
+        mock_response = MagicMock()
+        mock_response.content = sitemap.encode()
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("src.services.catalog_service.create_http_session") as mock_session_factory:
+            mock_http = MagicMock()
+            mock_http.get.return_value = mock_response
+            mock_session_factory.return_value = mock_http
+
+            catalog_service.seed_hellofresh_collections(db_session)
+
+        rows = {r.slug: r for r in db_session.query(SourceCollection).all()}
+        assert rows["grain-recipes"].parent_slug is None
+        assert rows["arborio-rice"].parent_slug == "grain-recipes"
+        assert rows["arborio-rice"].url == "https://www.hellofresh.com/recipes/grain-recipes/arborio-rice"
+
     def test_network_error_raises_crawler_error(self, db_session):
         import requests
 
@@ -222,6 +251,15 @@ class TestUpsertCollectionPage:
         ).all()
         assert len(children) == 2
         assert {c.slug for c in children} == {"child-0", "child-1"}
+
+    def test_new_children_get_urls_under_the_parent_path(self, db_session):
+        """/recipes/<child> alone serves the /recipes hub; the child lives under its parent."""
+        _seed_collection(db_session)
+        page = _make_page(n_cards=0, n_children=1)
+        catalog_service.upsert_collection_page(db_session, page)
+
+        child = db_session.query(SourceCollection).filter_by(slug="child-0").one()
+        assert child.url == "https://www.hellofresh.com/recipes/vegetarian-recipes/child-0"
 
     def test_join_rows_in_page_order(self, db_session):
         _seed_collection(db_session)
@@ -356,6 +394,28 @@ class TestGetCollection:
         result = catalog_service.get_collection(db_session, HELLOFRESH_SOURCE, "no-such-slug")
         assert result is None
 
+    def test_fetches_nested_collection_by_its_stored_url(self, db_session):
+        coll = SourceCollection(
+            source_type=HELLOFRESH_SOURCE,
+            slug="arborio-rice",
+            name="Arborio rice",
+            url="https://www.hellofresh.com/recipes/grain-recipes/arborio-rice",
+            parent_slug="grain-recipes",
+            last_fetched_at=None,
+        )
+        db_session.add(coll)
+        db_session.commit()
+
+        mock_crawler = MagicMock()
+        mock_crawler.fetch_collection.return_value = _make_page(slug="arborio-rice", n_cards=1, n_children=0)
+
+        with patch("src.services.catalog_service._make_crawler", return_value=mock_crawler):
+            catalog_service.get_collection(db_session, HELLOFRESH_SOURCE, "arborio-rice")
+
+        mock_crawler.fetch_collection.assert_called_once_with(
+            "arborio-rice", "https://www.hellofresh.com/recipes/grain-recipes/arborio-rice"
+        )
+
     def test_calls_fetch_collection_on_null_fetched_at(self, db_session):
         _seed_collection(db_session)
         page = _make_page(n_cards=3, n_children=2)
@@ -366,7 +426,9 @@ class TestGetCollection:
         with patch("src.services.catalog_service._make_crawler", return_value=mock_crawler):
             result = catalog_service.get_collection(db_session, HELLOFRESH_SOURCE, "vegetarian-recipes")
 
-        mock_crawler.fetch_collection.assert_called_once_with("vegetarian-recipes")
+        mock_crawler.fetch_collection.assert_called_once_with(
+            "vegetarian-recipes", "https://www.hellofresh.com/recipes/vegetarian-recipes"
+        )
         assert result is not None
         assert len(result.cards) == 3
         assert len(result.children) == 2

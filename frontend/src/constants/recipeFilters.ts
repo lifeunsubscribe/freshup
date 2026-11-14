@@ -11,11 +11,6 @@ export interface FilterOption {
   label: string
 }
 
-export interface CookTimeOption {
-  value: number
-  label: string
-}
-
 /**
  * Source type filter options
  *
@@ -26,18 +21,6 @@ export const SOURCE_TYPE_OPTIONS: FilterOption[] = [
   { value: 'manual', label: 'My recipes' },
   { value: 'hellofresh_card', label: 'HelloFresh' },
   { value: 'ad_hoc', label: 'Ad-hoc' },
-]
-
-/**
- * Cook time filter options (in minutes)
- *
- * These represent maximum cook time filters that users can select.
- */
-export const COOK_TIME_OPTIONS: CookTimeOption[] = [
-  { value: 15, label: '15 min or less' },
-  { value: 30, label: '30 min or less' },
-  { value: 45, label: '45 min or less' },
-  { value: 60, label: '1 hour or less' },
 ]
 
 /**
@@ -65,21 +48,6 @@ export const TAG_OPTIONS: FilterOption[] = [
 export function getSourceTypeLabel(sourceType: string): string {
   const option = SOURCE_TYPE_OPTIONS.find((opt) => opt.value === sourceType)
   return option?.label || sourceType
-}
-
-/**
- * Helper function to get the label for a cook time value
- */
-export function getCookTimeLabel(cookTime: number | string): string {
-  const numericCookTime = typeof cookTime === 'string' ? Number(cookTime) : cookTime
-
-  // Handle invalid numeric values (NaN, Infinity, etc.)
-  if (!Number.isFinite(numericCookTime)) {
-    return String(cookTime)
-  }
-
-  const option = COOK_TIME_OPTIONS.find((opt) => opt.value === numericCookTime)
-  return option?.label || `${numericCookTime} min`
 }
 
 /**

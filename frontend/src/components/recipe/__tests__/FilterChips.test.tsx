@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import FilterChips, { type RecipeFilters } from '../FilterChips'
 
@@ -11,12 +11,24 @@ describe('FilterChips', () => {
   })
 
   describe('filter dropdowns', () => {
-    it('renders all three filter dropdowns', () => {
+    it('renders the time toggle and the source and cuisine dropdowns', () => {
       render(<FilterChips filters={{}} onFilterChange={mockOnFilterChange} />)
 
+      expect(screen.getByRole('button', { name: 'Max time' })).toBeInTheDocument()
       expect(screen.getByDisplayValue('All sources')).toBeInTheDocument()
-      expect(screen.getByDisplayValue('Any time')).toBeInTheDocument()
       expect(screen.getByDisplayValue('All cuisines')).toBeInTheDocument()
+      expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+    })
+
+    it('hides dropdowns that cannot apply to the list', () => {
+      render(<FilterChips filters={{}} onFilterChange={mockOnFilterChange} showSource={false} showCuisine={false} />)
+      expect(screen.queryByDisplayValue('All sources')).not.toBeInTheDocument()
+      expect(screen.queryByDisplayValue('All cuisines')).not.toBeInTheDocument()
+    })
+
+    it('hides the time filter when there is no time range', () => {
+      render(<FilterChips filters={{}} onFilterChange={mockOnFilterChange} timeRange={null} />)
+      expect(screen.queryByRole('button', { name: 'Max time' })).not.toBeInTheDocument()
     })
 
     it('renders source type dropdown with all options', () => {
@@ -30,17 +42,6 @@ describe('FilterChips', () => {
       expect(options).toContain('Ad-hoc')
     })
 
-    it('renders cook time dropdown with all options', () => {
-      render(<FilterChips filters={{}} onFilterChange={mockOnFilterChange} />)
-      const cookTimeSelect = screen.getByDisplayValue('Any time') as HTMLSelectElement
-
-      const options = Array.from(cookTimeSelect.options).map((opt) => opt.text)
-      expect(options).toContain('Any time')
-      expect(options).toContain('15 min or less')
-      expect(options).toContain('30 min or less')
-      expect(options).toContain('45 min or less')
-      expect(options).toContain('1 hour or less')
-    })
 
     it('renders cuisine/tag dropdown with all options', () => {
       render(<FilterChips filters={{}} onFilterChange={mockOnFilterChange} />)
@@ -69,16 +70,35 @@ describe('FilterChips', () => {
       })
     })
 
-    it('calls onFilterChange when cook time is selected', async () => {
+    it('switching Max time on starts the slider at 30 min', async () => {
       const user = userEvent.setup()
       render(<FilterChips filters={{}} onFilterChange={mockOnFilterChange} />)
-      const cookTimeSelect = screen.getByDisplayValue('Any time')
+      await user.click(screen.getByRole('button', { name: 'Max time' }))
+      expect(mockOnFilterChange).toHaveBeenCalledWith({ max_cook_time: 30 })
+    })
 
-      await user.selectOptions(cookTimeSelect, '30')
+    it('starts within the list’s own range', async () => {
+      const user = userEvent.setup()
+      render(<FilterChips filters={{}} onFilterChange={mockOnFilterChange} timeRange={{ min: 40, max: 60 }} />)
+      await user.click(screen.getByRole('button', { name: 'Max time' }))
+      expect(mockOnFilterChange).toHaveBeenCalledWith({ max_cook_time: 40 })
+    })
 
-      expect(mockOnFilterChange).toHaveBeenCalledWith({
-        max_cook_time: 30,
-      })
+    it('sliding sets the maximum time, keeping other filters', () => {
+      render(<FilterChips filters={{ max_cook_time: 30, tag: 'thai' }} onFilterChange={mockOnFilterChange} />)
+      const slider = screen.getByRole('slider', { name: 'Maximum time in minutes' })
+      expect(slider).toHaveValue('30')
+      expect(screen.getByText('up to 30 min')).toBeInTheDocument()
+
+      fireEvent.change(slider, { target: { value: '45' } })
+      expect(mockOnFilterChange).toHaveBeenCalledWith({ max_cook_time: 45, tag: 'thai' })
+    })
+
+    it('clicking Max time again turns the time filter off', async () => {
+      const user = userEvent.setup()
+      render(<FilterChips filters={{ max_cook_time: 30, tag: 'vegan' }} onFilterChange={mockOnFilterChange} />)
+      await user.click(screen.getByRole('button', { name: 'Max time' }))
+      expect(mockOnFilterChange).toHaveBeenCalledWith({ tag: 'vegan' })
     })
 
     it('calls onFilterChange when tag is selected', async () => {
@@ -130,7 +150,7 @@ describe('FilterChips', () => {
       render(<FilterChips filters={{}} onFilterChange={mockOnFilterChange} />)
       expect(screen.queryByText(/Source:/)).not.toBeInTheDocument()
       expect(screen.queryByText(/Cuisine:/)).not.toBeInTheDocument()
-      expect(screen.queryByText(/Max/)).not.toBeInTheDocument()
+      expect(screen.queryByLabelText(/^Remove /)).not.toBeInTheDocument()
     })
 
     it('renders chip for source_type filter', () => {
@@ -145,11 +165,6 @@ describe('FilterChips', () => {
       expect(screen.getByText('Cuisine: Italian')).toBeInTheDocument()
     })
 
-    it('renders chip for max_cook_time filter', () => {
-      const filters: RecipeFilters = { max_cook_time: 30 }
-      render(<FilterChips filters={filters} onFilterChange={mockOnFilterChange} />)
-      expect(screen.getByText('Max 30 min or less')).toBeInTheDocument()
-    })
 
     it('renders all chips when multiple filters are active', () => {
       const filters: RecipeFilters = {
@@ -161,7 +176,6 @@ describe('FilterChips', () => {
 
       expect(screen.getByText('Source: HelloFresh')).toBeInTheDocument()
       expect(screen.getByText('Cuisine: Mexican')).toBeInTheDocument()
-      expect(screen.getByText('Max 45 min or less')).toBeInTheDocument()
     })
   })
 
@@ -209,21 +223,6 @@ describe('FilterChips', () => {
       })
     })
 
-    it('removes max_cook_time filter when chip remove button is clicked', async () => {
-      const user = userEvent.setup()
-      const filters: RecipeFilters = {
-        max_cook_time: 30,
-        tag: 'vegan',
-      }
-      render(<FilterChips filters={filters} onFilterChange={mockOnFilterChange} />)
-
-      const removeButton = screen.getByLabelText('Remove Max 30 min or less filter')
-      await user.click(removeButton)
-
-      expect(mockOnFilterChange).toHaveBeenCalledWith({
-        tag: 'vegan',
-      })
-    })
 
     it('removes all filters when last chip is removed', async () => {
       const user = userEvent.setup()
@@ -303,7 +302,6 @@ describe('FilterChips', () => {
 
       expect(screen.getByLabelText('Remove Source: My recipes filter')).toBeInTheDocument()
       expect(screen.getByLabelText('Remove Cuisine: Italian filter')).toBeInTheDocument()
-      expect(screen.getByLabelText('Remove Max 30 min or less filter')).toBeInTheDocument()
     })
 
     it('dropdowns are keyboard accessible', async () => {
@@ -311,8 +309,9 @@ describe('FilterChips', () => {
       render(<FilterChips filters={{}} onFilterChange={mockOnFilterChange} />)
 
       await user.tab()
-      const sourceSelect = screen.getByDisplayValue('All sources')
-      expect(sourceSelect).toHaveFocus()
+      expect(screen.getByRole('button', { name: 'Max time' })).toHaveFocus()
+      await user.tab()
+      expect(screen.getByDisplayValue('All sources')).toHaveFocus()
     })
   })
 
@@ -333,12 +332,9 @@ describe('FilterChips', () => {
       expect(screen.getByText('Cuisine: unknown_cuisine')).toBeInTheDocument()
     })
 
-    it('handles non-standard cook time values', () => {
-      const filters: RecipeFilters = { max_cook_time: 90 }
-      render(<FilterChips filters={filters} onFilterChange={mockOnFilterChange} />)
-
-      // Should display the numeric value with "min" suffix
-      expect(screen.getByText('Max 90 min')).toBeInTheDocument()
+    it('shows any time value on the slider label', () => {
+      render(<FilterChips filters={{ max_cook_time: 85 }} onFilterChange={mockOnFilterChange} />)
+      expect(screen.getByText('up to 85 min')).toBeInTheDocument()
     })
   })
 })

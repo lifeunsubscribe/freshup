@@ -120,6 +120,12 @@ class TestParseCollectionPageFixture:
         page = parse_collection_page(_load_fixture(), "https://www.hellofresh.com/recipes/vegetarian-recipes")
         assert page.cards[0].image_url.startswith(HF_IMAGE_PREFIX)
         assert page.cards[0].image_url == HF_IMAGE_PREFIX + "/image/zucchini-and-tomato-flatbreads-cf443dcd.jpg"
+        # Literal URL, not just the prefix constant: the prefix itself was once
+        # wrong (missing /hellofresh_s3) and every card image 404'd.
+        assert page.cards[0].image_url == (
+            "https://img.hellofresh.com/f_auto,fl_lossy,q_auto,w_600"
+            "/hellofresh_s3/image/zucchini-and-tomato-flatbreads-cf443dcd.jpg"
+        )
 
     def test_first_card_prep_time_minutes(self):
         page = parse_collection_page(_load_fixture(), "https://www.hellofresh.com/recipes/vegetarian-recipes")
@@ -316,6 +322,56 @@ class TestFetchCollection:
 
         called_url = mock_get.call_args[0][0]
         assert called_url == "https://www.hellofresh.com/recipes/vegetarian-recipes"
+
+
+    def test_uses_stored_url_for_nested_collection(self):
+        crawler = _make_crawler_no_robots()
+        crawler.robots_parser.can_fetch = MagicMock(return_value=True)
+        crawler.rate_limiter.wait_if_needed = MagicMock()
+
+        mock_response = MagicMock()
+        mock_response.text = _load_fixture()
+        mock_response.raise_for_status = MagicMock()
+
+        url = "https://www.hellofresh.com/recipes/parent-recipes/vegetarian-recipes"
+        with patch.object(crawler.session, "get", return_value=mock_response) as mock_get:
+            crawler.fetch_collection("vegetarian-recipes", url)
+
+        assert mock_get.call_args[0][0] == url
+
+    def test_rejects_page_for_a_different_collection(self):
+        """
+        A nested slug fetched without its parent segment gets the /recipes hub
+        (slug "recipes"). Storing that page once re-parented every top-level
+        category under the hub.
+        """
+        crawler = _make_crawler_no_robots()
+        crawler.robots_parser.can_fetch = MagicMock(return_value=True)
+        crawler.rate_limiter.wait_if_needed = MagicMock()
+
+        mock_response = MagicMock()
+        mock_response.text = _load_fixture()  # slug "vegetarian-recipes"
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(crawler.session, "get", return_value=mock_response):
+            with pytest.raises(CrawlerParseError, match="served 'vegetarian-recipes'"):
+                crawler.fetch_collection("barramundi")
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://evil.example.com/recipes/vegetarian-recipes",
+            "http://www.hellofresh.com/recipes/vegetarian-recipes",
+            "https://www.hellofresh.com/menus/vegetarian-recipes",
+            "https://www.hellofresh.com/recipes/other-slug",
+            "https://www.hellofresh.com/recipes/../vegetarian-recipes",
+            "https://www.hellofresh.com/recipes/vegetarian-recipes?x=1",
+        ],
+    )
+    def test_rejects_url_that_is_not_this_collection(self, url):
+        crawler = _make_crawler_no_robots()
+        with pytest.raises(ValueError, match="not a collection URL"):
+            crawler.fetch_collection("vegetarian-recipes", url)
 
 
 # ---------------------------------------------------------------------------

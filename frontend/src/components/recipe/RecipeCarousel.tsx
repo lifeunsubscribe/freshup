@@ -1,4 +1,4 @@
-import { useRecipeList, type RecipeListFilters } from '../../api'
+import { useRecipeList, type RecipeListFilters, type RecipeListResponse } from '../../api'
 import ConnectedRecipeCard from './ConnectedRecipeCard'
 import SectionHeader from '../ui/SectionHeader'
 import { ChevronRight, ChevronLeft } from 'lucide-react'
@@ -13,10 +13,15 @@ interface RecipeCarouselProps {
   enabled?: boolean
   /** Renders a subtitle under the section header; receives the current recipe count (undefined while loading). */
   subtitle?: (count: number | undefined) => string
-  /** Replaces the default "No recipes found" message when the list is empty. Pass null to show nothing. */
-  emptyState?: ReactNode
-  /** Rendered after the cards (or empty state) in all non-loading, non-error states. */
+  /** Rendered after the cards when the row has recipes. */
   footer?: ReactNode
+  /** Called with the recipe count once loaded (0 when the row is hidden). */
+  onCountChange?: (count: number) => void
+  /**
+   * When set, the row shows only if this returns true for its loaded recipes —
+   * and then shows whole, never trimmed. Used by theme filters.
+   */
+  showIf?: (recipes: RecipeListResponse[]) => boolean
 }
 
 /**
@@ -29,11 +34,17 @@ interface RecipeCarouselProps {
  * - Navigation controls (left/right arrow buttons) for accessibility
  * - Last visible card has opacity 0.7 to hint scrollability
  * - Loading and error states
- * - Empty state when no recipes match filters
+ * - Renders nothing once loaded with no recipes — empty rows are hidden, not shown as placeholders
  * - ARIA attributes for screen reader accessibility (role="region", aria-roledescription="carousel")
  */
-export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, enabled = true, subtitle, emptyState, footer }: RecipeCarouselProps) {
+export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, enabled = true, subtitle, footer, onCountChange, showIf }: RecipeCarouselProps) {
   const { data: recipes, isLoading, isError, error } = useRecipeList(filters, { enabled })
+  const loadedCount =
+    !isLoading && !isError && recipes
+      ? showIf && !showIf(recipes)
+        ? 0
+        : recipes.length
+      : undefined
   const computedSubtitle = subtitle ? subtitle(recipes?.length) : undefined
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
@@ -90,6 +101,12 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, en
     }
   }, [recipes])
 
+  useEffect(() => {
+    if (loadedCount !== undefined) onCountChange?.(loadedCount)
+  }, [loadedCount, onCountChange])
+
+  if (loadedCount === 0) return null
+
   return (
     <section
       id={sectionId}
@@ -122,14 +139,6 @@ export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, en
             Failed to load recipes.{' '}
             {error instanceof Error ? error.message : 'Please try again.'}
           </div>
-        )}
-
-        {!isLoading && !isError && recipes && recipes.length === 0 && (
-          emptyState !== undefined ? emptyState : (
-            <p className="text-sm text-text-secondary">
-              No recipes found for this category.
-            </p>
-          )
         )}
 
         {!isLoading && !isError && recipes && recipes.length > 0 && (

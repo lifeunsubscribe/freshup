@@ -55,6 +55,9 @@ class StorageLocation(str, PyEnum):
     pantry = "pantry"
     fridge = "fridge"
     freezer = "freezer"
+    # Produce and bread that keep at room temperature. The frontend has offered
+    # this since Phase 1 (design system: fridge/freezer/pantry/counter).
+    counter = "counter"
 
 
 class Shareability(str, PyEnum):

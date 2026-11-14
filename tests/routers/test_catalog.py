@@ -312,6 +312,30 @@ class TestCollectionDetail:
         db_session.commit()
         return coll
 
+    def test_cards_carry_derived_tags_and_list_offers_tag_options(self, client, db_session, member_headers):
+        """Tags come from names (mains) and headlines (sides); 3+ cards make an option."""
+        self._pre_seed_collection(db_session)
+        page = _make_page(n_cards=4, n_children=0)
+        for i, c in enumerate(page.cards):
+            c.name = "Lamb Kofta" if i < 3 else "Peanut Stew"
+            c.headline = "with Couscous & Side Salad"
+        mock_crawler = MagicMock()
+        mock_crawler.fetch_collection.return_value = page
+
+        with patch("src.services.catalog_service._make_crawler", return_value=mock_crawler):
+            response = client.get(
+                f"/catalog/{HELLOFRESH_SOURCE}/collections/vegetarian-recipes",
+                headers=member_headers,
+            )
+
+        body = response.json()
+        assert "ingredient:lamb" in body["cards"][0]["tags"]
+        assert "side:salad" in body["cards"][0]["tags"]
+        options = {o["key"]: o for o in body["tag_options"]}
+        assert options["ingredient:lamb"] == {"key": "ingredient:lamb", "label": "Lamb", "kind": "main", "count": 3}
+        # On every card, so it cannot narrow the list
+        assert "side:couscous" not in options
+
     def test_calls_fetch_on_never_fetched(self, client, db_session, member_headers):
         self._pre_seed_collection(db_session)
         page = _make_page(n_cards=3, n_children=2)
@@ -326,7 +350,9 @@ class TestCollectionDetail:
             )
 
         assert response.status_code == 200
-        mock_crawler.fetch_collection.assert_called_once_with("vegetarian-recipes")
+        mock_crawler.fetch_collection.assert_called_once_with(
+            "vegetarian-recipes", "https://www.hellofresh.com/recipes/vegetarian-recipes"
+        )
         data = response.json()
         assert len(data["cards"]) == 3
         assert len(data["children"]) == 2

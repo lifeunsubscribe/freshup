@@ -26,9 +26,10 @@ from src.db.models.source_catalog import SourceCollection, SourceCollectionCard
 from src.db.models.user import User
 from src.middleware.auth import get_current_user
 from src.middleware.rate_limit import limiter
-from src.schemas.catalog import CardResponse, CollectionDetail, CollectionSummary
+from src.schemas.catalog import CardResponse, CollectionDetail, CollectionSummary, TagOption
 from src.schemas.recipe import RecipeResponse
 from src.services import catalog_service
+from src.services.card_tags import tag_cards
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
 from src.utils.sanitize import sanitize_exception_message
 
@@ -228,6 +229,9 @@ def get_collection(
         for child in result.children
     ]
 
+    # Derived tags per card, and which tags this list offers as filters
+    card_tags, tag_options = tag_cards(db, result.cards, collection.source_type, collection.slug)
+
     # Build card responses
     cards = [
         CardResponse(
@@ -241,6 +245,7 @@ def get_collection(
             recipe_url=card.recipe_url,
             recipe_id=card.recipe_id,
             is_persisted=bool(card.recipe_rel and card.recipe_rel.is_persisted),
+            tags=card_tags.get(card.id, []),
         )
         for card in result.cards
     ]
@@ -252,6 +257,7 @@ def get_collection(
         last_fetched_at=collection.last_fetched_at,
         children=children,
         cards=cards,
+        tag_options=[TagOption(**vars(o)) for o in tag_options],
         fetch_error=result.fetch_error,
     )
 

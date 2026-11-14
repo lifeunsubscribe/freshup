@@ -280,9 +280,11 @@ class ThawRequest(BaseModel):
         # validate_enum_value handles Optional, but this field is required so won't be None
         assert validated is not None  # Type narrowing for mypy
 
-        # Check that destination is not freezer (thawing to freezer is nonsensical)
+        # Freezer is nonsensical; counter is unsafe (USDA: never thaw at room temperature)
         if validated == StorageLocation.freezer.value:
             raise ValueError("Cannot thaw to freezer. Valid destinations: pantry, fridge")
+        if validated == StorageLocation.counter.value:
+            raise ValueError("Cannot thaw on the counter. Valid destinations: pantry, fridge")
 
         return validated
 

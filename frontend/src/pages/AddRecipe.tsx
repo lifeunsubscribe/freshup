@@ -126,6 +126,7 @@ function DuplicatePane({
               cook_time_minutes: recipe.cook_time_minutes,
               prep_time_minutes: recipe.prep_time_minutes,
               tags: recipe.tags,
+              source_image: recipe.source_image,
             }}
             variant="grid"
           />

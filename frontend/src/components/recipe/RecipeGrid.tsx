@@ -4,6 +4,7 @@ import type { RecipeListResponse } from '../../api/types'
 import ConnectedRecipeCard from './ConnectedRecipeCard'
 import FilterChips, { type RecipeFilters } from './FilterChips'
 import { ArrowLeft } from 'lucide-react'
+import { CARD_GRID_CLASS } from './cardGrid'
 
 interface RecipeGridProps {
   searchQuery: string
@@ -42,6 +43,7 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
     source_type: filters.source_type,
     tag: filters.tag,
     max_cook_time: filters.max_cook_time,
+    liked: filters.liked,
   }
 
   const { data: recipes, isLoading, isError, error } = useRecipeList(apiFilters)
@@ -53,7 +55,8 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
       searchQuery !== currentFiltersRef.current.searchQuery ||
       filters.source_type !== currentFiltersRef.current.source_type ||
       filters.tag !== currentFiltersRef.current.tag ||
-      filters.max_cook_time !== currentFiltersRef.current.max_cook_time
+      filters.max_cook_time !== currentFiltersRef.current.max_cook_time ||
+      filters.liked !== currentFiltersRef.current.liked
 
     if (filtersChanged) {
       // Filters changed - reset pagination state immediately
@@ -84,7 +87,7 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
       setAllRecipes([])
       setHasMore(false)
     }
-  }, [recipes, offset, searchQuery, filters.source_type, filters.tag, filters.max_cook_time])
+  }, [recipes, offset, searchQuery, filters.source_type, filters.tag, filters.max_cook_time, filters.liked])
 
   return (
     <div className="space-y-4">
@@ -131,7 +134,7 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
         )}
 
         {!isLoading && !isError && allRecipes.length > 0 && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className={CARD_GRID_CLASS}>
             {allRecipes.map((recipe) => (
               <ConnectedRecipeCard
                 key={recipe.id}

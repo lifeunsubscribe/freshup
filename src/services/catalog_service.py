@@ -77,6 +77,18 @@ class CollectionResult:
 # ---------------------------------------------------------------------------
 
 
+def _parent_slug_from_url(url: str) -> Optional[str]:
+    """
+    Read a collection's parent from its URL.
+
+    HelloFresh encodes the hierarchy in the path: ``/recipes/<slug>`` is a
+    top-level category and ``/recipes/<parent>/<slug>`` is a sub-collection
+    (usually an ingredient, e.g. ``/recipes/grain-recipes/arborio-rice``).
+    """
+    segments = urlparse(url).path.strip("/").split("/")
+    return segments[-2] if len(segments) >= 3 else None
+
+
 def seed_hellofresh_collections(db: Session) -> int:
     """
     Seed top-level HelloFresh collections from the collections sitemap.
@@ -132,7 +144,7 @@ def seed_hellofresh_collections(db: Session) -> int:
                 name=_slug_to_name(slug),
                 url=url,
                 last_fetched_at=None,
-                parent_slug=None,
+                parent_slug=_parent_slug_from_url(url),
             )
         )
 
@@ -208,7 +220,9 @@ def upsert_collection_page(db: Session, page: CollectionPage, source_type: str =
                 source_type=source_type,
                 slug=child.slug,
                 name=child.name,
-                url=f"{HELLOFRESH_BASE_URL}/recipes/{child.slug}",
+                # Sub-collections live under their parent's path; /recipes/<child>
+                # alone serves the /recipes hub instead.
+                url=f"{collection.url.rstrip('/')}/{child.slug}",
                 parent_slug=page.slug,
                 last_fetched_at=None,
             ))
@@ -281,7 +295,7 @@ def get_collection(
     if should_fetch:
         try:
             crawler = _make_crawler()
-            page = crawler.fetch_collection(slug)
+            page = crawler.fetch_collection(slug, collection.url)
             upsert_collection_page(db, page, source_type=source)
             # Reload after upsert so the result reflects the fresh data
             db.refresh(collection)
