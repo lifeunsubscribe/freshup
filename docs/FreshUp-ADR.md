@@ -737,11 +737,13 @@ Signals older than 90 days count at half weight.
 | `less` | −4 |
 | `never` | blocks (see below) |
 
+Explicit priors are accepted only for `ingredient:` and `cuisine:` keys — the write-path validator (`validate_taste_preferences` from #620) rejects `dish:` and `diet:` keys. Those dimensions are score-only (derived from recipe tags at score time); direct user preferences for them are pending a future validator extension.
+
 Raw scores are normalised to −1..1 by dividing by the largest absolute value. A user with no signals and no preferences gets an empty affinity dict; every recipe then scores 0.0.
 
 **Blocking rules (apply to recommendations only — never to search or list endpoints):**
-- Any recipe key mapped to `never` in `taste_preferences` → recipe is blocked.
-- Any allergen group for the recipe's ingredient keys intersects `user.allergies` (case-insensitive) → recipe is blocked.
+- Any `ingredient:` or `cuisine:` key mapped to `never` in `taste_preferences` → recipe is blocked.
+- Any allergen group for the recipe's ingredient keys intersects `user.allergies` (case-insensitive, common aliases like "dairy" and "tree nut" are normalised to canonical group slugs) → recipe is blocked.
 
 The `less` level only lowers affinity; it never blocks. All blocking is enforced in `taste_service.is_blocked`, which is called by the recommendation layer, not by search or catalog endpoints.
 

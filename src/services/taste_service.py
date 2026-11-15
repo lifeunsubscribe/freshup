@@ -28,6 +28,20 @@ _SIGNAL_CUTOFF_DAYS = 90
 # Explicit prior weights by taste level (never has no weight — it only blocks)
 _PRIOR_WEIGHTS: dict[str, float] = {"love": 6.0, "like": 3.0, "less": -4.0}
 
+# Common free-text aliases for allergen group slugs (see ALLERGENS in ingredient_keys.py).
+# Slugs that are already canonical (e.g. "milk", "peanut") pass through unchanged.
+_ALLERGY_ALIASES: dict[str, str] = {
+    "dairy": "milk",
+    "peanuts": "peanut",
+    "tree nut": "tree-nut",
+    "tree nuts": "tree-nut",
+    "tree-nuts": "tree-nut",
+    "nut": "tree-nut",
+    "nuts": "tree-nut",
+    "soya": "soy",
+    "gluten": "wheat",
+}
+
 
 def recipe_keys(recipe) -> set[str]:
     """
@@ -183,7 +197,12 @@ def is_blocked(recipe, user) -> bool:
     # Allergen check: strip the "ingredient:" prefix before calling allergens_for
     ingredient_keys = {k[len("ingredient:"):] for k in keys if k.startswith("ingredient:")}
     recipe_allergens = allergens_for(ingredient_keys)
-    user_allergies = {str(a).lower() for a in (user.allergies or [])}
+    # Normalise user allergy values to canonical allergen group slugs so that
+    # free-text values like "dairy", "tree nut", or "peanuts" match correctly.
+    user_allergies = {
+        _ALLERGY_ALIASES.get(str(a).strip().lower(), str(a).strip().lower())
+        for a in (user.allergies or [])
+    }
     if recipe_allergens & user_allergies:
         return True
 

@@ -250,21 +250,41 @@ class TestUserAffinitiesSignals:
     def test_cook_capped_at_three(self):
         user = _make_user()
         recipe = _make_recipe(ingredient_names=["chicken"])
-        # 5 cooks — only 3 should count; raw score = 3*3 = 9; norm = 1.0
+        recipe_ref = _make_recipe(ingredient_names=["beef"])
+        # 5 cooks on chicken — cap means only 3 count, raw = 9
         events = [_cook_event(user.id, recipe.id) for _ in range(5)]
-        db = _MockDB(cook_events=events, recipes={recipe.id: recipe}, user=user)
+        # Reference: 1 high rating on beef, raw = 2
+        rel = _relation(user.id, recipe_ref.id, rating=5)
+        db = _MockDB(
+            cook_events=events,
+            relations=[rel],
+            recipes={recipe.id: recipe, recipe_ref.id: recipe_ref},
+            user=user,
+        )
         affinities = user_affinities(user.id, db)
-        # At most 3 cooks * 3 weight = 9; normalised max is 1.0
+        # Cap enforced: chicken raw = 3*3 = 9 (not 5*3 = 15); beef raw = 2; max = 9
+        # If the cap were absent, beef would be 2/15 ≈ 0.133 instead of 2/9 ≈ 0.222
         assert affinities.get("ingredient:chicken", 0) == pytest.approx(1.0)
+        assert affinities.get("ingredient:beef", 0) == pytest.approx(2.0 / 9.0)
 
     def test_views_capped_at_two(self):
         user = _make_user()
         recipe = _make_recipe(ingredient_names=["salmon"])
+        recipe_ref = _make_recipe(ingredient_names=["beef"])
         views_list = [_view(user.id, recipe.id) for _ in range(5)]
-        db = _MockDB(views=views_list, recipes={recipe.id: recipe}, user=user)
+        # Reference: 1 high rating on beef, raw = 2
+        rel = _relation(user.id, recipe_ref.id, rating=5)
+        db = _MockDB(
+            views=views_list,
+            relations=[rel],
+            recipes={recipe.id: recipe, recipe_ref.id: recipe_ref},
+            user=user,
+        )
         affinities = user_affinities(user.id, db)
-        # 2 views * 0.5 = 1.0; normalised max = 1.0
-        assert affinities.get("ingredient:salmon", 0) == pytest.approx(1.0)
+        # Cap enforced: salmon raw = 2*0.5 = 1.0 (not 5*0.5 = 2.5); beef raw = 2; max = 2
+        # If the cap were absent, salmon would be 2.5/2.5 = 1.0 and beef 2/2.5 = 0.8
+        assert affinities.get("ingredient:beef", 0) == pytest.approx(1.0)
+        assert affinities.get("ingredient:salmon", 0) == pytest.approx(0.5)
 
     def test_affinities_normalised_to_minus_one_to_one(self):
         user = _make_user()
@@ -356,12 +376,20 @@ class TestUserAffinitiesAgeHalfWeight:
     def test_exactly_90_days_not_halved(self):
         """Signal exactly 90 days old is NOT halved — only strictly older than 90."""
         user = _make_user()
-        recipe = _make_recipe(ingredient_names=["chicken"])
-        event = _cook_event(user.id, recipe.id, cooked_at=_days_ago(90))
-        db = _MockDB(cook_events=[event], recipes={recipe.id: recipe}, user=user)
+        recipe_at_90 = _make_recipe(ingredient_names=["chicken"])
+        recipe_at_91 = _make_recipe(ingredient_names=["beef"])
+        event_at_90 = _cook_event(user.id, recipe_at_90.id, cooked_at=_days_ago(90))
+        event_at_91 = _cook_event(user.id, recipe_at_91.id, cooked_at=_days_ago(91))
+        db = _MockDB(
+            cook_events=[event_at_90, event_at_91],
+            recipes={recipe_at_90.id: recipe_at_90, recipe_at_91.id: recipe_at_91},
+            user=user,
+        )
         affinities = user_affinities(user.id, db)
-        # Full weight, normalised to 1.0
+        # 90 days: full weight raw=3.0 (max denominator); 91 days: half weight raw=1.5
+        # chicken=1.0 confirms the 90-day boundary is not halved; beef=0.5 confirms 91 is
         assert affinities["ingredient:chicken"] == pytest.approx(1.0)
+        assert affinities["ingredient:beef"] == pytest.approx(0.5)
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +480,24 @@ class TestIsBlocked:
     def test_allergy_wheat_blocks_pasta(self):
         user = _make_user(allergies=["wheat"])
         recipe = _make_recipe(ingredient_names=["penne pasta"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_dairy_alias_blocks_cream(self):
+        """'dairy' is an alias for the 'milk' allergen group and should block milk/cream."""
+        user = _make_user(allergies=["dairy"])
+        recipe = _make_recipe(ingredient_names=["heavy cream"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_tree_nut_alias_blocks_almond(self):
+        """'tree nut' (with space) maps to 'tree-nut' allergen group."""
+        user = _make_user(allergies=["tree nut"])
+        recipe = _make_recipe(ingredient_names=["almond"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_peanuts_plural_blocks_peanut_butter(self):
+        """'peanuts' (plural) maps to the 'peanut' allergen group."""
+        user = _make_user(allergies=["peanuts"])
+        recipe = _make_recipe(ingredient_names=["peanut butter"])
         assert is_blocked(recipe, user)
 
     def test_no_allergy_not_blocked(self):
