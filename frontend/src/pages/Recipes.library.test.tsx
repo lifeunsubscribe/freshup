@@ -147,7 +147,7 @@ describe('Recipes Page', () => {
     it("leads with the user's own rows", () => {
       renderWithRouter(<Recipes />)
       expect(sectionHeading('Your favorites')).toBeInTheDocument()
-      expect(sectionHeading('Recently added')).toBeInTheDocument()
+      expect(sectionHeading('Recently viewed')).toBeInTheDocument()
       expect(sectionHeading('Quick meals')).toBeInTheDocument()
     })
 
@@ -169,6 +169,11 @@ describe('Recipes Page', () => {
       // Your favorites is the user's liked recipes, not every recipe
       expect(useRecipeList).toHaveBeenCalledWith(
         expect.objectContaining({ limit: 20, liked: true }),
+        expect.anything()
+      )
+      // Recently viewed uses viewed: true
+      expect(useRecipeList).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 20, viewed: true }),
         expect.anything()
       )
       expect(useRecipeList).toHaveBeenCalledWith(
@@ -287,6 +292,21 @@ describe('Recipes Page', () => {
       await waitFor(() => {
         expect(screen.getByText('up to 30 min')).toBeInTheDocument()
       })
+    })
+
+    it('"See all" on Recently viewed opens the grid with viewed: true in the list request', async () => {
+      const user = userEvent.setup()
+      renderWithRouter(<Recipes />)
+
+      await user.click(screen.getByRole('button', { name: 'See all recently viewed' }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Back to browse view' })).toBeInTheDocument()
+      })
+      expect(useRecipeList).toHaveBeenCalledWith(
+        expect.objectContaining({ viewed: true }),
+        expect.anything()
+      )
     })
   })
 

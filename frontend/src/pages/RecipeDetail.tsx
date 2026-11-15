@@ -23,6 +23,7 @@ import {
   useToggleLike,
   useCookRecipe,
   useCookHistory,
+  useRecordView,
 } from '../api/hooks/useRecipeEngagement'
 import { useCreatePlanEntry } from '../api/hooks/usePlan'
 import { useInventoryList } from '../api/hooks/useInventory'
@@ -77,6 +78,22 @@ export default function RecipeDetail() {
   const cookRecipe = useCookRecipe()
   const rateRecipe = useRateRecipe()
   const createPlanEntry = useCreatePlanEntry()
+  const recordView = useRecordView()
+
+  // Track the recipe ID for which a view was already posted so re-renders
+  // (or React Strict Mode double-invocation) don't post a second view.
+  const viewFiredRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!recipe || !id || viewFiredRef.current === id) return
+    viewFiredRef.current = id
+    try {
+      // Fire-and-forget: mutate (not mutateAsync) drops errors silently.
+      recordView.mutate({ recipeId: id })
+    } catch {
+      // suppress — a view-recording failure must never affect page rendering
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe, id])
 
   // Cook timers — frontend-only, cleared when the page unmounts
   const { timers, addTimer, dismissTimer } = useCookTimers()

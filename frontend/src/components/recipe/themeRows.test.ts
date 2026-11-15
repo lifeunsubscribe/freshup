@@ -51,6 +51,20 @@ describe('matchesValue', () => {
   })
 })
 
+describe('YOUR_ROWS recently-viewed row', () => {
+  it('has id recently-viewed, title Recently viewed, and viewed: true filter', () => {
+    const row = YOUR_ROWS.find((r) => r.id === 'recently-viewed')
+    expect(row).toBeDefined()
+    expect(row?.title).toBe('Recently viewed')
+    expect(row?.filters).toMatchObject({ viewed: true })
+  })
+
+  it('no longer contains a recently-added row', () => {
+    expect(YOUR_ROWS.find((r) => r.id === 'recently-added')).toBeUndefined()
+    expect(YOUR_ROWS.map((r) => r.title)).not.toContain('Recently added')
+  })
+})
+
 describe('buildPageRows', () => {
   it('shows only the user’s rows before themes load', () => {
     expect(buildPageRows(undefined, null, []).rows).toEqual(YOUR_ROWS)

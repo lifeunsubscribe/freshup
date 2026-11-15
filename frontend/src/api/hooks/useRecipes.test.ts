@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { createElement } from 'react'
-import { useRateRecipe, recipeKeys } from './useRecipes'
+import { useRateRecipe, useRecipeList, recipeKeys } from './useRecipes'
 import { useCookRecipe } from './useRecipeEngagement'
 import { apiClient } from '../client'
 
@@ -46,6 +46,32 @@ beforeEach(() => {
 
 afterEach(() => {
   queryClient.clear()
+})
+
+describe('useRecipeList viewed filter', () => {
+  it('appends viewed=true to the request URL when viewed is true', async () => {
+    mockApiClient.mockResolvedValueOnce([])
+
+    const { result } = renderHook(() => useRecipeList({ viewed: true }), { wrapper })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiClient).toHaveBeenCalledWith(
+      expect.stringContaining('viewed=true'),
+      expect.objectContaining({ method: 'GET' })
+    )
+  })
+
+  it('does not append viewed when it is not set', async () => {
+    mockApiClient.mockResolvedValueOnce([])
+
+    const { result } = renderHook(() => useRecipeList({}), { wrapper })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const url = (mockApiClient.mock.calls[0][0] as string)
+    expect(url).not.toContain('viewed')
+  })
 })
 
 describe('useRateRecipe', () => {
