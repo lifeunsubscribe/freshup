@@ -705,6 +705,27 @@ class TestPopularity:
         assert "homechef_web" in FEATURED_COLLECTIONS
         assert "customer-favorites" in FEATURED_COLLECTIONS["homechef_web"]
 
+    def test_featured_floor_not_a_cap_at_high_source_prior(self):
+        # source_prior=4.5 → mapped base = (4.5-1)/4 = 0.875 > 0.8
+        # A featured unrated card must score >= its unfeatured sibling, not lower.
+        card_featured = _make_card(source_type="homechef_web", rating=None, rating_count=None)
+        card_unfeatured = _make_card(source_type="homechef_web", rating=None, rating_count=None)
+        score_featured = popularity(card_featured, 4.5, {"customer-favorites"})
+        score_unfeatured = popularity(card_unfeatured, 4.5, set())
+        assert score_featured >= score_unfeatured
+
+    def test_unrated_featured_no_source_prior_scores_at_least_0_8(self):
+        # source_prior=None falls back to 0.5; floor raises it to 0.8
+        card = _make_card(source_type="homechef_web", rating=None, rating_count=None)
+        score = popularity(card, None, {"customer-favorites"})
+        assert score == pytest.approx(0.8)
+
+    def test_zero_count_treated_as_unrated(self):
+        # rating_count=0 triggers the unrated branch regardless of rating value
+        card = _make_card(source_type="hellofresh_web", rating=4.0, rating_count=0)
+        score = popularity(card, 3.5, set())
+        assert score == pytest.approx((3.5 - 1.0) / 4.0)
+
     def test_score_in_zero_one_range_for_rated_card(self):
         card = _make_card(rating=4.0, rating_count=500)
         score = popularity(card, 3.5, set())

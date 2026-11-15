@@ -303,11 +303,11 @@ def popularity(card, source_prior: "float | None", featured: set[str]) -> float:
     count = card.rating_count or 0
 
     if rating is None or count == 0:
-        if in_featured:
-            return 0.8
         if source_prior is None:
-            return 0.5
-        return max(0.0, min(1.0, (source_prior - 1.0) / 4.0))
+            base = 0.5
+        else:
+            base = max(0.0, min(1.0, (source_prior - 1.0) / 4.0))
+        return max(base, 0.8) if in_featured else base
 
     # Rated: Bayesian smoothing with 50-vote prior at the source mean
     prior = source_prior if source_prior is not None else rating
