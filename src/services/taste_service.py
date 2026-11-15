@@ -30,16 +30,27 @@ _PRIOR_WEIGHTS: dict[str, float] = {"love": 6.0, "like": 3.0, "less": -4.0}
 
 # Common free-text aliases for allergen group slugs (see ALLERGENS in ingredient_keys.py).
 # Slugs that are already canonical (e.g. "milk", "peanut") pass through unchanged.
-_ALLERGY_ALIASES: dict[str, str] = {
+# A value may be a list when the free-text term spans multiple allergen groups
+# (e.g. "nuts" covers both tree-nut and peanut).
+_ALLERGY_ALIASES: dict[str, str | list[str]] = {
     "dairy": "milk",
     "peanuts": "peanut",
     "tree nut": "tree-nut",
     "tree nuts": "tree-nut",
     "tree-nuts": "tree-nut",
-    "nut": "tree-nut",
-    "nuts": "tree-nut",
+    # "nut"/"nuts" colloquially covers both tree nuts and peanuts
+    "nut": ["tree-nut", "peanut"],
+    "nuts": ["tree-nut", "peanut"],
     "soya": "soy",
     "gluten": "wheat",
+    "eggs": "egg",
+    # ingredient-level shellfish terms that must map to the allergen group
+    "shrimp": "shellfish",
+    "prawn": "shellfish",
+    "crab": "shellfish",
+    "lobster": "shellfish",
+    # "seafood" spans both fish and shellfish allergen groups
+    "seafood": ["fish", "shellfish"],
 }
 
 
@@ -198,11 +209,15 @@ def is_blocked(recipe, user) -> bool:
     ingredient_keys = {k[len("ingredient:"):] for k in keys if k.startswith("ingredient:")}
     recipe_allergens = allergens_for(ingredient_keys)
     # Normalise user allergy values to canonical allergen group slugs so that
-    # free-text values like "dairy", "tree nut", or "peanuts" match correctly.
-    user_allergies = {
-        _ALLERGY_ALIASES.get(str(a).strip().lower(), str(a).strip().lower())
-        for a in (user.allergies or [])
-    }
+    # free-text values like "dairy", "tree nut", "peanuts", or "shrimp" match.
+    # Aliases may expand to multiple slugs (e.g. "nuts" → tree-nut + peanut).
+    user_allergies: set[str] = set()
+    for a in (user.allergies or []):
+        canonical = _ALLERGY_ALIASES.get(str(a).strip().lower(), str(a).strip().lower())
+        if isinstance(canonical, list):
+            user_allergies.update(canonical)
+        else:
+            user_allergies.add(canonical)
     if recipe_allergens & user_allergies:
         return True
 
