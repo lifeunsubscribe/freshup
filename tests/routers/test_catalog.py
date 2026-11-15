@@ -733,7 +733,9 @@ class TestSourceTypeFields:
         _mock_seed(monkeypatch, db_session)
         response = client.get(f"/catalog/{HELLOFRESH_SOURCE}/collections", headers=member_headers)
         assert response.status_code == 200
-        for item in response.json():
+        items = response.json()
+        assert len(items) == 2, "expected 2 seeded collections; loop would pass vacuously on empty list"
+        for item in items:
             assert item.get("source_type") == HELLOFRESH_SOURCE
 
     def test_detail_endpoint_children_carry_source_type(
@@ -752,7 +754,9 @@ class TestSourceTypeFields:
             )
 
         assert response.status_code == 200
-        for child in response.json()["children"]:
+        children = response.json()["children"]
+        assert len(children) == 2, "expected 2 children from _make_page(n_children=2); loop would pass vacuously on empty list"
+        for child in children:
             assert child.get("source_type") == HELLOFRESH_SOURCE
 
     def test_detail_endpoint_cards_carry_source_type(
@@ -771,5 +775,7 @@ class TestSourceTypeFields:
             )
 
         assert response.status_code == 200
-        for card in response.json()["cards"]:
+        cards = response.json()["cards"]
+        assert len(cards) == 2, "expected 2 cards from _make_page(n_cards=2); loop would pass vacuously on empty list"
+        for card in cards:
             assert card.get("source_type") == HELLOFRESH_SOURCE
