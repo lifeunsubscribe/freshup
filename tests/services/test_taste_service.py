@@ -7,7 +7,11 @@ from uuid import uuid4
 import pytest
 
 from src.services.taste_service import (
+    FEATURED_COLLECTIONS,
+    card_keys,
     is_blocked,
+    is_card_blocked,
+    popularity,
     recipe_keys,
     score_recipe,
     user_affinities,
@@ -583,6 +587,172 @@ class TestScoreRecipe:
         recipe = _make_recipe(ingredient_names=["pork"])
         affinities = {"ingredient:pork": -1.0}
         assert score_recipe(recipe, affinities) == pytest.approx(-1.0)
+
+
+# ---------------------------------------------------------------------------
+# card_keys
+# ---------------------------------------------------------------------------
+
+
+def _make_card(
+    source_type="hellofresh_web",
+    name="Chicken Stir Fry",
+    headline=None,
+    ingredient_keys=None,
+    rating=None,
+    rating_count=None,
+):
+    return SimpleNamespace(
+        id=uuid4(),
+        source_type=source_type,
+        name=name,
+        headline=headline,
+        ingredient_keys=ingredient_keys,
+        rating=rating,
+        rating_count=rating_count,
+    )
+
+
+class TestCardKeys:
+    def test_stored_ingredient_keys_used_when_present(self):
+        card = _make_card(ingredient_keys=["chicken", "garlic"])
+        keys = card_keys(card, set())
+        assert "ingredient:chicken" in keys
+        assert "ingredient:garlic" in keys
+
+    def test_stored_empty_list_means_no_ingredient_keys(self):
+        # ingredient_keys=[] means imported but nothing matched — not None (not unimported)
+        card = _make_card(ingredient_keys=[])
+        keys = card_keys(card, set())
+        assert not any(k.startswith("ingredient:") for k in keys)
+
+    def test_text_derived_ingredient_keys_when_none(self):
+        # "Chicken Stir Fry" should produce ingredient:chicken from tags_from_text
+        card = _make_card(name="Chicken Stir Fry", ingredient_keys=None)
+        keys = card_keys(card, set())
+        assert "ingredient:chicken" in keys
+
+    def test_stored_keys_override_text_ingredient_keys(self):
+        # Stored keys list only "beef"; text would also produce "chicken" — stored wins
+        card = _make_card(name="Chicken Stir Fry", ingredient_keys=["beef"])
+        keys = card_keys(card, set())
+        assert "ingredient:beef" in keys
+        assert "ingredient:chicken" not in keys
+
+    def test_cuisine_dish_diet_from_overlap_included(self):
+        card = _make_card(name="Pasta", ingredient_keys=["pasta"])
+        keys = card_keys(card, {"cuisine:italian", "ingredient:chicken"})
+        assert "cuisine:italian" in keys
+        # ingredient: from overlap is excluded — taste keys only come from stored/text
+        assert "ingredient:chicken" not in keys
+
+    def test_side_tags_excluded(self):
+        card = _make_card(name="Chicken Stir Fry", headline="with Rice and Side Salad", ingredient_keys=None)
+        keys = card_keys(card, set())
+        assert not any(k.startswith("side:") for k in keys)
+
+    def test_cuisine_from_text_included(self):
+        card = _make_card(name="Italian Pasta", ingredient_keys=None)
+        keys = card_keys(card, set())
+        assert "cuisine:italian" in keys
+
+
+# ---------------------------------------------------------------------------
+# popularity
+# ---------------------------------------------------------------------------
+
+
+class TestPopularity:
+    def test_high_count_outranks_perfect_rating_low_count(self):
+        """4.6/20000 should outrank 5.0/5 due to Bayesian smoothing."""
+        source_prior = 3.5
+        card_a = _make_card(source_type="hellofresh_web", rating=4.6, rating_count=20000)
+        card_b = _make_card(source_type="hellofresh_web", rating=5.0, rating_count=5)
+        score_a = popularity(card_a, source_prior, set())
+        score_b = popularity(card_b, source_prior, set())
+        assert score_a > score_b
+
+    def test_unrated_in_featured_scores_at_least_0_8(self):
+        card = _make_card(source_type="homechef_web", rating=None, rating_count=None)
+        score = popularity(card, 3.5, {"customer-favorites"})
+        assert score >= 0.8
+
+    def test_unrated_unfeatured_scores_source_prior_mapped(self):
+        # source_prior=3.5 → (3.5 - 1) / 4 = 0.625
+        card = _make_card(source_type="hellofresh_web", rating=None, rating_count=None)
+        score = popularity(card, 3.5, set())
+        assert score == pytest.approx((3.5 - 1.0) / 4.0)
+
+    def test_unrated_no_source_prior_scores_half(self):
+        card = _make_card(source_type="hellofresh_web", rating=None, rating_count=None)
+        score = popularity(card, None, set())
+        assert score == pytest.approx(0.5)
+
+    def test_featured_floor_applies_to_rated_card(self):
+        # A low-rated card in a featured collection gets the 0.8 floor
+        card = _make_card(source_type="hellofresh_web", rating=2.0, rating_count=100)
+        score = popularity(card, 2.0, {"hall-of-fame"})
+        assert score >= 0.8
+
+    def test_non_featured_collection_no_floor(self):
+        card = _make_card(source_type="hellofresh_web", rating=None, rating_count=None)
+        score = popularity(card, 3.5, {"some-other-collection"})
+        assert score < 0.8
+
+    def test_featured_collections_constant_contains_expected_sources(self):
+        assert "hellofresh_web" in FEATURED_COLLECTIONS
+        assert "hall-of-fame" in FEATURED_COLLECTIONS["hellofresh_web"]
+        assert "homechef_web" in FEATURED_COLLECTIONS
+        assert "customer-favorites" in FEATURED_COLLECTIONS["homechef_web"]
+
+    def test_score_in_zero_one_range_for_rated_card(self):
+        card = _make_card(rating=4.0, rating_count=500)
+        score = popularity(card, 3.5, set())
+        assert 0.0 <= score <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# is_card_blocked
+# ---------------------------------------------------------------------------
+
+
+class TestIsCardBlocked:
+    def test_peanut_allergy_blocks_unknown_ingredients(self):
+        """A user with any allergy is blocked from a card with ingredient_keys=None."""
+        user = _make_user(allergies=["peanut"])
+        card = _make_card(ingredient_keys=None)
+        keys = card_keys(card, set())
+        assert is_card_blocked(card, keys, user)
+
+    def test_no_allergy_not_blocked_by_unknown_ingredients(self):
+        user = _make_user(allergies=[])
+        card = _make_card(ingredient_keys=None)
+        keys = card_keys(card, set())
+        assert not is_card_blocked(card, keys, user)
+
+    def test_never_key_blocks_regardless_of_ingredient_keys(self):
+        user = _make_user(taste_preferences={"ingredient:pork": "never"})
+        card = _make_card(ingredient_keys=["pork"])
+        keys = card_keys(card, set())
+        assert is_card_blocked(card, keys, user)
+
+    def test_known_allergen_in_stored_keys_blocks(self):
+        user = _make_user(allergies=["peanut"])
+        card = _make_card(ingredient_keys=["peanut", "garlic"])
+        keys = card_keys(card, set())
+        assert is_card_blocked(card, keys, user)
+
+    def test_no_allergen_in_stored_keys_not_blocked(self):
+        user = _make_user(allergies=["peanut"])
+        card = _make_card(ingredient_keys=["chicken", "garlic"])
+        keys = card_keys(card, set())
+        assert not is_card_blocked(card, keys, user)
+
+    def test_no_prefs_no_allergy_not_blocked(self):
+        user = _make_user()
+        card = _make_card(ingredient_keys=None)
+        keys = card_keys(card, set())
+        assert not is_card_blocked(card, keys, user)
 
 
 # ---------------------------------------------------------------------------

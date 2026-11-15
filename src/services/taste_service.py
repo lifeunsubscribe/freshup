@@ -20,8 +20,15 @@ from sqlalchemy.orm import Session
 from src.db.models.user_cook_event import UserCookEvent
 from src.db.models.user_recipe import UserRecipeRelation
 from src.db.models.user_recipe_view import UserRecipeView
+from src.services.card_tags import tags_from_text
 from src.services.ingredient_keys import ALLERGENS, allergens_for, keys_for, keys_for_recipe
 from src.services.recipe_themes import TAG_INDEX, normalize_tag
+
+# source_type -> set of collection slugs considered "featured" for popularity scoring
+FEATURED_COLLECTIONS: dict[str, set[str]] = {
+    "hellofresh_web": {"hall-of-fame"},
+    "homechef_web": {"customer-favorites"},
+}
 
 _SIGNAL_CUTOFF_DAYS = 90
 
@@ -246,3 +253,92 @@ def score_recipe(recipe, affinities: dict[str, float]) -> float:
     keys = recipe_keys(recipe)
     matched = [affinities[k] for k in keys if k in affinities]
     return sum(matched) / len(matched) if matched else 0.0
+
+
+def card_keys(card, overlap_keys: set[str]) -> set[str]:
+    """
+    Return taste keys for a catalog card.
+
+    ingredient: keys come from stored ingredient_keys when the column is not None,
+    otherwise from ingredient: tags produced by tags_from_text on the card's name
+    and headline. cuisine:/dish:/diet: keys are added from both tags_from_text and
+    overlap_keys. side: tags are excluded.
+    """
+    text_tags = tags_from_text(card.name, getattr(card, "headline", None))
+    keys: set[str] = set()
+
+    if card.ingredient_keys is not None:
+        for k in card.ingredient_keys:
+            keys.add(f"ingredient:{k}")
+    else:
+        for tag in text_tags:
+            if tag.startswith("ingredient:"):
+                keys.add(tag)
+
+    _TASTE_PREFIXES = ("cuisine", "dish", "diet")
+    for tag in text_tags:
+        if tag.split(":", 1)[0] in _TASTE_PREFIXES:
+            keys.add(tag)
+    for tag in overlap_keys:
+        if tag.split(":", 1)[0] in _TASTE_PREFIXES:
+            keys.add(tag)
+
+    return keys
+
+
+def popularity(card, source_prior: "float | None", featured: set[str]) -> float:
+    """
+    Return a 0..1 popularity score for a catalog card.
+
+    Rated card: Bayesian average (rating * count + prior_mean * 50) / (count + 50)
+    mapped from the 1..5 scale to 0..1 via (x - 1) / 4, where prior_mean is
+    source_prior. A card in its source's featured collection scores at least 0.8.
+    Unrated, unfeatured: source_prior mapped the same way, or 0.5 when source_prior
+    is None (source has no rated cards).
+    """
+    source_featured = FEATURED_COLLECTIONS.get(card.source_type, set())
+    in_featured = bool(featured & source_featured)
+
+    rating = card.rating
+    count = card.rating_count or 0
+
+    if rating is None or count == 0:
+        if in_featured:
+            return 0.8
+        if source_prior is None:
+            return 0.5
+        return max(0.0, min(1.0, (source_prior - 1.0) / 4.0))
+
+    # Rated: Bayesian smoothing with 50-vote prior at the source mean
+    prior = source_prior if source_prior is not None else rating
+    bayes = (rating * count + prior * 50) / (count + 50)
+    score = max(0.0, min(1.0, (bayes - 1.0) / 4.0))
+    return max(score, 0.8) if in_featured else score
+
+
+def is_card_blocked(card, keys: set[str], user) -> bool:
+    """
+    Return True when the card should be blocked for this user.
+
+    Blocked when any key appears in taste_preferences with level "never", or when the
+    user has any allergy and the card's ingredient_keys is None (ingredients unknown),
+    or when the card's known ingredients match a user allergy group.
+    """
+    prefs = user.taste_preferences or {}
+    for key in keys:
+        if prefs.get(key) == "never":
+            return True
+
+    user_allergies: set[str] = set()
+    for a in (user.allergies or []):
+        user_allergies.update(_allergy_groups(str(a)))
+
+    if not user_allergies:
+        return False
+
+    # Unknown ingredients are not safe for allergic users
+    if card.ingredient_keys is None:
+        return True
+
+    ingredient_key_set = {k[len("ingredient:"):] for k in keys if k.startswith("ingredient:")}
+    return bool(allergens_for(ingredient_key_set) & user_allergies)
