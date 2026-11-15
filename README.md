@@ -51,9 +51,22 @@ Three things to know when writing frontend tests:
   assert synchronously.
 - Test files live either next to the component or under a sibling
   `__tests__/` folder, and both styles are in use. Before creating
-  `Foo.test.tsx`, run `find src -name 'Foo.test.tsx'`; extend the existing
+  `Foo.test.tsx`, run `find src -name 'Foo*.test.tsx'`; extend the existing
   file. A second file with the same name passes while the first one, which
-  nobody re-ran, fails on the change you just made.
+  nobody re-ran, fails on the change you just made, so two test files may
+  never share a name: `src/test/testFileNames.test.ts` fails the suite when
+  they do.
+- A page too large for one test file is split by topic, with the topic in
+  each file name and a header in each file saying what it covers. The only
+  split today is the Recipes page:
+
+  | File | Covers | Themes and catalog |
+  |---|---|---|
+  | `src/pages/Recipes.library.test.tsx` | your own rows, search, the grid, "See all", back, view switching | mocked empty |
+  | `src/pages/Recipes.themes.test.tsx` | theme bar, theme pages, theme filters, collection rows, More collections sheet, source bylines | fixtures |
+
+  Both files mock `../api`, so a hook that `Recipes.tsx` starts taking from
+  there must be added to the mock in both.
 - Run `npm run typecheck` before pushing to catch type errors in test files that neither the build nor vitest check.
 
 The API applies any pending Alembic migrations on startup and seeds local test

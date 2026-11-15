@@ -1,31 +1,48 @@
+/**
+ * Recipes page, file 1 of 2: YOUR OWN ROWS, SEARCH AND THE GRID
+ *
+ * Covers the library side of the page: the user's own rows (favorites,
+ * recently added, quick meals), the search button and input, "See all" into
+ * the grid, the back button, and switching between carousel and grid views.
+ * Themes and the catalog are mocked empty so only those rows render.
+ *
+ * Not here: anything driven by GET /themes or the catalog (theme bar, theme
+ * pages, theme filters, collection rows, More collections sheet, bylines).
+ * Those are in Recipes.themes.test.tsx.
+ *
+ * Both files mock '../api'. A hook that Recipes.tsx starts taking from there
+ * has to be added to the mock in both, and a change to Recipes.tsx needs both
+ * files run. The split is listed in README.md under "Three things to know
+ * when writing frontend tests".
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
-import Recipes from '../Recipes'
-import { useRecipeList } from '../../api'
+import Recipes from './Recipes'
+import { useRecipeList } from '../api'
 
 // Mock the API hook
-vi.mock('../../api', () => ({
+vi.mock('../api', () => ({
   useRecipeList: vi.fn(),
 }))
 // ConnectedRecipeCard (rendered inside) reads engagement state from React Query.
 // These tests mock the API layer rather than wrapping in a QueryClientProvider,
 // so the engagement hooks are stubbed the same way.
-vi.mock('../../api/hooks/useRecipeEngagement', () => ({
+vi.mock('../api/hooks/useRecipeEngagement', () => ({
   useMyRecipeRelations: () => ({ data: new Map() }),
   useToggleBookmark: () => ({ mutate: vi.fn() }),
   useToggleLike: () => ({ mutate: vi.fn() }),
 }))
 // The "From HelloFresh" section (#545) reads the catalog through React Query.
 // An empty, settled list keeps these library-view tests focused on what they
-// already assert; the catalog section has its own tests in ../Recipes.test.tsx.
+// already assert; the catalog section has its own tests in Recipes.themes.test.tsx.
 // Theme lists come from GET /themes; empty here keeps these tests on the
-// user's own rows. Theme behaviour is covered in ../Recipes.test.tsx.
-vi.mock('../../api/hooks/useThemes', () => ({
+// user's own rows. Theme behaviour is covered in Recipes.themes.test.tsx.
+vi.mock('../api/hooks/useThemes', () => ({
   useThemes: () => ({ data: [] }),
 }))
-vi.mock('../../api/hooks/useCatalog', () => ({
+vi.mock('../api/hooks/useCatalog', () => ({
   useCollections: () => ({ data: [], isLoading: false, isError: false }),
   useCollection: () => ({ data: undefined, isLoading: false, isError: false }),
   useOpenCard: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null, reset: vi.fn() }),

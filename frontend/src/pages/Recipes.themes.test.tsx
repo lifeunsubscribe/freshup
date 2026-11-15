@@ -1,10 +1,19 @@
 /**
- * Recipes page — theme and collection-row tests
+ * Recipes page, file 2 of 2: THEME AND CATALOG ROWS
  *
- * The library carousel/grid behaviour lives in __tests__/Recipes.test.tsx.
- * This file covers rows driven by GET /themes: the main-page sampler, theme
- * pages ("See all"), theme filters, lazy collection loading, the More
- * Collections sheet, and source bylines.
+ * Covers what is driven by GET /themes and the catalog: the main-page sampler,
+ * the theme bar, theme pages ("See all"), theme filters, lazy collection
+ * loading, the More collections sheet, source bylines and cold start.
+ * useThemes, useCollections and useCollection return fixtures here.
+ *
+ * Not here: the user's own rows, search, the grid and switching between
+ * views. Those are in Recipes.library.test.tsx, where themes and the catalog
+ * are mocked empty.
+ *
+ * Both files mock '../api'. A hook that Recipes.tsx starts taking from there
+ * has to be added to the mock in both, and a change to Recipes.tsx needs both
+ * files run. The split is listed in README.md under "Three things to know
+ * when writing frontend tests".
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, within } from '@testing-library/react'
