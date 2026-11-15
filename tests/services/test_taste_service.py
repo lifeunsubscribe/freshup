@@ -731,6 +731,13 @@ class TestPopularity:
         score = popularity(card, 3.5, set())
         assert 0.0 <= score <= 1.0
 
+    def test_rated_card_no_source_prior_uses_rating_as_prior(self):
+        # source_prior=None → prior falls back to the card's own rating (line 313)
+        # bayes = (4.0*100 + 4.0*50) / 150 = 4.0; score = (4.0 - 1.0) / 4.0
+        card = _make_card(rating=4.0, rating_count=100)
+        score = popularity(card, None, set())
+        assert score == pytest.approx((4.0 - 1.0) / 4.0)
+
 
 # ---------------------------------------------------------------------------
 # is_card_blocked
