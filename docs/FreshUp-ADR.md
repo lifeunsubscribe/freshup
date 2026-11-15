@@ -747,6 +747,12 @@ Raw scores are normalised to −1..1 by dividing by the largest absolute value. 
 
 The `less` level only lowers affinity; it never blocks. All blocking is enforced in `taste_service.is_blocked`, which is called by the recommendation layer, not by search or catalog endpoints.
 
+**Catalog cards and popularity (#598).** Most recipes a user can see are catalog cards, not imported recipes, so cards are scored with the same keys. `card_keys` takes `ingredient:` keys from the card's stored `ingredient_keys` when the column is set, otherwise from its name and headline, and adds `cuisine:`/`dish:`/`diet:` keys from the text and from collection overlap; `side:` tags are not taste keys.
+
+For a user with no history, `popularity` (0..1) stands in for affinity. A rated card gets a Bayesian average, `(rating × count + source_mean × 50) / (count + 50)`, mapped from the 1..5 scale to 0..1, so a 4.6 card with 20,000 ratings outranks a 5.0 card with 5. A card in its source's featured collection (`FEATURED_COLLECTIONS`: HelloFresh `hall-of-fame`, Home Chef `customer-favorites`) scores at least 0.8. An unrated, unfeatured card scores its source's mean rating mapped the same way, or 0.5 when the source publishes no ratings. Popularity is computed on request and not stored.
+
+**Unknown ingredients.** `is_card_blocked` applies the `never` and allergen rules above to cards, plus one more: a card whose `ingredient_keys` is NULL (never imported, ingredients unknown) is blocked for a user with any allergy entry at all, including one that maps to no allergen group. Unknown ingredients are not safe to suggest to someone with an allergy.
+
 ---
 
 ## 6. Recipe Source Strategy
