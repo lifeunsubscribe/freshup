@@ -711,6 +711,40 @@ Each week (configurable day/time, default Sunday 8am), the system generates a dr
 - Draft/suggested meals: faded/greyed-out recipe cards with accept/dismiss/swap actions, labeled "Suggested."
 - Opted-out slots: "You opted out" with "Plan something" browse link.
 
+### 5.16 Taste Scoring (added Phase 2.5J)
+
+Each user's affinity for a recipe key is learned from behaviour and refined by explicit preferences. A "recipe key" is either `ingredient:<key>` (from the ingredient vocabulary) or `cuisine:<value>` / `dish:<value>` / `diet:<value>` (from recipe tags).
+
+**Behavioural signal weights (applied to every key of the signal's recipe):**
+
+| Signal | Weight | Cap |
+|---|---|---|
+| Cook event | +3 per cook | 3 cooks per recipe |
+| Rating 4–5 | +2 | — |
+| Rating 1–2 | −3 | — |
+| Liked | +2 | — |
+| Bookmarked | +1 | — |
+| View | +0.5 per view | 2 views per recipe |
+
+Signals older than 90 days count at half weight.
+
+**Explicit priors (from `taste_preferences`, a flat dict of `prefixed_key → level`):**
+
+| Level | Weight |
+|---|---|
+| `love` | +6 |
+| `like` | +3 |
+| `less` | −4 |
+| `never` | blocks (see below) |
+
+Raw scores are normalised to −1..1 by dividing by the largest absolute value. A user with no signals and no preferences gets an empty affinity dict; every recipe then scores 0.0.
+
+**Blocking rules (apply to recommendations only — never to search or list endpoints):**
+- Any recipe key mapped to `never` in `taste_preferences` → recipe is blocked.
+- Any allergen group for the recipe's ingredient keys intersects `user.allergies` (case-insensitive) → recipe is blocked.
+
+The `less` level only lowers affinity; it never blocks. All blocking is enforced in `taste_service.is_blocked`, which is called by the recommendation layer, not by search or catalog endpoints.
+
 ---
 
 ## 6. Recipe Source Strategy
