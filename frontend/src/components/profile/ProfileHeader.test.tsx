@@ -13,6 +13,8 @@ describe('ProfileHeader', () => {
     allergies: [],
     disliked_ingredients: [],
     favorite_ingredients: [],
+    taste_preferences: {},
+    onboarded_at: null,
     failed_login_attempts: 0,
     lockout_until: null,
     lockout_count: 0,

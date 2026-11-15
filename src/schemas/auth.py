@@ -5,6 +5,7 @@ Defines request/response models for user registration and login.
 """
 
 from uuid import UUID
+from datetime import datetime
 from typing import Optional, Any
 import re
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator, ConfigDict
@@ -16,6 +17,13 @@ from src.schemas.validators import (
     normalize_email,
     validate_dietary_profile
 )
+from src.services.ingredient_keys import INGREDIENTS
+from src.services.recipe_themes import VALUE_LABELS
+
+TASTE_LEVELS = frozenset({"love", "like", "less", "never"})
+# Valid taste_preferences key prefixes with their allowed value sets
+_VALID_INGREDIENT_KEYS = frozenset(INGREDIENTS.keys())
+_VALID_CUISINE_KEYS = frozenset(VALUE_LABELS["cuisine"].keys())
 
 
 class UserCreate(BaseModel):
@@ -145,6 +153,8 @@ class UserResponse(BaseModel):
     allergies: list[str]
     disliked_ingredients: list[str]
     favorite_ingredients: list[str]
+    taste_preferences: dict[str, str]
+    onboarded_at: Optional[datetime]
 
 
 class UserUpdate(BaseModel):
@@ -158,6 +168,8 @@ class UserUpdate(BaseModel):
     allergies: Optional[list[str]] = Field(default=None, description="Food allergies")
     disliked_ingredients: Optional[list[str]] = Field(default=None, description="Disliked ingredients (stored as JSON array)")
     favorite_ingredients: Optional[list[str]] = Field(default=None, description="Favorite ingredients (stored as JSON array)")
+    taste_preferences: Optional[dict[str, str]] = Field(default=None, description="Graded taste map; keys: ingredient:<key> or cuisine:<value>; values: love|like|less|never")
+    onboarded: Optional[bool] = Field(default=None, description="Set to true to mark onboarding complete (sets onboarded_at once)")
 
     @field_validator('name')
     @classmethod
@@ -183,6 +195,39 @@ class UserUpdate(BaseModel):
         """
         field_name = info.field_name
         return validate_string_list(field_name, v)
+
+    @field_validator('taste_preferences')
+    @classmethod
+    def validate_taste_preferences(cls, v: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
+        """Keys must be ingredient:<known key> or cuisine:<known value>; values one of love|like|less|never."""
+        if v is None:
+            return v
+        for pref_key, level in v.items():
+            if level not in TASTE_LEVELS:
+                raise ValueError(
+                    f"Invalid taste level '{level}' for key '{pref_key}'. "
+                    f"Must be one of: {', '.join(sorted(TASTE_LEVELS))}"
+                )
+            if pref_key.startswith("ingredient:"):
+                ingredient_key = pref_key[len("ingredient:"):]
+                if ingredient_key not in _VALID_INGREDIENT_KEYS:
+                    raise ValueError(
+                        f"Unknown ingredient key '{ingredient_key}' in '{pref_key}'. "
+                        f"Key must be a known ingredient from the ingredient vocabulary."
+                    )
+            elif pref_key.startswith("cuisine:"):
+                cuisine_key = pref_key[len("cuisine:"):]
+                if cuisine_key not in _VALID_CUISINE_KEYS:
+                    raise ValueError(
+                        f"Unknown cuisine key '{cuisine_key}' in '{pref_key}'. "
+                        f"Key must be a known cuisine value."
+                    )
+            else:
+                raise ValueError(
+                    f"Invalid taste_preferences key '{pref_key}'. "
+                    f"Keys must start with 'ingredient:' or 'cuisine:'."
+                )
+        return v
 
     @model_validator(mode='before')
     @classmethod

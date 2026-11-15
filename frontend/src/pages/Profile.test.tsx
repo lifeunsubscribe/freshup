@@ -46,6 +46,8 @@ describe('Profile Page', () => {
     allergies: ['peanuts', 'shellfish'],
     disliked_ingredients: ['cilantro'],
     favorite_ingredients: [],
+    taste_preferences: {},
+    onboarded_at: null,
     failed_login_attempts: 0,
     lockout_until: null,
     lockout_count: 0,
