@@ -413,6 +413,66 @@ describe('RecipeDetail', () => {
     })
   })
 
+  describe('tag row', () => {
+    it('shows two chips for ["Italian", "italian", "main course"] (deduped, lowercased)', async () => {
+      const useRecipesModule = await import('../api/hooks/useRecipes')
+      vi.mocked(useRecipesModule.useRecipe).mockReturnValueOnce({
+        data: {
+          id: 'recipe-1',
+          name: 'Mushroom Risotto',
+          source_type: 'hellofresh',
+          source_url: 'https://www.hellofresh.com/recipes/mushroom-risotto',
+          source_image: null,
+          steps: ['Boil water.', 'Add rice.'],
+          notes: null,
+          tags: ['Italian', 'italian', 'main course'],
+          cook_time_minutes: 30,
+          prep_time_minutes: 10,
+          base_servings: 4,
+          times_cooked: 0,
+          is_persisted: true,
+          variation_groups: null,
+          nutritional_info: null,
+          ingredients: [],
+        },
+        isLoading: false,
+        isError: false,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      renderPage()
+      // 'Italian' and 'italian' collapse to one lowercase chip
+      expect(screen.getAllByText('italian')).toHaveLength(1)
+      expect(screen.getByText('main course')).toBeInTheDocument()
+    })
+
+    it('renders no tag row when recipe has no tags', async () => {
+      const useRecipesModule = await import('../api/hooks/useRecipes')
+      vi.mocked(useRecipesModule.useRecipe).mockReturnValueOnce({
+        data: {
+          id: 'recipe-1',
+          name: 'Mushroom Risotto',
+          source_type: 'hellofresh',
+          source_url: 'https://www.hellofresh.com/recipes/mushroom-risotto',
+          source_image: null,
+          steps: ['Boil water.', 'Add rice.'],
+          notes: null,
+          tags: [],
+          cook_time_minutes: 30,
+          prep_time_minutes: 10,
+          base_servings: 4,
+          times_cooked: 0,
+          is_persisted: true,
+          variation_groups: null,
+          nutritional_info: null,
+          ingredients: [],
+        },
+        isLoading: false,
+        isError: false,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      renderPage()
+      expect(screen.queryByTestId('tag-row')).not.toBeInTheDocument()
+    })
+  })
+
   describe('OutcomesSection', () => {
     it('renders the "How it turned out" section on the Ingredients tab', () => {
       renderPage()

@@ -20,6 +20,15 @@ vi.mock('../../../api/hooks/useRecipeEngagement', () => ({
   useToggleLike: () => ({ mutate: vi.fn() }),
 }))
 
+// Rendering 100 full ConnectedRecipeCard DOM trees in JSDOM exceeds the 5 s
+// test timeout. These tests cover RecipeGrid's pagination logic, not the card
+// renderer, so a lightweight stub is correct here.
+vi.mock('../ConnectedRecipeCard', () => ({
+  default: ({ recipe }: { recipe: { id: string; name: string } }) => (
+    <div data-testid="recipe-card">{recipe.name}</div>
+  ),
+}))
+
 
 // Helper to render component with Router context
 const renderWithRouter = (ui: React.ReactElement) => {
