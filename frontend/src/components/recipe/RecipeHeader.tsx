@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Bookmark, Heart, Timer } from 'lucide-react'
 import type { TabType } from './TabBar'
@@ -18,10 +19,15 @@ interface RecipeHeaderProps {
   timers?: CookTimer[]
   onDismissTimer?: (id: string) => void
   onOpenTimerSheet?: () => void
+  /** Shown under the title and above the photo: attribution, pills, rating line. */
+  children?: ReactNode
 }
 
 /**
  * RecipeHeader component for recipe detail view.
+ *
+ * Order follows docs/mockups/recipe-acquisition/3-recipe-detail.html: top bar,
+ * title, whatever the page passes as children, then the photo.
  *
  * Top-bar right slot:
  *   - Cook tab: timer button (opens NewTimerSheet) + TimerPills
@@ -40,6 +46,7 @@ export default function RecipeHeader({
   timers = [],
   onDismissTimer,
   onOpenTimerSheet,
+  children,
 }: RecipeHeaderProps) {
   const navigate = useNavigate()
   const isCookTab = activeTab === 'cook'
@@ -47,7 +54,7 @@ export default function RecipeHeader({
   return (
     <div className="mb-4">
       {/* Top bar: back button on left, right slot depends on active tab */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <button
           onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
@@ -105,9 +112,22 @@ export default function RecipeHeader({
         )}
       </div>
 
-      {/* Hero image (4:3 aspect ratio) */}
+      {/* Title with olive period */}
+      <h1 className="text-[26px] font-medium leading-[1.3] text-text-primary">
+        {title}
+        <span className="text-olive">.</span>
+      </h1>
+
+      {/* Subtitle */}
+      {subtitle && (
+        <p className="mt-1 text-sm text-text-secondary">{subtitle}</p>
+      )}
+
+      {children}
+
+      {/* Hero image (4:3, 16px radius) */}
       {imageUrl && (
-        <div className="relative w-full mb-4 rounded-card overflow-hidden bg-warm-gray" style={{ paddingBottom: '75%' }}>
+        <div className="relative w-full mt-4 aspect-[4/3] rounded-image-hero overflow-hidden bg-warm-gray">
           <img
             src={imageUrl}
             alt={title}
@@ -117,17 +137,6 @@ export default function RecipeHeader({
             }}
           />
         </div>
-      )}
-
-      {/* Title with olive period */}
-      <h1 className="text-[26px] font-medium text-text-primary mb-1">
-        {title}
-        <span className="text-olive">.</span>
-      </h1>
-
-      {/* Subtitle */}
-      {subtitle && (
-        <p className="text-sm text-text-secondary">{subtitle}</p>
       )}
     </div>
   )

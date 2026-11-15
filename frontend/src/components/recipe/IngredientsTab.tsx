@@ -1,8 +1,8 @@
 import type { RecipeIngredientResponse, InventoryItemListResponse } from '../../api/types'
 import type { PantryCheckResult } from '../../utils/pantryMatcher'
 import PantryCheck from './PantryCheck'
-import Pill from '../ui/Pill'
 import { isUnparseableQuantity } from '../../constants/recipe'
+import { displayUnit } from '../../utils/units'
 
 /**
  * Props for IngredientsTab component
@@ -85,7 +85,7 @@ function formatQuantity(quantity: number, multiplier: number = 1): string {
  *
  * Features:
  * - Lists all ingredients with scaled quantities
- * - Shows quantity, unit, and ingredient name
+ * - Shows ingredient name, then quantity and unit (short form) at the right edge
  * - Pantry cross-reference: "In stock" badges for available ingredients
  * - PantryCheck summary card at bottom
  * - Quantities scaled by servingsMultiplier
@@ -120,7 +120,7 @@ export default function IngredientsTab({
   })
 
   return (
-    <div className="space-y-3">
+    <div>
       {inventoryError && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
           <p className="text-sm text-yellow-800">
@@ -128,32 +128,40 @@ export default function IngredientsTab({
           </p>
         </div>
       )}
-      {ingredients.map((ingredient) => {
-        const scaledQuantity = ingredient.quantity * servingsMultiplier
-        const formattedQuantity = formatQuantity(scaledQuantity, servingsMultiplier)
-        const isInStock = stockStatusMap.has(ingredient.id)
+      <p className="text-[12px] uppercase tracking-[0.06em] text-text-tertiary">
+        Ingredients · {ingredients.length}
+      </p>
+      {/* Row layout from the recipe-detail mockup: dot, name, stock badge, quantity at the right edge. */}
+      <ul className="mt-1">
+        {ingredients.map((ingredient) => {
+          const scaledQuantity = ingredient.quantity * servingsMultiplier
+          const formattedQuantity = formatQuantity(scaledQuantity, servingsMultiplier)
+          const isInStock = stockStatusMap.has(ingredient.id)
 
-        return (
-          <div
-            key={ingredient.id}
-            className="flex items-start gap-3 py-3 border-b border-warm-border last:border-b-0"
-          >
-            <div className="flex-shrink-0 w-20 text-sm font-medium text-text-primary">
-              {formattedQuantity} {ingredient.unit}
-            </div>
-            <div className="flex-1 text-sm text-text-primary">
-              {ingredient.ingredient_name}
-            </div>
-            {isInStock && (
-              <div className="flex-shrink-0">
-                <Pill variant="success">
-                  <span className="text-xs">In stock</span>
-                </Pill>
-              </div>
-            )}
-          </div>
-        )
-      })}
+          return (
+            <li
+              key={ingredient.id}
+              className="flex items-center gap-2.5 py-2.5 border-b border-warm-divider last:border-b-0"
+            >
+              <span
+                aria-hidden="true"
+                className={`w-1.5 h-1.5 shrink-0 rounded-full ${isInStock ? 'bg-mocha' : 'bg-olive'}`}
+              />
+              <span className="flex-1 min-w-0 text-[14px] text-text-primary">
+                {ingredient.ingredient_name}
+              </span>
+              {isInStock && (
+                <span className="shrink-0 text-[11px] text-olive-dark bg-cream-pill rounded-pill px-1.5 py-0.5">
+                  In stock
+                </span>
+              )}
+              <span className="shrink-0 text-right text-[13px] text-text-secondary whitespace-nowrap">
+                {formattedQuantity} {displayUnit(ingredient.unit)}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
 
       {/* PantryCheck summary card */}
       <PantryCheck stockStatus={stockStatus} onReview={onPantryReview} inventoryError={inventoryError} isInventoryLoading={isInventoryLoading} />

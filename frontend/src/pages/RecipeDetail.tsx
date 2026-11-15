@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import PageContainer from '../components/layout/PageContainer'
 import RecipeHeader from '../components/recipe/RecipeHeader'
@@ -15,7 +16,6 @@ import PantryReviewSheet from '../components/recipe/PantryReviewSheet'
 import NewTimerSheet from '../components/recipe/NewTimerSheet'
 import SourceLine from '../components/recipe/SourceLine'
 import OutcomesSection from '../components/recipe/OutcomesSection'
-import Pill from '../components/ui/Pill'
 import { useRecipe, useRateRecipe } from '../api/hooks/useRecipes'
 import {
   useMyRecipeRelation,
@@ -31,6 +31,15 @@ import { checkIngredientAvailability } from '../utils/pantryMatcher'
 import { useCookTimers } from '../hooks/useCookTimers'
 import { useAuth } from '../contexts/AuthContext'
 import type { MealType } from '../api/types'
+
+/** Header pill, as in the recipe-detail mockup: rounder and quieter than the shared Pill. */
+function HeaderPill({ children, tone = 'bg-cream-icon text-text-secondary' }: { children: ReactNode; tone?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] rounded-tag px-2.5 py-1 ${tone}`}>
+      {children}
+    </span>
+  )
+}
 
 export default function RecipeDetail() {
   const { id } = useParams<{ id: string }>()
@@ -264,11 +273,14 @@ export default function RecipeDetail() {
     : { inStock: [], outOfStock: [], totalCount: 0, inStockCount: 0 }
 
   const uniqueTags = [...new Set(recipe.tags.map(t => t.toLowerCase()))]
+  const hasPills =
+    (isLiked && !!currentUser) || isBookmarked || recipe.times_cooked > 0 || totalTime > 0 || uniqueTags.length > 0
 
   return (
     <>
       <PageContainer>
-        <div className="pb-24">
+        {/* One readable column: the page is designed phone-first and must not stretch across a desktop window. */}
+        <div className="pb-24 mx-auto w-full max-w-[640px]">
           <RecipeHeader
             title={recipe.name}
             subtitle={recipe.notes || undefined}
@@ -282,44 +294,42 @@ export default function RecipeDetail() {
             timers={timers}
             onDismissTimer={dismissTimer}
             onOpenTimerSheet={() => setIsTimerSheetOpen(true)}
-          />
-
-          {/* Source attribution under the title block */}
-          {recipe.source_url && (
-            <div className="mb-3">
-              <SourceLine sourceType={recipe.source_type} sourceUrl={recipe.source_url} />
-            </div>
-          )}
-
-          <div className="mb-4 flex flex-wrap gap-2">
-            {isLiked && currentUser && (
-              <Pill variant="success">{currentUser.name} likes this</Pill>
+          >
+            {/* Source attribution under the title */}
+            {recipe.source_url && (
+              <div className="mt-2">
+                <SourceLine sourceType={recipe.source_type} sourceUrl={recipe.source_url} />
+              </div>
             )}
-            {isBookmarked && (
-              <Pill variant="default">Saved</Pill>
-            )}
-            {totalTime > 0 && (
-              <Pill variant="default">{totalTime} min</Pill>
-            )}
-            {recipe.times_cooked > 0 && (
-              <Pill variant="default">Cooked {recipe.times_cooked}×</Pill>
-            )}
-          </div>
 
-          {uniqueTags.length > 0 && (
-            <div data-testid="tag-row" className="mb-4 flex flex-wrap gap-2">
-              {uniqueTags.map((tag) => (
-                <Pill key={tag} variant="default">{tag}</Pill>
-              ))}
-            </div>
-          )}
+            {hasPills && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {isLiked && currentUser && (
+                  <HeaderPill tone="bg-mocha-light text-mocha-dark">{currentUser.name} likes this</HeaderPill>
+                )}
+                {isBookmarked && <HeaderPill>Saved</HeaderPill>}
+                {recipe.times_cooked > 0 && (
+                  <HeaderPill tone="bg-cream-pill text-olive-dark">Cooked {recipe.times_cooked}×</HeaderPill>
+                )}
+                {totalTime > 0 && <HeaderPill>{totalTime} min</HeaderPill>}
+                {uniqueTags.length > 0 && (
+                  // `contents` keeps the tags in the same wrapping row as the pills above
+                  <div data-testid="tag-row" className="contents">
+                    {uniqueTags.map((tag) => (
+                      <HeaderPill key={tag}>{tag}</HeaderPill>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-          <RatingLine
-            cookCount={cookHistory?.length ?? 0}
-            rating={myRelation?.rating ?? null}
-            onRate={handleRate}
-            disabled={!myRelation}
-          />
+            <RatingLine
+              cookCount={cookHistory?.length ?? 0}
+              rating={myRelation?.rating ?? null}
+              onRate={handleRate}
+              disabled={!myRelation}
+            />
+          </RecipeHeader>
 
           <ServingsControl
             selectedServings={selectedServings}

@@ -78,7 +78,7 @@ export default function OutcomesSection({ recipeId }: OutcomesSectionProps) {
   const { data: outcomes, isLoading, isError } = useRecipeOutcomes(recipeId)
 
   return (
-    <section className="mx-4 mt-5">
+    <section className="mt-8">
       <h2 className="text-[15px] font-medium leading-[1.3]">
         How it turned out<span className="text-olive">.</span>
       </h2>
