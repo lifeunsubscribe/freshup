@@ -245,6 +245,7 @@ def get_collection(
             recipe_url=card.recipe_url,
             recipe_id=card.recipe_id,
             is_persisted=bool(card.recipe_rel and card.recipe_rel.is_persisted),
+            ingredient_keys=card.ingredient_keys,
             tags=card_tags.get(card.id, []),
         )
         for card in result.cards

@@ -8,12 +8,14 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from src.db.database import Base
 from src.db import models
 from src.db.models.recipe import Recipe
+from src.db.models.recipe_ingredient import RecipeIngredient
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard, SourceRecipeCard
 from src.schemas.catalog import CollectionCard, CollectionChild, CollectionPage
 from src.schemas.import_service import ImportResult, ImportStatus
@@ -691,3 +693,77 @@ class TestOpenCard:
 
         assert result is not None
         assert result.recipe.is_persisted is False
+
+    def test_open_card_stores_sorted_ingredient_keys(self, db_session):
+        """Opening a card sets ingredient_keys to the sorted keys from the recipe."""
+        recipe = _make_recipe(db_session)
+        ing = RecipeIngredient(recipe_id=recipe.id, ingredient_name="broccoli", quantity=1.0, unit="cup")
+        db_session.add(ing)
+        db_session.commit()
+
+        card = _make_card(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_import_success(recipe.id),
+        ):
+            catalog_service.open_card(db_session, card.id)
+
+        db_session.refresh(card)
+        assert card.ingredient_keys == ["broccoli"]
+
+    def test_open_card_stores_empty_list_when_no_known_ingredients(self, db_session):
+        """A card whose import produced no recognized ingredients stores [] not NULL."""
+        recipe = _make_recipe(db_session)
+        ing = RecipeIngredient(recipe_id=recipe.id, ingredient_name="exotic mystery spice", quantity=1.0, unit="tsp")
+        db_session.add(ing)
+        db_session.commit()
+
+        card = _make_card(db_session)
+
+        with patch(
+            "src.services.catalog_service.import_recipe_from_url",
+            return_value=_import_success(recipe.id),
+        ):
+            catalog_service.open_card(db_session, card.id)
+
+        db_session.refresh(card)
+        assert card.ingredient_keys == []
+
+    def test_open_card_backfills_ingredient_keys_on_fast_path(self, db_session):
+        """A card already linked with ingredient_keys=None gets keys set on next open."""
+        recipe = _make_recipe(db_session)
+        ing = RecipeIngredient(recipe_id=recipe.id, ingredient_name="chicken", quantity=2.0, unit="lbs")
+        db_session.add(ing)
+        db_session.commit()
+
+        card = _make_card(db_session, recipe_id=recipe.id)
+        assert card.ingredient_keys is None
+
+        with patch("src.services.catalog_service.import_recipe_from_url") as mock_import:
+            result = catalog_service.open_card(db_session, card.id)
+
+        mock_import.assert_not_called()
+        assert result is not None
+        assert result.imported is False
+
+        db_session.refresh(card)
+        assert card.ingredient_keys == ["chicken"]
+
+    def test_open_card_backfill_commit_error_returns_not_imported(self, db_session):
+        """When the backfill db.commit() raises SQLAlchemyError, open_card still returns imported=False and ingredient_keys stays None."""
+        recipe = _make_recipe(db_session)
+        ing = RecipeIngredient(recipe_id=recipe.id, ingredient_name="chicken", quantity=2.0, unit="lbs")
+        db_session.add(ing)
+        db_session.commit()
+
+        card = _make_card(db_session, recipe_id=recipe.id)
+        assert card.ingredient_keys is None
+
+        with patch.object(db_session, "commit", side_effect=SQLAlchemyError("simulated backfill commit failure")):
+            result = catalog_service.open_card(db_session, card.id)
+
+        assert result is not None
+        assert result.imported is False
+        db_session.refresh(card)
+        assert card.ingredient_keys is None

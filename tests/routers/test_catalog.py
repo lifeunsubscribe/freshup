@@ -517,9 +517,33 @@ class TestCollectionDetail:
 
         assert response.status_code == 200
         card = response.json()["cards"][0]
-        for field in ("id", "name", "image_url", "recipe_url", "is_persisted"):
+        for field in ("id", "name", "image_url", "recipe_url", "is_persisted", "ingredient_keys"):
             assert field in card
         assert card["is_persisted"] is False  # not yet imported
+        assert card["ingredient_keys"] is None  # not yet imported
+
+    def test_ingredient_keys_populated_for_imported_card(self, client, db_session, member_headers):
+        """ingredient_keys is serialized as a populated list when a card has been imported."""
+        from src.services import catalog_service as svc
+
+        self._pre_seed_collection(db_session, fetched_hours_ago=1)
+        page = _make_page(n_cards=1, n_children=0)
+        svc.upsert_collection_page(db_session, page)
+
+        # Simulate post-import: set ingredient_keys on the stored card
+        stored_card = db_session.query(SourceRecipeCard).first()
+        stored_card.ingredient_keys = ["broccoli", "chicken"]
+        db_session.commit()
+
+        response = client.get(
+            f"/catalog/{HELLOFRESH_SOURCE}/collections/vegetarian-recipes",
+            headers=member_headers,
+        )
+
+        assert response.status_code == 200
+        cards = response.json()["cards"]
+        assert len(cards) == 1
+        assert cards[0]["ingredient_keys"] == ["broccoli", "chicken"]
 
     def test_children_returned_in_detail(self, client, db_session, member_headers):
         self._pre_seed_collection(db_session)
