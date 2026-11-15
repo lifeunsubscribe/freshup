@@ -299,7 +299,7 @@ describe('Recipes page — themes', () => {
       expect(region('Thai Recipes')).toBeInTheDocument()
       expect(region('Korean Recipes')).toBeInTheDocument()
       expect(region('Chicken Recipes')).not.toBeInTheDocument()
-      expect(screen.queryByRole('heading', { name: 'Recently added.' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Recently viewed.' })).not.toBeInTheDocument()
     })
 
     it("labels the user's list with its source", () => {
@@ -316,7 +316,7 @@ describe('Recipes page — themes', () => {
 
   describe('theme filter', () => {
     it('keeps whole lists that are Italian or contain an Italian recipe, hides the rest', async () => {
-      // Favorites contains an Italian recipe; Recently added and Quick meals do not
+      // Favorites contains an Italian recipe; Recently viewed and Quick meals do not
       vi.mocked(useRecipeList).mockImplementation((filters) =>
         ({
           data: (filters as { liked?: boolean } | undefined)?.liked
@@ -338,7 +338,7 @@ describe('Recipes page — themes', () => {
       const favorites = region('Your favorites')!
       expect(within(favorites).getByText('Recipe fav-1')).toBeInTheDocument()
       expect(within(favorites).getByText('Recipe fav-2')).toBeInTheDocument()
-      expect(region('Recently added')).not.toBeInTheDocument()
+      expect(region('Recently viewed')).not.toBeInTheDocument()
 
       // The user's own Italian list and HelloFresh's, each separate
       expect(region('Italian')).toBeInTheDocument()

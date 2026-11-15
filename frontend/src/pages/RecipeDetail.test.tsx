@@ -56,6 +56,8 @@ vi.mock('../api/hooks/useRecipes', () => ({
   useRecipeOutcomes: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
 }))
 
+const mockRecordViewMutate = vi.fn()
+
 vi.mock('../api/hooks/useRecipeEngagement', () => ({
   useMyRecipeRelation: () => ({
     data: {
@@ -72,6 +74,7 @@ vi.mock('../api/hooks/useRecipeEngagement', () => ({
   useToggleLike: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useCookRecipe: () => ({ mutateAsync: mockCookMutateAsync }),
   useCookHistory: vi.fn(() => ({ data: [] })),
+  useRecordView: () => ({ mutate: mockRecordViewMutate }),
 }))
 
 vi.mock('../api/hooks/usePlan', () => ({
@@ -115,6 +118,7 @@ beforeEach(() => {
   mockCookMutateAsync.mockReset().mockResolvedValue({})
   mockRateMutateAsync.mockReset().mockResolvedValue({})
   mockCreateEntryMutateAsync.mockReset().mockResolvedValue({})
+  mockRecordViewMutate.mockReset()
 })
 
 function renderPage() {
@@ -494,6 +498,31 @@ describe('RecipeDetail', () => {
     it('shows empty state when outcomes list is empty', () => {
       renderPage()
       expect(screen.getByText('Nobody here has cooked this yet.')).toBeInTheDocument()
+    })
+  })
+
+  describe('useRecordView — fires once when the recipe loads', () => {
+    it('calls useRecordView once after the recipe loads', async () => {
+      renderPage()
+      await waitFor(() => expect(mockRecordViewMutate).toHaveBeenCalledTimes(1))
+      expect(mockRecordViewMutate).toHaveBeenCalledWith({ recipeId: 'recipe-1' })
+    })
+
+    it('does not fire a second view when the page re-renders', async () => {
+      const { rerender } = renderPage()
+      await waitFor(() => expect(mockRecordViewMutate).toHaveBeenCalledTimes(1))
+      rerender(<RecipeDetail />)
+      // Still exactly one call after re-render
+      expect(mockRecordViewMutate).toHaveBeenCalledTimes(1)
+    })
+
+    it('still renders the page when useRecordView fails', async () => {
+      mockRecordViewMutate.mockImplementation(() => {
+        throw new Error('network error')
+      })
+      renderPage()
+      // Page content still renders
+      expect(screen.getByText('Mushroom Risotto')).toBeInTheDocument()
     })
   })
 

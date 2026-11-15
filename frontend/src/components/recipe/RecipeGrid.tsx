@@ -44,6 +44,7 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
     tag: filters.tag,
     max_cook_time: filters.max_cook_time,
     liked: filters.liked,
+    viewed: filters.viewed,
   }
 
   const { data: recipes, isLoading, isError, error } = useRecipeList(apiFilters)
@@ -56,7 +57,8 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
       filters.source_type !== currentFiltersRef.current.source_type ||
       filters.tag !== currentFiltersRef.current.tag ||
       filters.max_cook_time !== currentFiltersRef.current.max_cook_time ||
-      filters.liked !== currentFiltersRef.current.liked
+      filters.liked !== currentFiltersRef.current.liked ||
+      filters.viewed !== currentFiltersRef.current.viewed
 
     if (filtersChanged) {
       // Filters changed - reset pagination state immediately
@@ -87,7 +89,7 @@ export default function RecipeGrid({ searchQuery, filters, onFilterChange, onBac
       setAllRecipes([])
       setHasMore(false)
     }
-  }, [recipes, offset, searchQuery, filters.source_type, filters.tag, filters.max_cook_time, filters.liked])
+  }, [recipes, offset, searchQuery, filters.source_type, filters.tag, filters.max_cook_time, filters.liked, filters.viewed])
 
   return (
     <div className="space-y-4">

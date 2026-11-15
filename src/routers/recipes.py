@@ -293,6 +293,7 @@ def list_recipes(
     search: Optional[str] = Query(default=None, min_length=2, max_length=255, description="Search recipes by name (case-insensitive partial match)"),
     has_variation: Optional[bool] = Query(default=None, description="Filter by variation groups presence (true/false)"),
     liked: bool = Query(default=False, description="Only recipes the current user has liked (their favorites)"),
+    viewed: bool = Query(default=False, description="Only the current user's viewed recipes, most recently viewed first"),
 ):
     """
     List all recipes with filtering and pagination.
@@ -317,6 +318,7 @@ def list_recipes(
         search: Search recipes by name (case-insensitive partial match, LIKE wildcards escaped)
         has_variation: Filter by variation groups presence (true for recipes with variations, false for none)
         liked: When true, only recipes the current user has liked
+        viewed: When true, only recipes the current user has viewed, ordered by most recent view
 
     Returns:
         list[RecipeListResponse]: List of all recipes matching filters
@@ -407,11 +409,26 @@ def list_recipes(
         )
         query = query.filter(Recipe.id.in_(liked_ids))
 
+    # Apply viewed filter: join a per-recipe max(viewed_at) subquery so each
+    # recipe appears once and the ordering reflects the most recent view.
+    order_col = Recipe.created_at.desc()
+    if viewed:
+        latest_view_sq = (
+            db.query(
+                UserRecipeView.recipe_id,
+                func.max(UserRecipeView.viewed_at).label('latest_viewed_at'),
+            )
+            .filter(UserRecipeView.user_id == current_user.id)
+            .group_by(UserRecipeView.recipe_id)
+            .subquery()
+        )
+        query = query.join(latest_view_sq, Recipe.id == latest_view_sq.c.recipe_id)
+        order_col = latest_view_sq.c.latest_viewed_at.desc()
+
     # Apply ordering and pagination
-    # Order by created_at to show most recently added recipes first
     recipes = (
         query
-        .order_by(Recipe.created_at.desc())
+        .order_by(order_col)
         .limit(limit)
         .offset(offset)
         .all()

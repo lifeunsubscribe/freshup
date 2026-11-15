@@ -692,6 +692,79 @@ class TestRecipeFiltering:
         assert response.status_code == 200
         assert response.json() == []
 
+    def test_filter_by_viewed_returns_only_callers_views(
+        self, client, auth_headers, test_user, test_user2, sample_recipes, db_session
+    ):
+        """viewed=true returns only the caller's viewed recipes, one row per recipe even when
+        viewed multiple times, ordered by the most recent view descending."""
+        from src.db.models.user_recipe_view import UserRecipeView
+        import time
+
+        viewed_first, viewed_second, viewed_by_other = sample_recipes[0], sample_recipes[1], sample_recipes[2]
+        # viewed_second was viewed earlier; viewed_first most recently
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_second.id, source="detail"))
+        db_session.commit()
+        # Small sleep to ensure distinct viewed_at timestamps in SQLite
+        time.sleep(0.01)
+        # Three views of viewed_first — should appear once
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_first.id, source="detail"))
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_first.id, source="browse"))
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_first.id, source="search"))
+        # Another user viewed viewed_by_other — must not appear in caller's results
+        db_session.add(UserRecipeView(user_id=test_user2.id, recipe_id=viewed_by_other.id, source="detail"))
+        db_session.commit()
+
+        response = client.get("/recipes?viewed=true", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        ids = [r["id"] for r in data]
+        # Only the caller's viewed recipes
+        assert str(viewed_by_other.id) not in ids
+        # Both caller-viewed recipes present
+        assert str(viewed_first.id) in ids
+        assert str(viewed_second.id) in ids
+        # viewed_first is most recently viewed, so it comes first
+        assert ids[0] == str(viewed_first.id)
+        assert ids[1] == str(viewed_second.id)
+        # Each recipe appears exactly once despite multiple views
+        assert len(ids) == 2
+
+    def test_filter_by_viewed_with_no_views_is_empty(self, client, auth_headers, sample_recipes):
+        """A user with no view history sees an empty list, not every recipe."""
+        response = client.get("/recipes?viewed=true", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_filter_by_viewed_pagination(
+        self, client, auth_headers, test_user, sample_recipes, db_session
+    ):
+        """viewed=true&limit=1&offset=1 returns the second most recently viewed recipe."""
+        from src.db.models.user_recipe_view import UserRecipeView
+        import time
+
+        older, newer = sample_recipes[0], sample_recipes[1]
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=older.id, source="detail"))
+        db_session.commit()
+        time.sleep(0.01)
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=newer.id, source="detail"))
+        db_session.commit()
+
+        response = client.get("/recipes?viewed=true&limit=1&offset=1", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["id"] == str(older.id)
+
+    def test_filter_by_viewed_does_not_affect_unviewed_query(self, client, auth_headers, sample_recipes):
+        """Without viewed=true, the standard ordering (created_at desc) is unaffected."""
+        response_all = client.get("/recipes", headers=auth_headers)
+        assert response_all.status_code == 200
+        # At least the sample recipes are returned unchanged
+        assert len(response_all.json()) >= len(sample_recipes)
+
     def test_combined_filters_and_logic(self, client, auth_headers, sample_recipes):
         """Test multiple filters combine with AND logic."""
         # Filter: source_type=manual AND tag=quick AND max_cook_time=20

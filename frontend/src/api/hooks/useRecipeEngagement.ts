@@ -217,6 +217,30 @@ export function useCookRecipe() {
 }
 
 /**
+ * Record that the current user viewed a recipe detail page.
+ *
+ * Fire-and-forget: errors are silently dropped at the call site via `mutate`
+ * (not `mutateAsync`). Invalidates list queries on settle so the Recently
+ * viewed row picks up the new entry without a manual refresh.
+ */
+export function useRecordView() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ recipeId }: { recipeId: string }) => {
+      return apiClient<void>(`/recipes/${encodeURIComponent(recipeId)}/view`, {
+        method: 'POST',
+        body: JSON.stringify({ source: 'detail' }),
+      })
+    },
+
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() })
+    },
+  })
+}
+
+/**
  * Current user's cook events for a recipe, newest first.
  *
  * Returns an empty array when the user has never cooked it — this is the
