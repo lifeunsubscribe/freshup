@@ -431,13 +431,19 @@ def update_current_user_profile(
         "dietary_profile",
         "allergies",
         "disliked_ingredients",
-        "favorite_ingredients"
+        "favorite_ingredients",
+        "taste_preferences",
     }
 
     PROTECTED_FIELDS = {"email", "role"}
 
     # Update only the fields that were provided (partial updates)
     update_dict = update_data.model_dump(exclude_unset=True)
+
+    # Handle onboarded signal: set onboarded_at once (never overwrite if already stamped)
+    if update_dict.pop("onboarded", None):
+        if current_user.onboarded_at is None:
+            current_user.onboarded_at = datetime.now(timezone.utc)
 
     # Log the profile update attempt with requested fields
     logger.debug(

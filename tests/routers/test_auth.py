@@ -2560,3 +2560,111 @@ class TestTokenRefresh:
         headers = {"Authorization": f"Bearer {expired_token}"}
         response = client.post("/auth/refresh", headers=headers)
         assert response.status_code == 401
+
+
+class TestTastePreferences:
+    """Tests for taste_preferences and onboarded fields on PUT/GET /auth/me."""
+
+    def test_taste_preferences_round_trip(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me writes a valid taste_preferences map; GET /auth/me returns it."""
+        prefs = {
+            "ingredient:chicken": "love",
+            "ingredient:broccoli": "less",
+            "cuisine:italian": "like",
+        }
+        response = client.put("/auth/me", json={"taste_preferences": prefs}, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["taste_preferences"] == prefs
+
+        # Verify via GET
+        get_response = client.get("/auth/me", headers=auth_headers)
+        assert get_response.status_code == 200
+        assert get_response.json()["taste_preferences"] == prefs
+
+        # Verify database state
+        db_session.refresh(test_user)
+        assert test_user.taste_preferences == prefs
+
+    def test_taste_preferences_whole_map_write(self, client, test_user, auth_headers, db_session):
+        """A second PUT replaces the entire map (whole-map write, not merge)."""
+        client.put("/auth/me", json={"taste_preferences": {"ingredient:beef": "love"}}, headers=auth_headers)
+        response = client.put(
+            "/auth/me",
+            json={"taste_preferences": {"ingredient:salmon": "like"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        # Only the new map should be present
+        assert response.json()["taste_preferences"] == {"ingredient:salmon": "like"}
+
+    def test_taste_preferences_unknown_key_returns_422(self, client, auth_headers):
+        """An unknown ingredient key returns 422."""
+        response = client.put(
+            "/auth/me",
+            json={"taste_preferences": {"ingredient:unicorn_meat": "love"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_taste_preferences_unknown_cuisine_returns_422(self, client, auth_headers):
+        """An unknown cuisine value returns 422."""
+        response = client.put(
+            "/auth/me",
+            json={"taste_preferences": {"cuisine:klingon": "love"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_taste_preferences_bad_prefix_returns_422(self, client, auth_headers):
+        """A key without ingredient: or cuisine: prefix returns 422."""
+        response = client.put(
+            "/auth/me",
+            json={"taste_preferences": {"chicken": "love"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_taste_preferences_invalid_level_returns_422(self, client, auth_headers):
+        """An invalid taste level (not love|like|less|never) returns 422."""
+        response = client.put(
+            "/auth/me",
+            json={"taste_preferences": {"ingredient:chicken": "meh"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_onboarded_sets_onboarded_at(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me with onboarded: true sets onboarded_at on the user."""
+        # Confirm not set before
+        db_session.refresh(test_user)
+        assert test_user.onboarded_at is None
+
+        response = client.put("/auth/me", json={"onboarded": True}, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["onboarded_at"] is not None
+
+        db_session.refresh(test_user)
+        assert test_user.onboarded_at is not None
+
+    def test_onboarded_idempotent(self, client, test_user, auth_headers, db_session):
+        """A second PUT with onboarded: true does not change onboarded_at."""
+        client.put("/auth/me", json={"onboarded": True}, headers=auth_headers)
+        db_session.refresh(test_user)
+        first_stamp = test_user.onboarded_at
+
+        client.put("/auth/me", json={"onboarded": True}, headers=auth_headers)
+        db_session.refresh(test_user)
+        assert test_user.onboarded_at == first_stamp
+
+    def test_get_profile_includes_taste_fields(self, client, test_user, auth_headers):
+        """GET /auth/me response includes taste_preferences and onboarded_at fields."""
+        response = client.get("/auth/me", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "taste_preferences" in data
+        assert "onboarded_at" in data
+        # Fresh user has empty prefs and no onboarded_at
+        assert data["taste_preferences"] == {} or isinstance(data["taste_preferences"], dict)
+        assert data["onboarded_at"] is None

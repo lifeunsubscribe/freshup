@@ -5,6 +5,7 @@ Defines request/response models for user registration and login.
 """
 
 from uuid import UUID
+from datetime import datetime
 from typing import Optional, Any
 import re
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator, ConfigDict
@@ -132,6 +133,16 @@ class LoginRequest(BaseModel):
         return normalize_email(v)
 
 
+_VALID_TASTE_LEVELS = frozenset({"love", "like", "less", "never"})
+
+
+def _build_valid_taste_key_prefixes() -> tuple[frozenset, frozenset]:
+    """Return (valid ingredient keys, valid cuisine values) for taste_preferences validation."""
+    from src.services.ingredient_keys import INGREDIENTS
+    from src.services.recipe_themes import VALUE_LABELS
+    return frozenset(INGREDIENTS.keys()), frozenset(VALUE_LABELS.get("cuisine", {}).keys())
+
+
 class UserResponse(BaseModel):
     """Response schema for user data (excludes password)."""
 
@@ -145,6 +156,8 @@ class UserResponse(BaseModel):
     allergies: list[str]
     disliked_ingredients: list[str]
     favorite_ingredients: list[str]
+    taste_preferences: dict[str, str] = Field(default_factory=dict)
+    onboarded_at: Optional[datetime] = None
 
 
 class UserUpdate(BaseModel):
@@ -158,6 +171,8 @@ class UserUpdate(BaseModel):
     allergies: Optional[list[str]] = Field(default=None, description="Food allergies")
     disliked_ingredients: Optional[list[str]] = Field(default=None, description="Disliked ingredients (stored as JSON array)")
     favorite_ingredients: Optional[list[str]] = Field(default=None, description="Favorite ingredients (stored as JSON array)")
+    taste_preferences: Optional[dict[str, str]] = Field(default=None, description="Graded preference map (ingredient:<key> or cuisine:<value> → love|like|less|never)")
+    onboarded: Optional[bool] = Field(default=None, description="Set true to record onboarding completion (idempotent)")
 
     @field_validator('name')
     @classmethod
@@ -183,6 +198,32 @@ class UserUpdate(BaseModel):
         """
         field_name = info.field_name
         return validate_string_list(field_name, v)
+
+    @field_validator('taste_preferences')
+    @classmethod
+    def validate_taste_preferences(cls, v: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
+        """Keys must be ingredient:<known key> or cuisine:<known value>; values love|like|less|never."""
+        if v is None:
+            return v
+        valid_ingredient_keys, valid_cuisine_values = _build_valid_taste_key_prefixes()
+        errors = []
+        for key, level in v.items():
+            if level not in _VALID_TASTE_LEVELS:
+                errors.append(f"invalid level '{level}' for key '{key}' (must be love|like|less|never)")
+                continue
+            if key.startswith("ingredient:"):
+                ingredient_key = key[len("ingredient:"):]
+                if ingredient_key not in valid_ingredient_keys:
+                    errors.append(f"unknown ingredient key '{ingredient_key}'")
+            elif key.startswith("cuisine:"):
+                cuisine_value = key[len("cuisine:"):]
+                if cuisine_value not in valid_cuisine_values:
+                    errors.append(f"unknown cuisine value '{cuisine_value}'")
+            else:
+                errors.append(f"key '{key}' must start with 'ingredient:' or 'cuisine:'")
+        if errors:
+            raise ValueError(f"taste_preferences validation errors: {'; '.join(errors)}")
+        return v
 
     @model_validator(mode='before')
     @classmethod

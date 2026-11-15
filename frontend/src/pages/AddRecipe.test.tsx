@@ -598,7 +598,7 @@ describe('AddRecipe page', () => {
 
       // Member: no link
       vi.mocked(useAuth).mockReturnValue({
-        currentUser: { id: '1', name: 'Alex', email: 'alex@example.com', role: 'member', dietary_profile: [], allergies: [], disliked_ingredients: [], favorite_ingredients: [], failed_login_attempts: 0, lockout_until: null, lockout_count: 0 },
+        currentUser: { id: '1', name: 'Alex', email: 'alex@example.com', role: 'member', dietary_profile: [], allergies: [], disliked_ingredients: [], favorite_ingredients: [], taste_preferences: {}, onboarded_at: null, failed_login_attempts: 0, lockout_until: null, lockout_count: 0 },
         isAuthenticated: true,
         isLoading: false,
         login: vi.fn(),
@@ -611,7 +611,7 @@ describe('AddRecipe page', () => {
 
       // Coordinator: link present
       vi.mocked(useAuth).mockReturnValue({
-        currentUser: { id: '2', name: 'Sarah', email: 'sarah@example.com', role: 'coordinator', dietary_profile: [], allergies: [], disliked_ingredients: [], favorite_ingredients: [], failed_login_attempts: 0, lockout_until: null, lockout_count: 0 },
+        currentUser: { id: '2', name: 'Sarah', email: 'sarah@example.com', role: 'coordinator', dietary_profile: [], allergies: [], disliked_ingredients: [], favorite_ingredients: [], taste_preferences: {}, onboarded_at: null, failed_login_attempts: 0, lockout_until: null, lockout_count: 0 },
         isAuthenticated: true,
         isLoading: false,
         login: vi.fn(),
