@@ -15,7 +15,7 @@ from sqlalchemy import Table, MetaData
 
 # revision identifiers, used by Alembic.
 revision: str = 'sl4ntia2uyc'
-down_revision: Union[str, None] = 'rk3mshza1txb'
+down_revision: Union[str, None] = 'carding01'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

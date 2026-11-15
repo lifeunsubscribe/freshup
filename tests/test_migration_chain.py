@@ -263,6 +263,139 @@ class TestNoNewSchemaDrift:
         )
 
 
+class TestMigrationFoldLogic:
+    """
+    The sl4ntia2uyc migration folds favorite_ingredients / disliked_ingredients
+    into taste_preferences. These tests seed users before that migration runs,
+    then apply it and assert the resulting taste_preferences map.
+    """
+
+    @staticmethod
+    def _run_to(db_url: str, target: str) -> None:
+        result = _run_alembic("upgrade", target, db_url=db_url)
+        assert result.returncode == 0, (
+            f"alembic upgrade {target} failed:\n{result.stdout}\n{result.stderr}"
+        )
+
+    @staticmethod
+    def _insert_user_raw(db_url: str, user_id: str, fav_json: str, disliked_json: str) -> None:
+        """
+        Insert a user via raw SQL so the JSON columns are stored as literal text
+        strings without going through SQLAlchemy's JSON type processor.
+        """
+        import sqlalchemy as sa
+
+        engine = create_engine(db_url)
+        with engine.connect() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO users"
+                    " (id, name, role, dietary_profile, allergies,"
+                    "  favorite_ingredients, disliked_ingredients, created_at)"
+                    " VALUES"
+                    " (:id, :name, :role, :dp, :al, :fav, :disliked, :created_at)"
+                ),
+                {
+                    "id": user_id,
+                    "name": "Fold Test",
+                    "role": "member",
+                    "dp": "[]",
+                    "al": "[]",
+                    "fav": fav_json,
+                    "disliked": disliked_json,
+                    "created_at": "2024-06-01 00:00:00",
+                },
+            )
+            conn.commit()
+        engine.dispose()
+
+    @staticmethod
+    def _read_prefs(db_url: str, user_id: str) -> dict:
+        import json as _json
+        import sqlalchemy as sa
+        from sqlalchemy import MetaData
+
+        engine = create_engine(db_url)
+        with engine.connect() as conn:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            users_table = metadata.tables["users"]
+            row = conn.execute(
+                sa.select(users_table.c.taste_preferences).where(
+                    users_table.c.id == user_id
+                )
+            ).fetchone()
+        engine.dispose()
+
+        prefs = row[0]
+        if isinstance(prefs, str):
+            prefs = _json.loads(prefs)
+        return prefs or {}
+
+    def test_json_string_path(self, tmp_path):
+        """
+        SQLite stores JSON columns as text; the migration's isinstance-str branch
+        must parse string-serialised lists and fold them correctly.
+        """
+        import json as _json
+
+        db_url = f"sqlite:///{tmp_path / 'fold_string.db'}"
+        self._run_to(db_url, "carding01")
+        self._insert_user_raw(
+            db_url, "usr-str",
+            fav_json=_json.dumps(["chicken", "salmon"]),
+            disliked_json=_json.dumps(["beef"]),
+        )
+        self._run_to(db_url, "sl4ntia2uyc")
+
+        prefs = self._read_prefs(db_url, "usr-str")
+        assert prefs.get("ingredient:chicken") == "love"
+        assert prefs.get("ingredient:salmon") == "love"
+        assert prefs.get("ingredient:beef") == "never"
+
+    def test_love_wins_on_conflict(self, tmp_path):
+        """
+        When the same ingredient key appears in both favorite_ingredients and
+        disliked_ingredients, the resulting preference must be 'love'.
+        """
+        import json as _json
+
+        db_url = f"sqlite:///{tmp_path / 'fold_conflict.db'}"
+        self._run_to(db_url, "carding01")
+        self._insert_user_raw(
+            db_url, "usr-conflict",
+            fav_json=_json.dumps(["salmon"]),
+            disliked_json=_json.dumps(["salmon", "tuna"]),
+        )
+        self._run_to(db_url, "sl4ntia2uyc")
+
+        prefs = self._read_prefs(db_url, "usr-conflict")
+        assert prefs.get("ingredient:salmon") == "love", (
+            "love-wins: salmon in both lists must resolve to 'love'"
+        )
+        assert prefs.get("ingredient:tuna") == "never"
+
+    def test_multi_key_expansion(self, tmp_path):
+        """
+        A free-text name matching multiple ingredient keys via keys_for expands
+        to one entry per key: 'chicken breast with garlic' → chicken + garlic.
+        """
+        import json as _json
+
+        db_url = f"sqlite:///{tmp_path / 'fold_multikey.db'}"
+        self._run_to(db_url, "carding01")
+        self._insert_user_raw(
+            db_url, "usr-multikey",
+            fav_json=_json.dumps(["chicken breast with garlic"]),
+            disliked_json=_json.dumps([]),
+        )
+        self._run_to(db_url, "sl4ntia2uyc")
+
+        prefs = self._read_prefs(db_url, "usr-multikey")
+        assert prefs.get("ingredient:chicken") == "love"
+        assert prefs.get("ingredient:garlic") == "love"
+
+
 def _is_uuid_affinity_diff(entry: tuple) -> bool:
     """True for the documented sa.UUID() vs sa.Uuid() declaration mismatch."""
     if len(entry) < 7:
