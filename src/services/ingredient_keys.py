@@ -10,6 +10,14 @@ Matching rules (same as card_tags._match):
 - Plural-tolerant: trailing s/es accepted
 - Longest spelling first, matched span is blanked so multi-word phrases like
   "sweet potato" are not also counted as "potato"
+
+Compound products are their own ingredients. Coconut milk is neither coconut
+nor milk; it is coconut milk, with its own key and its own allergens. So are
+soy milk (soy, not dairy), fish sauce (fish), peanut butter, cream cheese and
+rice noodles (no wheat). A compound never resolves to one of its words: that
+is how a dairy-free product gets flagged as milk and how fish sauce gets
+missed. When adding an ingredient whose name contains another ingredient's
+name, give it its own key and list its allergens in ALLERGENS explicitly.
 """
 
 import re
@@ -62,12 +70,16 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
                          "fusilli", "orzo", "noodle"]),
     "bread": ("Bread", ["sourdough", "baguette", "naan", "pita", "flatbread", "brioche", "bread"]),
     "couscous": ("Couscous", ["couscous"]),
-    "tortilla": ("Tortilla", ["tortilla"]),
+    "tortilla": ("Tortilla", ["flour tortilla", "tortilla"]),
+    "corn-tortilla": ("Corn tortilla", ["corn tortilla"]),
+    "rice-noodles": ("Rice noodles", ["rice noodle", "rice vermicelli", "rice stick"]),
     "wheat": ("Wheat", ["flour", "wheat", "all-purpose flour", "whole wheat flour"]),
     # --- Produce: starchy vegetables ---
     "sweet-potato": ("Sweet potato", ["sweet potato"]),
     "potatoes": ("Potatoes", ["potato", "mashed potato", "yukon gold", "russet potato"]),
     "corn": ("Corn", ["corn", "maize"]),
+    "cornstarch": ("Cornstarch", ["cornstarch", "corn starch"]),
+    "potato-starch": ("Potato starch", ["potato starch"]),
     # --- Produce: non-starchy vegetables ---
     "broccoli": ("Broccoli", ["broccolini", "broccoli"]),
     "cauliflower": ("Cauliflower", ["cauliflower"]),
@@ -76,7 +88,10 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "cabbage": ("Cabbage", ["bok choy", "cabbage", "napa cabbage"]),
     "lettuce": ("Lettuce", ["romaine", "arugula", "lettuce"]),
     "tomato": ("Tomato", ["cherry tomato", "grape tomato", "roma tomato", "tomato"]),
-    "pepper": ("Bell pepper", ["bell pepper", "red pepper", "green pepper", "yellow pepper", "pepper"]),
+    "pepper": ("Bell pepper", ["bell pepper", "red bell pepper", "green bell pepper", "red pepper",
+                           "green pepper", "yellow pepper"]),
+    "chili-flakes": ("Chili flakes", ["red pepper flake", "crushed red pepper", "chili flake",
+                                      "chilli flake"]),
     "onion": ("Onion", ["red onion", "yellow onion", "white onion", "green onion", "scallion",
                          "shallot", "leek", "onion"]),
     "garlic": ("Garlic", ["garlic"]),
@@ -98,31 +113,51 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "mango": ("Mango", ["mango"]),
     # --- Dairy & eggs ---
     "milk": ("Milk", ["whole milk", "skim milk", "milk"]),
-    "coconut": ("Coconut", ["coconut milk", "coconut cream", "shredded coconut",
-                             "coconut flake", "coconut"]),
-    "cream": ("Cream", ["heavy cream", "sour cream", "cream cheese", "cream"]),
+    "coconut": ("Coconut", ["shredded coconut", "coconut flake", "coconut"]),
+    "coconut-milk": ("Coconut milk", ["coconut milk"]),
+    "coconut-cream": ("Coconut cream", ["coconut cream"]),
+    "coconut-oil": ("Coconut oil", ["coconut oil"]),
+    "almond-milk": ("Almond milk", ["almond milk"]),
+    "soy-milk": ("Soy milk", ["soy milk", "soymilk"]),
+    "oat-milk": ("Oat milk", ["oat milk"]),
+    "cashew-cream": ("Cashew cream", ["cashew cream", "cashew milk"]),
+    "buttermilk": ("Buttermilk", ["buttermilk"]),
+    "cream": ("Cream", ["heavy cream", "whipping cream", "cream"]),
+    "sour-cream": ("Sour cream", ["sour cream"]),
+    "cream-cheese": ("Cream cheese", ["cream cheese"]),
     "butter": ("Butter", ["butter"]),
     "cheese": ("Cheese", [
         "mozzarella", "cheddar", "parmesan", "feta", "brie", "gouda", "ricotta",
-        "gruyere", "cotija", "monterey jack", "cream cheese", "cheese",
+        "gruyere", "cotija", "monterey jack", "cheese",
     ]),
     "yogurt": ("Yogurt", ["greek yogurt", "yogurt"]),
     "egg": ("Egg", ["egg white", "egg yolk", "egg"]),
     # --- Nuts & seeds ---
-    "peanut": ("Peanut", ["peanut butter", "peanut"]),
-    "almond": ("Almond", ["almond milk", "almond butter", "almond"]),
+    "peanut": ("Peanut", ["peanut"]),
+    "peanut-butter": ("Peanut butter", ["peanut butter"]),
+    "peanut-oil": ("Peanut oil", ["peanut oil"]),
+    "almond": ("Almond", ["almond"]),
+    "almond-butter": ("Almond butter", ["almond butter"]),
     "walnut": ("Walnut", ["walnut"]),
     "pecan": ("Pecan", ["pecan"]),
     "cashew": ("Cashew", ["cashew"]),
     "pine-nut": ("Pine nut", ["pine nut"]),
     "pistachio": ("Pistachio", ["pistachio"]),
-    "sesame": ("Sesame", ["tahini", "sesame oil", "sesame seed", "sesame"]),
+    "sesame": ("Sesame", ["sesame seed", "sesame"]),
+    "sesame-oil": ("Sesame oil", ["toasted sesame oil", "sesame oil"]),
+    "tahini": ("Tahini", ["tahini"]),
     "sunflower-seed": ("Sunflower seed", ["sunflower seed"]),
     "flaxseed": ("Flaxseed", ["flaxseed", "flax seed"]),
     # --- Pantry ---
     "olive-oil": ("Olive oil", ["olive oil"]),
     "soy-sauce": ("Soy sauce", ["soy sauce", "tamari"]),
     "coconut-aminos": ("Coconut aminos", ["coconut aminos"]),
+    "fish-sauce": ("Fish sauce", ["fish sauce"]),
+    "oyster-sauce": ("Oyster sauce", ["oyster sauce"]),
+    "worcestershire": ("Worcestershire sauce", ["worcestershire sauce", "worcestershire"]),
+    "shrimp-paste": ("Shrimp paste", ["shrimp paste"]),
+    "anchovy-paste": ("Anchovy paste", ["anchovy paste"]),
+    "rice-wine": ("Rice wine", ["rice wine", "mirin", "sake"]),
     "vinegar": ("Vinegar", ["balsamic vinegar", "apple cider vinegar", "rice vinegar", "vinegar"]),
     "tomato-sauce": ("Tomato sauce", ["tomato paste", "tomato sauce", "crushed tomato",
                                        "diced tomato", "marinara"]),
@@ -132,20 +167,24 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "maple-syrup": ("Maple syrup", ["maple syrup"]),
     "sugar": ("Sugar", ["brown sugar", "powdered sugar", "sugar"]),
     "salt": ("Salt", ["salt"]),
-    "black-pepper": ("Black pepper", ["black pepper"]),
+    # Bare "pepper" in a recipe ("salt and pepper") is the spice, not the vegetable.
+    "black-pepper": ("Black pepper", ["black pepper", "ground pepper", "pepper"]),
 }
 
 # allergen name -> set of ingredient keys that contain that allergen
 ALLERGENS: dict[str, set[str]] = {
-    "milk": {"milk", "cream", "butter", "cheese", "yogurt"},
+    "milk": {"milk", "cream", "butter", "cheese", "yogurt", "buttermilk", "sour-cream", "cream-cheese"},
     "egg": {"egg"},
-    "peanut": {"peanut"},
-    "tree-nut": {"almond", "walnut", "pecan", "cashew", "pine-nut", "pistachio"},
-    "fish": {"salmon", "white-fish", "tuna", "anchovy", "sardine", "seafood"},
-    "shellfish": {"shrimp", "crab", "lobster", "clam", "oyster", "scallop", "seafood"},
+    "peanut": {"peanut", "peanut-butter", "peanut-oil"},
+    "tree-nut": {"almond", "walnut", "pecan", "cashew", "pine-nut", "pistachio",
+                 "almond-milk", "almond-butter", "cashew-cream"},
+    "fish": {"salmon", "white-fish", "tuna", "anchovy", "sardine", "seafood",
+             "fish-sauce", "worcestershire", "anchovy-paste"},
+    "shellfish": {"shrimp", "crab", "lobster", "clam", "oyster", "scallop", "seafood",
+                  "oyster-sauce", "shrimp-paste"},
     "wheat": {"wheat", "pasta", "bread", "couscous", "tortilla"},
-    "soy": {"tofu", "soy-sauce", "edamame"},
-    "sesame": {"sesame"},
+    "soy": {"tofu", "soy-sauce", "edamame", "soy-milk"},
+    "sesame": {"sesame", "sesame-oil", "tahini"},
 }
 
 # pre-build: sorted spellings longest-first per key, normalised

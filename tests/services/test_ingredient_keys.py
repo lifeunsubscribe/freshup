@@ -95,17 +95,13 @@ class TestKeysFor:
         assert "green-beans" in result
         assert "beans-legumes" not in result
 
-    def test_peanut_butter_is_peanut(self):
-        """'peanut butter' maps to peanut (not butter)."""
-        result = keys_for("peanut butter sauce")
-        assert "peanut" in result
-        assert "butter" not in result
+    def test_peanut_butter_is_peanut_butter(self):
+        """'peanut butter' is its own ingredient, not peanut and not butter."""
+        assert keys_for("peanut butter sauce") == {"peanut-butter"}
 
-    def test_coconut_milk_is_coconut_not_milk(self):
-        """'coconut milk' maps to coconut, not milk."""
-        result = keys_for("coconut milk")
-        assert "coconut" in result
-        assert "milk" not in result
+    def test_coconut_milk_is_coconut_milk(self):
+        """'coconut milk' is neither coconut nor milk; it is coconut milk."""
+        assert keys_for("coconut milk") == {"coconut-milk"}
 
     # --- Edge cases ---
 
@@ -307,3 +303,88 @@ class TestIngredientsCoverage:
         assert len(INGREDIENTS) >= 60, (
             f"INGREDIENTS has only {len(INGREDIENTS)} entries; at least 60 required"
         )
+
+
+# ---------------------------------------------------------------------------
+# Compound products are their own ingredients, with their own allergens
+# ---------------------------------------------------------------------------
+
+class TestCompoundIngredients:
+    @pytest.mark.parametrize("name, key", [
+        ("1 can coconut milk", "coconut-milk"),
+        ("coconut cream", "coconut-cream"),
+        ("2 tablespoons coconut oil", "coconut-oil"),
+        ("unsweetened almond milk", "almond-milk"),
+        ("soy milk", "soy-milk"),
+        ("oat milk", "oat-milk"),
+        ("cashew cream", "cashew-cream"),
+        ("1 cup buttermilk", "buttermilk"),
+        ("creamy peanut butter", "peanut-butter"),
+        ("almond butter", "almond-butter"),
+        ("peanut oil", "peanut-oil"),
+        ("toasted sesame oil", "sesame-oil"),
+        ("tahini", "tahini"),
+        ("2 teaspoons fish sauce", "fish-sauce"),
+        ("oyster sauce", "oyster-sauce"),
+        ("Worcestershire sauce", "worcestershire"),
+        ("cream cheese", "cream-cheese"),
+        ("sour cream", "sour-cream"),
+        ("rice noodles", "rice-noodles"),
+        ("6 corn tortillas", "corn-tortilla"),
+        ("1 tablespoon cornstarch", "cornstarch"),
+        ("corn starch", "cornstarch"),
+        ("potato starch", "potato-starch"),
+        ("shrimp paste", "shrimp-paste"),
+        ("anchovy paste", "anchovy-paste"),
+        ("rice wine", "rice-wine"),
+        ("red pepper flakes", "chili-flakes"),
+    ])
+    def test_compound_resolves_to_its_own_key_only(self, name, key):
+        assert keys_for(name) == {key}
+
+    @pytest.mark.parametrize("name, allergens", [
+        ("coconut milk", set()),
+        ("coconut cream", set()),
+        ("soy milk", {"soy"}),
+        ("oat milk", set()),
+        ("almond milk", {"tree-nut"}),
+        ("cashew cream", {"tree-nut"}),
+        ("buttermilk", {"milk"}),
+        ("cream cheese", {"milk"}),
+        ("sour cream", {"milk"}),
+        ("peanut butter", {"peanut"}),
+        ("peanut oil", {"peanut"}),
+        ("sesame oil", {"sesame"}),
+        ("tahini", {"sesame"}),
+        ("fish sauce", {"fish"}),
+        ("worcestershire sauce", {"fish"}),
+        ("anchovy paste", {"fish"}),
+        ("oyster sauce", {"shellfish"}),
+        ("shrimp paste", {"shellfish"}),
+        ("rice noodles", set()),
+        ("corn tortillas", set()),
+        ("flour tortillas", {"wheat"}),
+        ("egg noodles", {"egg", "wheat"}),
+    ])
+    def test_compound_allergens(self, name, allergens):
+        assert allergens_for(keys_for(name)) == allergens
+
+    def test_salt_and_pepper_is_the_spice_not_the_vegetable(self):
+        assert keys_for("salt and pepper") == {"salt", "black-pepper"}
+        assert keys_for("1 red bell pepper") == {"pepper"}
+
+    def test_plain_ingredients_are_unchanged(self):
+        assert keys_for("shredded coconut") == {"coconut"}
+        assert keys_for("whole milk") == {"milk"}
+        assert keys_for("roasted peanuts") == {"peanut"}
+        assert keys_for("heavy cream") == {"cream"}
+        assert keys_for("chicken stock") == {"broth"}
+
+    def test_no_spelling_belongs_to_two_keys(self):
+        """A spelling listed under two keys resolves by dict order, silently."""
+        seen: dict[str, str] = {}
+        for key, (_, spellings) in INGREDIENTS.items():
+            for spelling in spellings:
+                assert seen.setdefault(spelling, key) == key, (
+                    f"{spelling!r} is listed under both {seen[spelling]!r} and {key!r}"
+                )
