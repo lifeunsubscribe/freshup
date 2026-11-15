@@ -338,6 +338,13 @@ class TestCompoundIngredients:
         ("anchovy paste", "anchovy-paste"),
         ("rice wine", "rice-wine"),
         ("red pepper flakes", "chili-flakes"),
+        ("2 tablespoons lemon juice", "lemon-juice"),
+        ("lemon zest", "lemon-zest"),
+        ("lime juice", "lime-juice"),
+        ("1 cup chicken stock", "chicken-stock"),
+        ("chicken broth", "chicken-broth"),
+        ("beef stock", "beef-stock"),
+        ("vegetable broth", "vegetable-broth"),
     ])
     def test_compound_resolves_to_its_own_key_only(self, name, key):
         assert keys_for(name) == {key}
@@ -378,7 +385,8 @@ class TestCompoundIngredients:
         assert keys_for("whole milk") == {"milk"}
         assert keys_for("roasted peanuts") == {"peanut"}
         assert keys_for("heavy cream") == {"cream"}
-        assert keys_for("chicken stock") == {"broth"}
+        assert keys_for("1 lemon") == {"lemon"}
+        assert keys_for("bone broth") == {"broth"}
 
     def test_no_spelling_belongs_to_two_keys(self):
         """A spelling listed under two keys resolves by dict order, silently."""

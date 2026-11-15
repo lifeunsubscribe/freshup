@@ -13,8 +13,9 @@ Matching rules (same as card_tags._match):
 
 Compound products are their own ingredients. Coconut milk is neither coconut
 nor milk; it is coconut milk, with its own key and its own allergens. So are
-soy milk (soy, not dairy), fish sauce (fish), peanut butter, cream cheese and
-rice noodles (no wheat). A compound never resolves to one of its words: that
+soy milk (soy, not dairy), fish sauce (fish), peanut butter, cream cheese,
+rice noodles (no wheat), lemon juice (not lemon) and chicken stock (not broth,
+and not chicken). A compound never resolves to one of its words: that
 is how a dairy-free product gets flagged as milk and how fish sauce gets
 missed. When adding an ingredient whose name contains another ingredient's
 name, give it its own key and list its allergens in ALLERGENS explicitly.
@@ -106,8 +107,12 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "cucumber": ("Cucumber", ["cucumber"]),
     "artichoke": ("Artichoke", ["artichoke"]),
     # --- Produce: fruit ---
-    "lemon": ("Lemon", ["lemon", "lemon zest", "lemon juice"]),
-    "lime": ("Lime", ["lime", "lime juice"]),
+    "lemon": ("Lemon", ["lemon"]),
+    "lemon-juice": ("Lemon juice", ["lemon juice"]),
+    "lemon-zest": ("Lemon zest", ["lemon zest"]),
+    "lime": ("Lime", ["lime"]),
+    "lime-juice": ("Lime juice", ["lime juice"]),
+    "lime-zest": ("Lime zest", ["lime zest"]),
     "avocado": ("Avocado", ["avocado"]),
     "apple": ("Apple", ["apple"]),
     "mango": ("Mango", ["mango"]),
@@ -161,8 +166,15 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "vinegar": ("Vinegar", ["balsamic vinegar", "apple cider vinegar", "rice vinegar", "vinegar"]),
     "tomato-sauce": ("Tomato sauce", ["tomato paste", "tomato sauce", "crushed tomato",
                                        "diced tomato", "marinara"]),
-    "broth": ("Broth", ["chicken broth", "beef broth", "vegetable broth",
-                         "chicken stock", "beef stock", "vegetable stock", "broth", "stock"]),
+    # Stock and broth are different products, and so is each kind of either.
+    "chicken-stock": ("Chicken stock", ["chicken stock"]),
+    "beef-stock": ("Beef stock", ["beef stock"]),
+    "vegetable-stock": ("Vegetable stock", ["vegetable stock"]),
+    "stock": ("Stock", ["stock"]),
+    "chicken-broth": ("Chicken broth", ["chicken broth"]),
+    "beef-broth": ("Beef broth", ["beef broth"]),
+    "vegetable-broth": ("Vegetable broth", ["vegetable broth"]),
+    "broth": ("Broth", ["broth"]),
     "honey": ("Honey", ["honey"]),
     "maple-syrup": ("Maple syrup", ["maple syrup"]),
     "sugar": ("Sugar", ["brown sugar", "powdered sugar", "sugar"]),
