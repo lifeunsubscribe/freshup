@@ -132,6 +132,33 @@ class TestKeysFor:
         assert "chicken" in result
         assert "broccoli" in result
 
+    def test_anchovies_ies_plural(self):
+        """Consonant+y words must match -ies plural form."""
+        assert "anchovy" in keys_for("2 anchovies")
+
+    def test_sardines_es_plural(self):
+        """Non-y words still match via s/es suffix."""
+        assert "sardine" in keys_for("canned sardines")
+
+    def test_turkey_s_plural_unbroken(self):
+        """Vowel+y words (turkey) still use regular s plural, not -ies."""
+        result = keys_for("roasted turkeys")
+        assert "turkey" in result
+
+    def test_edamame_maps_to_edamame_key(self):
+        assert "edamame" in keys_for("edamame")
+
+    def test_edamame_not_beans_legumes(self):
+        """Edamame has its own key separate from beans-legumes."""
+        result = keys_for("edamame")
+        assert "edamame" in result
+        assert "beans-legumes" not in result
+
+    def test_coconut_aminos_maps_to_own_key(self):
+        result = keys_for("coconut aminos")
+        assert "coconut-aminos" in result
+        assert "soy-sauce" not in result
+
 
 # ---------------------------------------------------------------------------
 # allergens_for: allergen grouping
@@ -168,6 +195,23 @@ class TestAllergenMapping:
     def test_soy_allergen(self):
         assert "soy" in allergens_for({"tofu"})
         assert "soy" in allergens_for({"soy-sauce"})
+        assert "soy" in allergens_for({"edamame"})
+
+    def test_seafood_triggers_fish_and_shellfish(self):
+        """'seafood' key must trigger both fish and shellfish allergens."""
+        result = allergens_for({"seafood"})
+        assert "fish" in result
+        assert "shellfish" in result
+
+    def test_coconut_aminos_no_soy_allergen(self):
+        """Coconut aminos is soy-free; must not trigger soy allergen."""
+        result = allergens_for(keys_for("coconut aminos"))
+        assert "soy" not in result
+
+    def test_anchovies_triggers_fish_allergen(self):
+        """anchovies (plural) must map through anchovy → fish allergen."""
+        result = allergens_for(keys_for("2 anchovies"))
+        assert "fish" in result
 
     def test_tree_nut_allergen(self):
         assert "tree-nut" in allergens_for({"almond"})

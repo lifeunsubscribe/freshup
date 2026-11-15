@@ -51,8 +51,9 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     # --- Legumes ---
     "beans-legumes": ("Beans & legumes", [
         "black bean", "kidney bean", "pinto bean", "cannellini bean", "navy bean",
-        "chickpea", "lentil", "edamame", "pea", "split pea", "bean", "legume",
+        "chickpea", "lentil", "pea", "split pea", "bean", "legume",
     ]),
+    "edamame": ("Edamame", ["edamame", "soybean", "soy bean"]),
     # --- Grains ---
     "grains": ("Grains", ["quinoa", "farro", "barley", "millet", "bulgur", "oat", "grain"]),
     "rice": ("Rice", ["brown rice", "jasmine rice", "basmati rice", "arborio rice", "fried rice",
@@ -120,7 +121,8 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "flaxseed": ("Flaxseed", ["flaxseed", "flax seed"]),
     # --- Pantry ---
     "olive-oil": ("Olive oil", ["olive oil"]),
-    "soy-sauce": ("Soy sauce", ["soy sauce", "tamari", "coconut aminos"]),
+    "soy-sauce": ("Soy sauce", ["soy sauce", "tamari"]),
+    "coconut-aminos": ("Coconut aminos", ["coconut aminos"]),
     "vinegar": ("Vinegar", ["balsamic vinegar", "apple cider vinegar", "rice vinegar", "vinegar"]),
     "tomato-sauce": ("Tomato sauce", ["tomato paste", "tomato sauce", "crushed tomato",
                                        "diced tomato", "marinara"]),
@@ -139,10 +141,10 @@ ALLERGENS: dict[str, set[str]] = {
     "egg": {"egg"},
     "peanut": {"peanut"},
     "tree-nut": {"almond", "walnut", "pecan", "cashew", "pine-nut", "pistachio"},
-    "fish": {"salmon", "white-fish", "tuna", "anchovy", "sardine"},
-    "shellfish": {"shrimp", "crab", "lobster", "clam", "oyster", "scallop"},
+    "fish": {"salmon", "white-fish", "tuna", "anchovy", "sardine", "seafood"},
+    "shellfish": {"shrimp", "crab", "lobster", "clam", "oyster", "scallop", "seafood"},
     "wheat": {"wheat", "pasta", "bread", "couscous", "tortilla"},
-    "soy": {"tofu", "soy-sauce"},
+    "soy": {"tofu", "soy-sauce", "edamame"},
     "sesame": {"sesame"},
 }
 
@@ -168,9 +170,14 @@ def keys_for(name: Optional[str]) -> set[str]:
     if not name:
         return set()
     padded = " " + normalize_tag(re.sub(r"[^\w\- ]", " ", name)) + " "
+    _consonants_before_y = set("bcdfghjklmnpqrstvwxyz")
     found: set[str] = set()
     for spelling, key in _SPELLING_INDEX:
-        pattern = re.compile(rf" {re.escape(spelling)}(?:s|es)? ")
+        # Words ending in consonant+y form -ies plurals (anchovy→anchovies)
+        if spelling.endswith("y") and len(spelling) >= 2 and spelling[-2] in _consonants_before_y:
+            pattern = re.compile(rf" {re.escape(spelling[:-1])}(?:y|ies) ")
+        else:
+            pattern = re.compile(rf" {re.escape(spelling)}(?:s|es)? ")
         if pattern.search(padded):
             found.add(key)
             padded = pattern.sub("  ", padded)
