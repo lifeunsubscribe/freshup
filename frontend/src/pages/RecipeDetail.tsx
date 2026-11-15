@@ -23,6 +23,7 @@ import {
   useToggleLike,
   useCookRecipe,
   useCookHistory,
+  useRecordView,
 } from '../api/hooks/useRecipeEngagement'
 import { useCreatePlanEntry } from '../api/hooks/usePlan'
 import { useInventoryList } from '../api/hooks/useInventory'
@@ -77,6 +78,19 @@ export default function RecipeDetail() {
   const cookRecipe = useCookRecipe()
   const rateRecipe = useRateRecipe()
   const createPlanEntry = useCreatePlanEntry()
+  const recordView = useRecordView()
+
+  // Fire once after the recipe loads; ref prevents a second POST on re-render.
+  const viewFiredRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!id || !recipe) return
+    if (viewFiredRef.current === id) return
+    viewFiredRef.current = id
+    recordView.mutate({ recipeId: id, source: 'detail' })
+  // recordView is excluded from deps — its identity changes with mutation state;
+  // the ref already guards against repeated calls within the same mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, recipe])
 
   // Cook timers — frontend-only, cleared when the page unmounts
   const { timers, addTimer, dismissTimer } = useCookTimers()

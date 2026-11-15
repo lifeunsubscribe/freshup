@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { createElement } from 'react'
-import { useRateRecipe, recipeKeys } from './useRecipes'
+import { useRateRecipe, useRecipeList, recipeKeys } from './useRecipes'
 import { useCookRecipe } from './useRecipeEngagement'
 import { apiClient } from '../client'
 
@@ -231,5 +231,31 @@ describe('useCookRecipe outcomes invalidation', () => {
         (k) => JSON.stringify(k) === JSON.stringify(recipeKeys.outcomes(RECIPE_ID))
       )
     ).toBe(true)
+  })
+})
+
+describe('useRecipeList', () => {
+  it('sends viewed=true when filters.viewed is true', async () => {
+    mockApiClient.mockResolvedValueOnce([])
+
+    const { result } = renderHook(() => useRecipeList({ viewed: true }), { wrapper })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiClient).toHaveBeenCalledWith(
+      expect.stringContaining('viewed=true'),
+      expect.objectContaining({ method: 'GET' })
+    )
+  })
+
+  it('does not send viewed when filters.viewed is falsy', async () => {
+    mockApiClient.mockResolvedValueOnce([])
+
+    const { result } = renderHook(() => useRecipeList({}), { wrapper })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const url = (mockApiClient.mock.calls[0][0] as string)
+    expect(url).not.toContain('viewed')
   })
 })

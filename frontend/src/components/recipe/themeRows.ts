@@ -34,7 +34,7 @@ export type RowSpec = LibraryRowSpec | CollectionRowSpec
 /** The user's own rows: always first on the main page. */
 export const YOUR_ROWS: LibraryRowSpec[] = [
   { kind: 'library', id: 'favorites', title: 'Your favorites', filters: { limit: CAROUSEL_LIMIT, liked: true } },
-  { kind: 'library', id: 'recently-added', title: 'Recently added', filters: { limit: CAROUSEL_LIMIT } },
+  { kind: 'library', id: 'recently-viewed', title: 'Recently viewed', filters: { limit: CAROUSEL_LIMIT, viewed: true } },
   { kind: 'library', id: 'quick-meals', title: 'Quick meals', filters: { limit: CAROUSEL_LIMIT, max_cook_time: 30 } },
 ]
 

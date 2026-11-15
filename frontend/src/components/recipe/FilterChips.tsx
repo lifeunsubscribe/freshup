@@ -13,6 +13,8 @@ export interface RecipeFilters {
   max_cook_time?: number
   /** Only the current user's liked recipes — set by "See all" on Your favorites. */
   liked?: boolean
+  /** Only the current user's viewed recipes — set by "See all" on Recently viewed. */
+  viewed?: boolean
   saved_only?: boolean
   /** Catalog card tag keys that must all be present (in-list tag filter). */
   card_tags?: string[]

@@ -57,6 +57,8 @@ export interface RecipeListFilters {
   has_variation?: boolean;
   /** Only the current user's liked recipes (their favorites). */
   liked?: boolean;
+  /** Only the current user's viewed recipes, ordered by most recently viewed. */
+  viewed?: boolean;
 }
 
 /**
@@ -79,6 +81,7 @@ export function useRecipeList(
   if (filters.has_variation !== undefined)
     params.append('has_variation', String(filters.has_variation));
   if (filters.liked) params.append('liked', 'true');
+  if (filters.viewed) params.append('viewed', 'true');
 
   const queryString = params.toString();
 

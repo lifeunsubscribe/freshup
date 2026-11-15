@@ -93,12 +93,13 @@ export default function Recipes() {
   // Handle "See all" button - transition to grid with filter
   const handleSeeAll = useCallback((sectionFilters: RecipeListFilters) => {
     // Extract only RecipeFilters properties (exclude limit which is for carousel only)
-    const { max_cook_time, tag, source_type, liked } = sectionFilters
+    const { max_cook_time, tag, source_type, liked, viewed } = sectionFilters
     const gridFilters: RecipeFilters = {}
     if (max_cook_time !== undefined) gridFilters.max_cook_time = max_cook_time
     if (tag !== undefined) gridFilters.tag = tag
     if (source_type !== undefined) gridFilters.source_type = source_type
     if (liked) gridFilters.liked = true
+    if (viewed) gridFilters.viewed = true
     setFilters(gridFilters)
     setViewMode('grid')
   }, [])

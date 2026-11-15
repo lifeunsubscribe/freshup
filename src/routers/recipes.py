@@ -293,6 +293,7 @@ def list_recipes(
     search: Optional[str] = Query(default=None, min_length=2, max_length=255, description="Search recipes by name (case-insensitive partial match)"),
     has_variation: Optional[bool] = Query(default=None, description="Filter by variation groups presence (true/false)"),
     liked: bool = Query(default=False, description="Only recipes the current user has liked (their favorites)"),
+    viewed: bool = Query(default=False, description="Only recipes the current user has viewed, ordered by most recently viewed first"),
 ):
     """
     List all recipes with filtering and pagination.
@@ -317,6 +318,7 @@ def list_recipes(
         search: Search recipes by name (case-insensitive partial match, LIKE wildcards escaped)
         has_variation: Filter by variation groups presence (true for recipes with variations, false for none)
         liked: When true, only recipes the current user has liked
+        viewed: When true, only recipes the current user has viewed, ordered by most recent view
 
     Returns:
         list[RecipeListResponse]: List of all recipes matching filters
@@ -407,15 +409,36 @@ def list_recipes(
         )
         query = query.filter(Recipe.id.in_(liked_ids))
 
-    # Apply ordering and pagination
-    # Order by created_at to show most recently added recipes first
-    recipes = (
-        query
-        .order_by(Recipe.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-        .all()
-    )
+    # Apply viewed filter: only recipes this user has viewed, ordered by most recent view.
+    # A subquery computes each recipe's latest viewed_at for the caller; the join both
+    # restricts to viewed recipes and surfaces the timestamp for ordering.
+    if viewed:
+        latest_view_sq = (
+            db.query(
+                UserRecipeView.recipe_id,
+                func.max(UserRecipeView.viewed_at).label("latest_viewed_at"),
+            )
+            .filter(UserRecipeView.user_id == current_user.id)
+            .group_by(UserRecipeView.recipe_id)
+            .subquery()
+        )
+        query = query.join(latest_view_sq, Recipe.id == latest_view_sq.c.recipe_id)
+        recipes = (
+            query
+            .order_by(latest_view_sq.c.latest_viewed_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+    else:
+        # Order by created_at to show most recently added recipes first
+        recipes = (
+            query
+            .order_by(Recipe.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
 
     # One extra query: the caller's bookmarked recipe IDs.  Fetched once here
     # so each card is O(1) set membership, not a per-card relation fetch.

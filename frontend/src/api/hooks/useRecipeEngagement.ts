@@ -217,6 +217,29 @@ export function useCookRecipe() {
 }
 
 /**
+ * Record a view of a recipe (fire-and-forget).
+ *
+ * Fires once after a recipe page loads. Failures are silently dropped — a
+ * view that fails to record should never surface as an error to the user.
+ * On success, the recently-viewed list is invalidated so the row refreshes.
+ */
+export function useRecordView() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ recipeId, source }: { recipeId: string; source: string }) => {
+      return apiClient<void>(`/recipes/${encodeURIComponent(recipeId)}/view`, {
+        method: 'POST',
+        body: JSON.stringify({ source }),
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() })
+    },
+  })
+}
+
+/**
  * Current user's cook events for a recipe, newest first.
  *
  * Returns an empty array when the user has never cooked it — this is the

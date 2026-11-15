@@ -9,6 +9,7 @@ import {
   useToggleBookmark,
   useToggleLike,
   useCookRecipe,
+  useRecordView,
   relationKeys,
 } from './useRecipeEngagement'
 import { recipeKeys } from './useRecipes'
@@ -234,6 +235,46 @@ describe('useCookRecipe', () => {
       invalidatedKeys.some(
         (k) => JSON.stringify(k) === JSON.stringify(recipeKeys.outcomes(RECIPE_ID))
       )
+    ).toBe(true)
+  })
+})
+
+describe('useRecordView', () => {
+  it('POSTs to /recipes/{id}/view with the id URL-encoded and source in the body', async () => {
+    mockApiClient.mockResolvedValueOnce(undefined)
+
+    const { result } = renderHook(() => useRecordView(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ recipeId: RECIPE_ID, source: 'detail' })
+    })
+
+    expect(mockApiClient).toHaveBeenCalledWith(
+      `/recipes/${encodeURIComponent(RECIPE_ID)}/view`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ source: 'detail' }),
+      })
+    )
+  })
+
+  it('invalidates recipe list queries on success', async () => {
+    mockApiClient.mockResolvedValueOnce(undefined)
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { result } = renderHook(() => useRecordView(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ recipeId: RECIPE_ID, source: 'detail' })
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    const invalidatedKeys = invalidateSpy.mock.calls.map(
+      (call) => (call[0] as { queryKey: unknown[] }).queryKey
+    )
+    expect(
+      invalidatedKeys.some((k) => JSON.stringify(k) === JSON.stringify(recipeKeys.lists()))
     ).toBe(true)
   })
 })

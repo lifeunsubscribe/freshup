@@ -692,6 +692,91 @@ class TestRecipeFiltering:
         assert response.status_code == 200
         assert response.json() == []
 
+    def test_filter_by_viewed_returns_only_callers_views(
+        self, client, auth_headers, test_user, test_user2, sample_recipes, db_session
+    ):
+        """viewed=true returns only the caller's viewed recipes, most recently viewed first."""
+        from src.db.models.user_recipe_view import UserRecipeView
+        import time
+
+        recipe_a, recipe_b, recipe_c = sample_recipes[0], sample_recipes[1], sample_recipes[2]
+        # recipe_a viewed twice — still appears once; recipe_b viewed once; recipe_c not viewed by caller
+        db_session.add_all([
+            UserRecipeView(user_id=test_user.id, recipe_id=recipe_b.id, source="detail"),
+            UserRecipeView(user_id=test_user.id, recipe_id=recipe_a.id, source="detail"),
+            UserRecipeView(user_id=test_user.id, recipe_id=recipe_a.id, source="detail"),
+            UserRecipeView(user_id=test_user2.id, recipe_id=recipe_c.id, source="detail"),
+        ])
+        db_session.commit()
+
+        response = client.get("/recipes?viewed=true", headers=auth_headers)
+
+        assert response.status_code == 200
+        ids = [r["id"] for r in response.json()]
+        # recipe_a was viewed last so it comes first; recipe_b before that; recipe_c not by caller
+        assert str(recipe_a.id) in ids
+        assert str(recipe_b.id) in ids
+        assert str(recipe_c.id) not in ids
+        # recipe_a appears only once despite two views
+        assert ids.count(str(recipe_a.id)) == 1
+
+    def test_filter_by_viewed_excludes_other_users(
+        self, client, auth_headers, test_user2, sample_recipes, db_session
+    ):
+        """Another user's views are not included in the caller's viewed list."""
+        from src.db.models.user_recipe_view import UserRecipeView
+
+        db_session.add(
+            UserRecipeView(user_id=test_user2.id, recipe_id=sample_recipes[0].id, source="detail")
+        )
+        db_session.commit()
+
+        response = client.get("/recipes?viewed=true", headers=auth_headers)
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_filter_by_viewed_pagination(
+        self, client, auth_headers, test_user, sample_recipes, db_session
+    ):
+        """viewed=true&limit=1&offset=1 returns the second most recently viewed recipe."""
+        from src.db.models.user_recipe_view import UserRecipeView
+
+        recipe_a, recipe_b = sample_recipes[0], sample_recipes[1]
+        db_session.add_all([
+            UserRecipeView(user_id=test_user.id, recipe_id=recipe_b.id, source="detail"),
+            UserRecipeView(user_id=test_user.id, recipe_id=recipe_a.id, source="detail"),
+        ])
+        db_session.commit()
+
+        # limit=1&offset=0 → recipe_a (most recent)
+        resp0 = client.get("/recipes?viewed=true&limit=1&offset=0", headers=auth_headers)
+        assert resp0.status_code == 200
+        assert resp0.json()[0]["id"] == str(recipe_a.id)
+
+        # limit=1&offset=1 → recipe_b (second most recent)
+        resp1 = client.get("/recipes?viewed=true&limit=1&offset=1", headers=auth_headers)
+        assert resp1.status_code == 200
+        assert resp1.json()[0]["id"] == str(recipe_b.id)
+
+    def test_filter_by_viewed_false_ordering_unchanged(
+        self, client, auth_headers, test_user, sample_recipes, db_session
+    ):
+        """Without viewed=true, ordering and results are unchanged (created_at desc)."""
+        from src.db.models.user_recipe_view import UserRecipeView
+
+        db_session.add(
+            UserRecipeView(user_id=test_user.id, recipe_id=sample_recipes[2].id, source="detail")
+        )
+        db_session.commit()
+
+        response = client.get("/recipes", headers=auth_headers)
+
+        assert response.status_code == 200
+        ids = [r["id"] for r in response.json()]
+        # All 5 sample recipes returned (view does not filter without ?viewed=true)
+        assert len(ids) == 5
+
     def test_combined_filters_and_logic(self, client, auth_headers, sample_recipes):
         """Test multiple filters combine with AND logic."""
         # Filter: source_type=manual AND tag=quick AND max_cook_time=20

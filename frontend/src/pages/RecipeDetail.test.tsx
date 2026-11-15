@@ -56,6 +56,8 @@ vi.mock('../api/hooks/useRecipes', () => ({
   useRecipeOutcomes: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
 }))
 
+const mockRecordViewMutate = vi.fn()
+
 vi.mock('../api/hooks/useRecipeEngagement', () => ({
   useMyRecipeRelation: () => ({
     data: {
@@ -72,6 +74,7 @@ vi.mock('../api/hooks/useRecipeEngagement', () => ({
   useToggleLike: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useCookRecipe: () => ({ mutateAsync: mockCookMutateAsync }),
   useCookHistory: vi.fn(() => ({ data: [] })),
+  useRecordView: () => ({ mutate: mockRecordViewMutate }),
 }))
 
 vi.mock('../api/hooks/usePlan', () => ({
@@ -115,6 +118,7 @@ beforeEach(() => {
   mockCookMutateAsync.mockReset().mockResolvedValue({})
   mockRateMutateAsync.mockReset().mockResolvedValue({})
   mockCreateEntryMutateAsync.mockReset().mockResolvedValue({})
+  mockRecordViewMutate.mockReset()
 })
 
 function renderPage() {
@@ -124,6 +128,29 @@ function renderPage() {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('RecipeDetail', () => {
+  describe('view recording', () => {
+    it('fires useRecordView once when the recipe loads', async () => {
+      renderPage()
+      await waitFor(() => expect(mockRecordViewMutate).toHaveBeenCalledTimes(1))
+      expect(mockRecordViewMutate).toHaveBeenCalledWith({ recipeId: 'recipe-1', source: 'detail' })
+    })
+
+    it('does not fire a second time on re-render', async () => {
+      const { rerender } = renderPage()
+      await waitFor(() => expect(mockRecordViewMutate).toHaveBeenCalledTimes(1))
+      rerender(<RecipeDetail />)
+      // Still only one call after re-render
+      expect(mockRecordViewMutate).toHaveBeenCalledTimes(1)
+    })
+
+    it('page renders normally even when useRecordView mock would fail silently', async () => {
+      // The page mounts and shows content regardless of view recording outcome
+      renderPage()
+      await waitFor(() => expect(screen.getByText('Mushroom Risotto')).toBeInTheDocument())
+      expect(screen.queryByText(/could not/i)).not.toBeInTheDocument()
+    })
+  })
+
   describe('SourceLine', () => {
     it('renders source attribution when source_url is set', async () => {
       renderPage()
