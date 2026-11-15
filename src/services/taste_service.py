@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from src.db.models.user_cook_event import UserCookEvent
 from src.db.models.user_recipe import UserRecipeRelation
 from src.db.models.user_recipe_view import UserRecipeView
-from src.services.ingredient_keys import allergens_for, keys_for_recipe
+from src.services.ingredient_keys import ALLERGENS, allergens_for, keys_for, keys_for_recipe
 from src.services.recipe_themes import TAG_INDEX, normalize_tag
 
 _SIGNAL_CUTOFF_DAYS = 90
@@ -52,6 +52,24 @@ _ALLERGY_ALIASES: dict[str, str | list[str]] = {
     # "seafood" spans both fish and shellfish allergen groups
     "seafood": ["fish", "shellfish"],
 }
+
+
+def _allergy_groups(allergy_text: str) -> set[str]:
+    """
+    Resolve a free-text allergy string to canonical allergen group slugs.
+
+    Resolution order:
+    1. _ALLERGY_ALIASES lookup (handles "dairy", "peanuts", "tree nut", "shrimp", etc.)
+    2. Canonical allergen slug passthrough (the value is already e.g. "milk", "peanut")
+    3. keys_for() fallback: ingredient-level terms like "almonds", "cashews", "salmon", "prawns"
+    """
+    normalised = allergy_text.strip().lower()
+    mapped = _ALLERGY_ALIASES.get(normalised)
+    if mapped is not None:
+        return set(mapped) if isinstance(mapped, list) else {mapped}
+    if normalised in ALLERGENS:
+        return {normalised}
+    return allergens_for(keys_for(normalised))
 
 
 def recipe_keys(recipe) -> set[str]:
@@ -208,16 +226,9 @@ def is_blocked(recipe, user) -> bool:
     # Allergen check: strip the "ingredient:" prefix before calling allergens_for
     ingredient_keys = {k[len("ingredient:"):] for k in keys if k.startswith("ingredient:")}
     recipe_allergens = allergens_for(ingredient_keys)
-    # Normalise user allergy values to canonical allergen group slugs so that
-    # free-text values like "dairy", "tree nut", "peanuts", or "shrimp" match.
-    # Aliases may expand to multiple slugs (e.g. "nuts" → tree-nut + peanut).
     user_allergies: set[str] = set()
     for a in (user.allergies or []):
-        canonical = _ALLERGY_ALIASES.get(str(a).strip().lower(), str(a).strip().lower())
-        if isinstance(canonical, list):
-            user_allergies.update(canonical)
-        else:
-            user_allergies.add(canonical)
+        user_allergies.update(_allergy_groups(str(a)))
     if recipe_allergens & user_allergies:
         return True
 

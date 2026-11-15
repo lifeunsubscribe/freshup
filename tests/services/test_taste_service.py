@@ -500,6 +500,36 @@ class TestIsBlocked:
         recipe = _make_recipe(ingredient_names=["peanut butter"])
         assert is_blocked(recipe, user)
 
+    def test_allergy_almonds_plural_blocks_tree_nut_recipe(self):
+        """'almonds' resolves through keys_for() to tree-nut group."""
+        user = _make_user(allergies=["almonds"])
+        recipe = _make_recipe(ingredient_names=["almond"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_cashews_plural_blocks_tree_nut_recipe(self):
+        """'cashews' resolves through keys_for() to tree-nut group."""
+        user = _make_user(allergies=["cashews"])
+        recipe = _make_recipe(ingredient_names=["cashew cream"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_prawns_plural_blocks_shellfish_recipe(self):
+        """'prawns' (plural of a shellfish ingredient) resolves to shellfish group."""
+        user = _make_user(allergies=["prawns"])
+        recipe = _make_recipe(ingredient_names=["shrimp"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_salmon_ingredient_name_blocks_fish_recipe(self):
+        """'salmon' (ingredient name, not a slug) resolves to fish group."""
+        user = _make_user(allergies=["salmon"])
+        recipe = _make_recipe(ingredient_names=["salmon"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_tuna_ingredient_name_blocks_fish_recipe(self):
+        """'tuna' (ingredient name, not a slug) resolves to fish group."""
+        user = _make_user(allergies=["tuna"])
+        recipe = _make_recipe(ingredient_names=["tuna"])
+        assert is_blocked(recipe, user)
+
     def test_no_allergy_not_blocked(self):
         user = _make_user(allergies=[])
         recipe = _make_recipe(ingredient_names=["peanut butter"])
