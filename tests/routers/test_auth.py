@@ -2560,3 +2560,114 @@ class TestTokenRefresh:
         headers = {"Authorization": f"Bearer {expired_token}"}
         response = client.post("/auth/refresh", headers=headers)
         assert response.status_code == 401
+
+
+class TestTastePreferences:
+    """Tests for taste_preferences and onboarded fields on PUT/GET /auth/me."""
+
+    def test_taste_preferences_round_trip(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me accepts a valid taste map and GET /auth/me returns it."""
+        prefs = {
+            "ingredient:chicken": "love",
+            "ingredient:broccoli": "less",
+            "cuisine:italian": "like",
+            "ingredient:beef": "never",
+        }
+        response = client.put("/auth/me", json={"taste_preferences": prefs}, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["taste_preferences"] == prefs
+
+        # Verify GET returns the same map
+        response = client.get("/auth/me", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["taste_preferences"] == prefs
+
+        # Verify DB state
+        db_session.refresh(test_user)
+        assert test_user.taste_preferences == prefs
+
+    def test_taste_preferences_unknown_ingredient_key_returns_422(self, client, test_user, auth_headers):
+        """PUT /auth/me rejects an unknown ingredient key."""
+        response = client.put(
+            "/auth/me",
+            json={"taste_preferences": {"ingredient:unicorn_meat": "love"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_taste_preferences_unknown_cuisine_key_returns_422(self, client, test_user, auth_headers):
+        """PUT /auth/me rejects an unknown cuisine key."""
+        response = client.put(
+            "/auth/me",
+            json={"taste_preferences": {"cuisine:klingon": "like"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_taste_preferences_invalid_level_returns_422(self, client, test_user, auth_headers):
+        """PUT /auth/me rejects an invalid taste level."""
+        response = client.put(
+            "/auth/me",
+            json={"taste_preferences": {"ingredient:chicken": "meh"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_taste_preferences_bad_prefix_returns_422(self, client, test_user, auth_headers):
+        """PUT /auth/me rejects keys that don't start with ingredient: or cuisine:."""
+        response = client.put(
+            "/auth/me",
+            json={"taste_preferences": {"dish:tacos": "love"}},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
+
+    def test_onboarded_true_sets_onboarded_at(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me with onboarded: true sets onboarded_at on the user."""
+        assert test_user.onboarded_at is None
+        response = client.put("/auth/me", json={"onboarded": True}, headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["onboarded_at"] is not None
+
+        db_session.refresh(test_user)
+        assert test_user.onboarded_at is not None
+
+    def test_onboarded_true_idempotent(self, client, test_user, auth_headers, db_session):
+        """A second onboarded: true call does not overwrite onboarded_at."""
+        # First call sets it
+        client.put("/auth/me", json={"onboarded": True}, headers=auth_headers)
+        db_session.refresh(test_user)
+        first_at = test_user.onboarded_at
+        assert first_at is not None
+
+        # Second call must not change it
+        response = client.put("/auth/me", json={"onboarded": True}, headers=auth_headers)
+        assert response.status_code == 200
+        db_session.refresh(test_user)
+        assert test_user.onboarded_at == first_at
+
+    def test_taste_preferences_empty_map_accepted(self, client, test_user, auth_headers, db_session):
+        """PUT /auth/me accepts an empty taste_preferences map (clears the field)."""
+        # Set some prefs first
+        client.put(
+            "/auth/me",
+            json={"taste_preferences": {"ingredient:chicken": "love"}},
+            headers=auth_headers,
+        )
+        # Now clear them
+        response = client.put("/auth/me", json={"taste_preferences": {}}, headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json()["taste_preferences"] == {}
+
+        db_session.refresh(test_user)
+        assert test_user.taste_preferences == {}
+
+    def test_response_includes_taste_fields(self, client, test_user, auth_headers):
+        """GET /auth/me response always includes taste_preferences and onboarded_at."""
+        response = client.get("/auth/me", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "taste_preferences" in data
+        assert "onboarded_at" in data

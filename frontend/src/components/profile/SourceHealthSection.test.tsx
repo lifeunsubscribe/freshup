@@ -18,6 +18,8 @@ const coordinator = {
   allergies: [],
   disliked_ingredients: [],
   favorite_ingredients: [],
+  taste_preferences: {} as Record<string, import('../../api/types').TasteLevel>,
+  onboarded_at: null,
   failed_login_attempts: 0,
   lockout_until: null,
   lockout_count: 0,

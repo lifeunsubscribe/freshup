@@ -42,6 +42,8 @@ class User(Base):
     allergies: Mapped[list] = mapped_column(JSON, default=list)
     disliked_ingredients: Mapped[list] = mapped_column(JSON, default=list)
     favorite_ingredients: Mapped[list] = mapped_column(JSON, default=list)
+    taste_preferences: Mapped[dict] = mapped_column(JSON, default=dict)
+    onboarded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     # Account lockout fields for brute force protection

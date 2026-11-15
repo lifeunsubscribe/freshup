@@ -72,6 +72,8 @@ export enum GrocerySource {
 // Auth Types
 // ============================================================================
 
+export type TasteLevel = 'love' | 'like' | 'less' | 'never';
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -91,6 +93,8 @@ export interface UserResponse {
   allergies: string[];
   disliked_ingredients: string[];
   favorite_ingredients: string[];
+  taste_preferences: Record<string, TasteLevel>;
+  onboarded_at: string | null;
   failed_login_attempts: number;
   lockout_until: string | null;
   lockout_count: number;
@@ -113,6 +117,8 @@ export interface UserUpdate {
   allergies?: string[];
   disliked_ingredients?: string[];
   favorite_ingredients?: string[];
+  taste_preferences?: Record<string, TasteLevel>;
+  onboarded?: boolean;
 }
 
 export interface PasswordChangeRequest {

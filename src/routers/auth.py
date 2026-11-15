@@ -431,7 +431,8 @@ def update_current_user_profile(
         "dietary_profile",
         "allergies",
         "disliked_ingredients",
-        "favorite_ingredients"
+        "favorite_ingredients",
+        "taste_preferences",
     }
 
     PROTECTED_FIELDS = {"email", "role"}
@@ -449,6 +450,11 @@ def update_current_user_profile(
 
     # Track which fields were actually updated for audit log
     fields_updated = []
+
+    # onboarded: true sets onboarded_at once; subsequent calls are no-ops
+    if update_dict.pop("onboarded", None) is True and current_user.onboarded_at is None:
+        current_user.onboarded_at = datetime.now(timezone.utc)
+        fields_updated.append("onboarded_at")
 
     for field, value in update_dict.items():
         if field not in ALLOWED_UPDATE_FIELDS:
