@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, func, UniqueConstraint, Index
+from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, JSON, func, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.database import Base
@@ -56,6 +56,9 @@ class SourceRecipeCard(Base):
     rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     rating_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     recipe_url: Mapped[str] = mapped_column(String(2048))
+    # Sorted ingredient keys from the imported recipe. NULL = not yet imported;
+    # [] = imported but no known ingredients matched.
+    ingredient_keys: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     # Set once the card is imported as a full Recipe. ON DELETE SET NULL preserves
     # the card if the imported recipe is later pruned (is_persisted cleanup).
     recipe_id: Mapped[Optional[UUID]] = mapped_column(

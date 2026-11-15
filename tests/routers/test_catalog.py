@@ -517,9 +517,10 @@ class TestCollectionDetail:
 
         assert response.status_code == 200
         card = response.json()["cards"][0]
-        for field in ("id", "name", "image_url", "recipe_url", "is_persisted"):
+        for field in ("id", "name", "image_url", "recipe_url", "is_persisted", "ingredient_keys"):
             assert field in card
         assert card["is_persisted"] is False  # not yet imported
+        assert card["ingredient_keys"] is None  # not yet imported
 
     def test_children_returned_in_detail(self, client, db_session, member_headers):
         self._pre_seed_collection(db_session)

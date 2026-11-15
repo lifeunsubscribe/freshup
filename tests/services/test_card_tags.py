@@ -29,8 +29,8 @@ def db_session():
         engine.dispose()
 
 
-def card(name, headline=None):
-    return SimpleNamespace(id=uuid4(), name=name, headline=headline)
+def card(name, headline=None, ingredient_keys=None):
+    return SimpleNamespace(id=uuid4(), name=name, headline=headline, ingredient_keys=ingredient_keys)
 
 
 class TestTagsFromText:
@@ -108,3 +108,40 @@ class TestTagCards:
 
         card_tags, _ = tag_cards(db_session, [stored], "hellofresh_web", "italian-recipes")
         assert card_tags[stored.id] == ["diet:vegetarian"]
+
+
+class TestStoredIngredientKeys:
+    def test_stored_keys_produce_ingredient_tags(self, db_session):
+        """A card with ingredient_keys=["broccoli"] is tagged ingredient:broccoli."""
+        c = card("Mystery Bowl", ingredient_keys=["broccoli"])
+        result, _ = tag_cards(db_session, [c], "hellofresh_web", "x")
+        assert "ingredient:broccoli" in result[c.id]
+
+    def test_stored_keys_override_text_derived_ingredient_tags(self, db_session):
+        """When ingredient_keys is set, text-derived ingredient: tags are dropped."""
+        # Name mentions chicken, but stored keys say only broccoli.
+        c = card("Chicken Bowl", ingredient_keys=["broccoli"])
+        result, _ = tag_cards(db_session, [c], "hellofresh_web", "x")
+        assert "ingredient:broccoli" in result[c.id]
+        assert "ingredient:chicken" not in result[c.id]
+
+    def test_stored_keys_empty_list_suppresses_ingredient_tags(self, db_session):
+        """ingredient_keys=[] drops text-derived ingredient: tags but keeps dish: tags."""
+        c = card("Chicken Bowl", ingredient_keys=[])
+        result, _ = tag_cards(db_session, [c], "hellofresh_web", "x")
+        assert "ingredient:chicken" not in result[c.id]
+        assert "dish:bowls" in result[c.id]
+
+    def test_stored_keys_none_behaves_as_before(self, db_session):
+        """ingredient_keys=None falls back to text-derived tags (existing behaviour)."""
+        c = card("Chicken Bowl")
+        result, _ = tag_cards(db_session, [c], "hellofresh_web", "x")
+        assert "ingredient:chicken" in result[c.id]
+
+    def test_tag_label_for_ingredient_key_in_vocabulary(self, db_session):
+        """tag_label for a key in the ingredient vocabulary returns its display label."""
+        assert tag_label("ingredient:broccoli") == "Broccoli"
+
+    def test_tag_label_for_ingredient_key_in_recipe_themes(self, db_session):
+        """tag_label for a standard recipe-themes ingredient key still works."""
+        assert tag_label("ingredient:chicken") == "Chicken"

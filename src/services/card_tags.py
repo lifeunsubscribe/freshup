@@ -1,7 +1,7 @@
 """
 Tags for catalog cards, and the per-list tag filter built from them.
 
-HelloFresh cards carry no tags, so they are derived from two signals:
+HelloFresh cards carry no tags, so they are derived from three signals:
 
 * Words. The recipe name says what the dish is ("Ras el Hanout Lamb & Loaded
   Couscous" -> lamb, couscous). The headline is HelloFresh's "with ..." line
@@ -10,6 +10,10 @@ HelloFresh cards carry no tags, so they are derived from two signals:
   (the dish is a salad) and "Side salad" stay distinct.
 * Overlap. A card that also sits in another classified collection (the same
   card in Chicken Recipes) carries that collection's theme value.
+* Stored ingredient keys. When a card has been opened, its ingredient keys
+  (from the imported recipe) are stored on the card. These replace text-derived
+  ingredient: tags so the two sources cannot disagree; dish:, cuisine:, diet:,
+  and side: tags from text and overlap are kept.
 
 Main tags reuse the recipe-theme vocabulary, so "Chicken" here means the same
 as the Main ingredient theme's "Chicken". Side tags exist only here.
@@ -27,6 +31,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard
+from src.services import ingredient_keys as _ingredient_keys
 from src.services.recipe_themes import (
     HELLOFRESH_COLLECTION_THEMES,
     HELLOFRESH_SOURCE,
@@ -121,6 +126,10 @@ LABELS: dict[str, str] = {
 def tag_label(key: str) -> str:
     if key in LABELS:
         return LABELS[key]
+    if key.startswith("ingredient:"):
+        value = key.split(":", 1)[1]
+        if value not in VALUE_LABELS.get("ingredient", {}):
+            return _ingredient_keys.label_for(value)
     return _label_for_theme_key(key)
 
 
@@ -198,7 +207,16 @@ def tag_cards(
     card_tags: dict[UUID, list[str]] = {}
     counts: dict[str, int] = {}
     for card in cards:
-        tags = tags_from_text(card.name, card.headline) | overlap.get(card.id, set())
+        text_tags = tags_from_text(card.name, card.headline)
+        overlap_set = overlap.get(card.id, set())
+        stored_keys = getattr(card, "ingredient_keys", None)
+        if stored_keys is not None:
+            # Stored keys are authoritative for ingredient: tags; drop text-derived
+            # ingredient: tags so the two sources cannot disagree.
+            text_tags = {t for t in text_tags if not t.startswith("ingredient:")}
+            tags = text_tags | overlap_set | {f"ingredient:{k}" for k in stored_keys}
+        else:
+            tags = text_tags | overlap_set
         tags.discard(own_key)
         card_tags[card.id] = sorted(tags)
         for key in tags:

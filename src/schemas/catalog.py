@@ -100,6 +100,10 @@ class CardResponse(BaseModel):
     is_persisted: bool = Field(
         description="True when the linked Recipe is persisted (bookmarked); false when card is unimported or the imported recipe is unpersisted"
     )
+    ingredient_keys: Optional[list[str]] = Field(
+        default=None,
+        description="Sorted ingredient keys stored when the card was imported; null when not yet imported",
+    )
     tags: list[str] = Field(
         default_factory=list,
         description="Derived tag keys (see src/services/card_tags.py): main tags from the name and overlapping collections, side: tags from the headline",

@@ -33,6 +33,7 @@ from src.services.crawlers.hellofresh_crawler import (
     classify_hellofresh_url,
 )
 from src.services.import_service import import_recipe_from_url
+from src.services.ingredient_keys import keys_for_recipe
 from src.utils.sanitize import sanitize_exception_message
 
 logger = logging.getLogger(__name__)
@@ -406,6 +407,13 @@ def open_card(db: Session, card_id: UUID) -> Optional[OpenCardResult]:
             .first()
         )
         if recipe is not None:
+            if card.ingredient_keys is None:
+                # Backfill ingredient keys for cards imported before this column existed.
+                card.ingredient_keys = sorted(keys_for_recipe(recipe))
+                try:
+                    db.commit()
+                except SQLAlchemyError:
+                    db.rollback()
             return OpenCardResult(recipe=recipe, imported=False)
         # Recipe was pruned (ON DELETE SET NULL fired); fall through to re-import.
 
@@ -420,11 +428,13 @@ def open_card(db: Session, card_id: UUID) -> Optional[OpenCardResult]:
         )
         if recipe is not None:
             card.recipe_id = recipe.id
+            card.ingredient_keys = sorted(keys_for_recipe(recipe))
             try:
                 db.commit()
             except SQLAlchemyError:
                 db.rollback()
                 card.recipe_id = None
+                card.ingredient_keys = None
                 raise ValueError("Failed to link card to recipe; please retry")
             return OpenCardResult(recipe=recipe, imported=True)
 
