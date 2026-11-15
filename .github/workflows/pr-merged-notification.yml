@@ -14,6 +14,10 @@ jobs:
     name: Send Merge Notification
     runs-on: ubuntu-latest
     if: github.event.pull_request.merged == true
+    # The secrets context cannot be read in a step-level `if:`; GitHub rejects the
+    # whole file. Copy the secret to env and test that instead.
+    env:
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
     steps:
       - name: Checkout code
@@ -36,9 +40,9 @@ jobs:
           echo "deletions=${{ github.event.pull_request.deletions }}" >> $GITHUB_OUTPUT
 
       - name: Send Slack notification
-        if: ${{ secrets.SLACK_WEBHOOK != '' }}
+        if: env.SLACK_WEBHOOK != ''
         run: |
-          curl -X POST "${{ secrets.SLACK_WEBHOOK }}" \
+          curl -X POST "$SLACK_WEBHOOK" \
             -H "Content-Type: application/json" \
             -d '{
               "text": "PR #${{ steps.pr-info.outputs.pr_number }} merged: ${{ steps.pr-info.outputs.pr_title }}",
