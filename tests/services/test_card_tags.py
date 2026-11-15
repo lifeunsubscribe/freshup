@@ -145,3 +145,31 @@ class TestStoredIngredientKeys:
     def test_tag_label_for_ingredient_key_in_recipe_themes(self, db_session):
         """tag_label for a standard recipe-themes ingredient key still works."""
         assert tag_label("ingredient:chicken") == "Chicken"
+
+    def test_overlap_derived_ingredient_tags_dropped_when_stored_keys_present(self, db_session):
+        """Overlap-derived ingredient: tags are suppressed when stored keys are set."""
+        # chicken-recipes overlaps → ingredient:chicken; stored keys say only broccoli.
+        chicken_coll = SourceCollection(
+            source_type="hellofresh_web",
+            slug="chicken-recipes",
+            name="Chicken Recipes",
+            url="https://www.hellofresh.com/recipes/chicken-recipes",
+        )
+        db_session.add(chicken_coll)
+        db_session.flush()
+        stored = SourceRecipeCard(
+            source_type="hellofresh_web",
+            external_id="overlap-stored-001",
+            name="Mystery Bowl",
+            recipe_url="https://www.hellofresh.com/recipes/mystery-bowl-" + "a" * 24,
+            image_url="x",
+        )
+        stored.ingredient_keys = ["broccoli"]
+        db_session.add(stored)
+        db_session.flush()
+        db_session.add(SourceCollectionCard(collection_id=chicken_coll.id, card_id=stored.id, position=0))
+        db_session.commit()
+
+        result, _ = tag_cards(db_session, [stored], "hellofresh_web", "x")
+        assert "ingredient:broccoli" in result[stored.id]
+        assert "ingredient:chicken" not in result[stored.id]

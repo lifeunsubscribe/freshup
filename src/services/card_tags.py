@@ -212,8 +212,9 @@ def tag_cards(
         stored_keys = getattr(card, "ingredient_keys", None)
         if stored_keys is not None:
             # Stored keys are authoritative for ingredient: tags; drop text-derived
-            # ingredient: tags so the two sources cannot disagree.
+            # and overlap-derived ingredient: tags so the two sources cannot disagree.
             text_tags = {t for t in text_tags if not t.startswith("ingredient:")}
+            overlap_set = {t for t in overlap_set if not t.startswith("ingredient:")}
             tags = text_tags | overlap_set | {f"ingredient:{k}" for k in stored_keys}
         else:
             tags = text_tags | overlap_set
