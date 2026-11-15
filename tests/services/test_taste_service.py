@@ -782,6 +782,27 @@ class TestIsCardBlocked:
         keys = card_keys(card, set())
         assert not is_card_blocked(card, keys, user)
 
+    @pytest.mark.parametrize("allergy", ["garlic", "lactose", "strawberries", "penicillin"])
+    def test_allergy_outside_the_groups_blocks_unknown_ingredients(self, allergy):
+        """Any allergy blocks an unknown-ingredient card, even one that maps to no allergen group."""
+        user = _make_user(allergies=[allergy])
+        card = _make_card(ingredient_keys=None)
+        keys = card_keys(card, set())
+        assert is_card_blocked(card, keys, user)
+
+    def test_allergy_outside_the_groups_does_not_block_known_ingredients(self):
+        """With known ingredients, only an allergen-group match blocks."""
+        user = _make_user(allergies=["penicillin"])
+        card = _make_card(ingredient_keys=["chicken", "rice"])
+        keys = card_keys(card, set())
+        assert not is_card_blocked(card, keys, user)
+
+    def test_blank_allergy_entry_is_not_an_allergy(self):
+        user = _make_user(allergies=["", "  "])
+        card = _make_card(ingredient_keys=None)
+        keys = card_keys(card, set())
+        assert not is_card_blocked(card, keys, user)
+
 
 # ---------------------------------------------------------------------------
 # End-to-end: no signals + no prefs → {} and 0.0

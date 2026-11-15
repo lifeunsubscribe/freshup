@@ -329,16 +329,19 @@ def is_card_blocked(card, keys: set[str], user) -> bool:
         if prefs.get(key) == "never":
             return True
 
-    user_allergies: set[str] = set()
-    for a in (user.allergies or []):
-        user_allergies.update(_allergy_groups(str(a)))
-
-    if not user_allergies:
+    # "Has allergies" is what the user typed, not what resolves to an allergen
+    # group: "garlic" or "lactose" maps to no group, and that user must still
+    # not be shown a card whose ingredients are unknown.
+    if not any(str(a).strip() for a in (user.allergies or [])):
         return False
 
     # Unknown ingredients are not safe for allergic users
     if card.ingredient_keys is None:
         return True
+
+    user_allergies: set[str] = set()
+    for a in (user.allergies or []):
+        user_allergies.update(_allergy_groups(str(a)))
 
     ingredient_key_set = {k[len("ingredient:"):] for k in keys if k.startswith("ingredient:")}
     return bool(allergens_for(ingredient_key_set) & user_allergies)
