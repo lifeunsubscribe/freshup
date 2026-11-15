@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -748,3 +749,21 @@ class TestOpenCard:
 
         db_session.refresh(card)
         assert card.ingredient_keys == ["chicken"]
+
+    def test_open_card_backfill_commit_error_returns_not_imported(self, db_session):
+        """When the backfill db.commit() raises SQLAlchemyError, open_card still returns imported=False and ingredient_keys stays None."""
+        recipe = _make_recipe(db_session)
+        ing = RecipeIngredient(recipe_id=recipe.id, ingredient_name="chicken", quantity=2.0, unit="lbs")
+        db_session.add(ing)
+        db_session.commit()
+
+        card = _make_card(db_session, recipe_id=recipe.id)
+        assert card.ingredient_keys is None
+
+        with patch.object(db_session, "commit", side_effect=SQLAlchemyError("simulated backfill commit failure")):
+            result = catalog_service.open_card(db_session, card.id)
+
+        assert result is not None
+        assert result.imported is False
+        db_session.refresh(card)
+        assert card.ingredient_keys is None
