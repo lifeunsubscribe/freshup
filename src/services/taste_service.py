@@ -316,7 +316,9 @@ def popularity(card, source_prior: "float | None", featured: set[str]) -> float:
     # None with a present rating is treated as 1 vote so the rating influences scoring.
     count = card.rating_count if card.rating_count is not None else (1 if rating is not None else 0)
 
-    if rating is None or count == 0:
+    # Synthetic count (rating_count=None → 1) with no source prior gives no Bayesian anchor;
+    # collapse to unrated so a single unknown-provenance vote isn't given full weight.
+    if rating is None or count == 0 or (card.rating_count is None and source_prior is None):
         if source_prior is None:
             base = 0.5
         else:

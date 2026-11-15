@@ -958,3 +958,11 @@ class TestPopularityNullRatingCount:
         score = popularity(card, 3.5, set())
         # Unrated branch: source_prior mapped → (3.5 - 1) / 4 = 0.625
         assert score == pytest.approx((3.5 - 1.0) / 4.0)
+
+    def test_null_rating_count_no_source_prior_scores_half(self):
+        """rating_count=None + source_prior=None: no Bayesian anchor, falls back to 0.5."""
+        card = _make_card(rating=5.0, rating_count=None)
+        score = popularity(card, None, set())
+        # Synthetic count=1 with no source prior gives no anchor for the Bayesian mean;
+        # the unrated branch fires and returns 0.5 (same as a fully unrated card).
+        assert score == pytest.approx(0.5)
