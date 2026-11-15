@@ -13,7 +13,7 @@ auto-captions come.
 |---|---|
 | 0:00 | `[Music]`, then greeting chatter with nothing about cooking |
 | 0:33 | the dish is named: "easy weeknight chicken curry with coconut milk and spinach" |
-| 0:45 | sponsor read for a made-up meal kit ("larder box"). Sponsor phrases at 0:48 ("sponsor of") and 1:27 to 1:30 ("use code", "percent off"). Food words in between ("lemon chicken pasta", "beef tacos") with no sponsor phrase near them |
+| 0:45 | sponsor read for a made-up meal kit ("larder box"). Sponsor phrases at 0:48 ("sponsor of") and 1:26 to 1:30 ("use code", "percent off"). Food words in between ("lemon chicken pasta", "beef tacos") with no sponsor phrase near them |
 | 1:30 | tail of the read ("that is larder box dot com the link is down below"), then thanks and chatter with nothing about cooking |
 | 2:23 | cooking, part 1: oil, onion, garlic, ginger, curry powder, tomato paste, chicken thighs, salt, with spoken amounts |
 | 3:32 | a personal story with nothing about cooking; "denver" at 4:02 sits in the middle of it |
