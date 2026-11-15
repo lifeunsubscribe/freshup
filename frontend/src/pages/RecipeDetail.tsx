@@ -246,6 +246,8 @@ export default function RecipeDetail() {
     ? checkIngredientAvailability(recipe.ingredients, inventoryItems)
     : { inStock: [], outOfStock: [], totalCount: 0, inStockCount: 0 }
 
+  const uniqueTags = [...new Set(recipe.tags.map(t => t.toLowerCase()))]
+
   return (
     <>
       <PageContainer>
@@ -285,10 +287,15 @@ export default function RecipeDetail() {
             {recipe.times_cooked > 0 && (
               <Pill variant="default">Cooked {recipe.times_cooked}×</Pill>
             )}
-            {recipe.tags.map((tag) => (
-              <Pill key={tag} variant="default">{tag}</Pill>
-            ))}
           </div>
+
+          {uniqueTags.length > 0 && (
+            <div data-testid="tag-row" className="mb-4 flex flex-wrap gap-2">
+              {uniqueTags.map((tag) => (
+                <Pill key={tag} variant="default">{tag}</Pill>
+              ))}
+            </div>
+          )}
 
           <RatingLine
             cookCount={cookHistory?.length ?? 0}
