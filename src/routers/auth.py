@@ -453,7 +453,7 @@ def update_current_user_profile(
 
     # onboarded: true sets onboarded_at once; subsequent calls are no-ops
     if update_dict.pop("onboarded", None) is True and current_user.onboarded_at is None:
-        current_user.onboarded_at = datetime.now(timezone.utc)
+        current_user.onboarded_at = datetime.now(timezone.utc).replace(tzinfo=None)
         fields_updated.append("onboarded_at")
 
     for field, value in update_dict.items():
