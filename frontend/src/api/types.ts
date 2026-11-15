@@ -529,6 +529,7 @@ export interface TransferRequest {
 export interface CollectionSummary {
   slug: string;
   name: string;
+  source_type: string;
   card_count: number;
   last_fetched_at: string | null;
 }
@@ -539,7 +540,6 @@ export interface CollectionSummary {
 
 /** A catalog collection under a theme value. Same shape CollectionRow takes. */
 export interface ThemeCollection extends CollectionSummary {
-  source_type: string;
   /** "theme:value" keys its cards also appear under (via other collections). */
   contains: string[];
 }
@@ -568,6 +568,7 @@ export interface Theme {
 export interface CardResponse {
   id: string;
   name: string;
+  source_type: string;
   headline: string | null;
   image_url: string | null;
   prep_time_minutes: number | null;

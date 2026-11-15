@@ -18,7 +18,9 @@ from src.db.models.user import User, UserRole
 from src.routers import themes as themes_router_module
 from src.services.auth_service import create_access_token, hash_password
 from src.services.recipe_themes import (
+    COLLECTION_THEMES,
     HELLOFRESH_COLLECTION_THEMES,
+    HELLOFRESH_SOURCE,
     VALUE_LABELS,
     build_themes,
     normalize_tag,
@@ -215,3 +217,53 @@ class TestThemesEndpoint:
         app.include_router(themes_router_module.router)
         app.dependency_overrides[get_db] = lambda: db_session
         assert TestClient(app).get("/themes").status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Per-source COLLECTION_THEMES map (#599)
+# ---------------------------------------------------------------------------
+
+
+class TestCollectionThemesRegistry:
+    def test_hellofresh_web_key_exists_in_collection_themes(self):
+        assert HELLOFRESH_SOURCE in COLLECTION_THEMES
+
+    def test_alias_equals_hellofresh_entry(self):
+        assert HELLOFRESH_COLLECTION_THEMES is COLLECTION_THEMES[HELLOFRESH_SOURCE]
+
+    def test_every_hellofresh_slug_points_at_known_value(self):
+        for slug, (theme, value) in COLLECTION_THEMES[HELLOFRESH_SOURCE].items():
+            assert value in VALUE_LABELS[theme], (slug, theme, value)
+
+    def test_unknown_source_returns_empty_map(self):
+        assert COLLECTION_THEMES.get("unknown_source", {}) == {}
+
+    def test_non_hellofresh_collection_not_classified(self, db_session):
+        """A collection from an unknown source is not classified into any theme."""
+        other = SourceCollection(
+            source_type="other_source",
+            slug="italian-recipes",
+            name="Italian Recipes",
+            url="https://other.example.com/recipes/italian",
+            last_fetched_at=datetime.now(timezone.utc),
+        )
+        db_session.add(other)
+        db_session.flush()
+        for i in range(3):
+            c = SourceRecipeCard(
+                source_type="other_source",
+                recipe_url=f"https://other.example.com/r{i}-" + "a" * 24,
+                external_id=f"o{i}",
+                name=f"R{i}",
+                image_url="x",
+            )
+            db_session.add(c)
+            db_session.flush()
+            db_session.add(SourceCollectionCard(collection_id=other.id, card_id=c.id, position=i))
+        db_session.commit()
+
+        themes = build_themes(db_session)
+        cuisine = next(t for t in themes if t.key == "cuisine")
+        # The other_source collection carries the slug "italian-recipes" but is NOT classified.
+        classified_slugs = [c.slug for v in cuisine.values for c in v.collections]
+        assert "italian-recipes" not in classified_slugs

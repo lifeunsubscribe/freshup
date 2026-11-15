@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from src.db import models
 from src.db.database import Base
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard, SourceRecipeCard
-from src.services.card_tags import MIN_TAG_CARDS, tag_cards, tag_label, tags_from_text
+from src.services.card_tags import MIN_TAG_CARDS, overlap_tags, tag_cards, tag_label, tags_from_text
 
 
 @pytest.fixture
@@ -173,3 +173,44 @@ class TestStoredIngredientKeys:
         result, _ = tag_cards(db_session, [stored], "hellofresh_web", "x")
         assert "ingredient:broccoli" in result[stored.id]
         assert "ingredient:chicken" not in result[stored.id]
+
+
+# ---------------------------------------------------------------------------
+# Per-source map: non-HF source is not classified (#599)
+# ---------------------------------------------------------------------------
+
+
+class TestPerSourceClassification:
+    def test_overlap_tags_ignores_non_hellofresh_collections(self, db_session):
+        """A card sitting in a non-HF classified slug is not given overlap tags."""
+        other_coll = SourceCollection(
+            source_type="other_source",
+            slug="vegetarian-recipes",   # would classify if source were hellofresh_web
+            name="Vegetarian Recipes",
+            url="https://other.example.com/recipes/vegetarian-recipes",
+        )
+        db_session.add(other_coll)
+        db_session.flush()
+        c = SourceRecipeCard(
+            source_type="other_source",
+            recipe_url="https://other.example.com/r-" + "a" * 24,
+            external_id="oc1",
+            name="Veggie Thing",
+            image_url="x",
+        )
+        db_session.add(c)
+        db_session.flush()
+        db_session.add(SourceCollectionCard(collection_id=other_coll.id, card_id=c.id, position=0))
+        db_session.commit()
+
+        result = overlap_tags(db_session, [c.id])
+        # No overlap tags because the collection's source is not in COLLECTION_THEMES.
+        assert result.get(c.id, set()) == set()
+
+    def test_tag_cards_no_own_key_removed_for_unknown_source(self, db_session):
+        """When the collection source is not in COLLECTION_THEMES, own_key is None — no tags dropped."""
+        cards = [card(f"Vegetarian Bowl {i}") for i in range(3)]
+        result, _ = tag_cards(db_session, cards, "other_source", "vegetarian-recipes")
+        # dish:bowls appears and is NOT suppressed (own_key would be None for unknown source)
+        all_tags = {tag for tags in result.values() for tag in tags}
+        assert "dish:bowls" in all_tags

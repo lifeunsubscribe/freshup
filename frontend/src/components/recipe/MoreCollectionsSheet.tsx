@@ -17,9 +17,9 @@ export default function MoreCollectionsSheet({ open, onClose, collections }: Mor
     c.name.toLowerCase().includes(filter.toLowerCase())
   )
 
-  function handleSelect(slug: string) {
+  function handleSelect(source: string, slug: string) {
     onClose()
-    navigate(`/browse/hellofresh/${slug}`)
+    navigate(`/browse/${source}/${slug}`)
   }
 
   return (
@@ -42,7 +42,7 @@ export default function MoreCollectionsSheet({ open, onClose, collections }: Mor
         {filtered.map((c) => (
           <li key={c.slug}>
             <button
-              onClick={() => handleSelect(c.slug)}
+              onClick={() => handleSelect(c.source_type, c.slug)}
               className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-warm-gray transition-colors"
               aria-label={c.name}
             >

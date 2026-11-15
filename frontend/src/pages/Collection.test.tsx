@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import Collection from './Collection'
+import Collection, { LegacyCollectionRedirect } from './Collection'
 import { useCollection } from '../api/hooks/useCatalog'
 import type { CollectionDetail, CardResponse } from '../api/types'
 
@@ -70,6 +70,7 @@ function makeCard(id: string, overrides: Partial<CardResponse> = {}): CardRespon
   return {
     id,
     name: `Card ${id}`,
+    source_type: 'hellofresh_web',
     headline: null,
     image_url: null,
     prep_time_minutes: 20,
@@ -101,11 +102,11 @@ const idle = { isLoading: false, isFetching: false, isError: false, error: null 
 
 // ── Render helper ──────────────────────────────────────────────────────────────
 
-function renderCollection(slug = 'quick-meals') {
+function renderCollection(slug = 'quick-meals', source = 'hellofresh_web') {
   return render(
-    <MemoryRouter initialEntries={[`/browse/hellofresh/${slug}`]}>
+    <MemoryRouter initialEntries={[`/browse/${source}/${slug}`]}>
       <Routes>
-        <Route path="/browse/hellofresh/:slug" element={<Collection />} />
+        <Route path="/browse/:source/:slug" element={<Collection />} />
         <Route path="/recipes" element={<div>recipes page</div>} />
       </Routes>
     </MemoryRouter>
@@ -200,8 +201,8 @@ describe('AC2 — sentinel walk and one-at-a-time loading', () => {
     name: 'Quick Meals',
     cards: [makeCard('p1'), makeCard('p2')],
     children: [
-      { slug: childASlug, name: 'Child A', card_count: 2, last_fetched_at: null },
-      { slug: childBSlug, name: 'Child B', card_count: 2, last_fetched_at: null },
+      { slug: childASlug, name: 'Child A', source_type: 'hellofresh_web', card_count: 2, last_fetched_at: null },
+      { slug: childBSlug, name: 'Child B', source_type: 'hellofresh_web', card_count: 2, last_fetched_at: null },
     ],
   })
 
@@ -321,7 +322,7 @@ describe('AC3 — tail states', () => {
     const parentDetail = makeDetail(parentSlug, {
       cards: [makeCard('p1')],
       children: [
-        { slug: childASlug, name: 'Child A', card_count: 1, last_fetched_at: null },
+        { slug: childASlug, name: 'Child A', source_type: 'hellofresh_web', card_count: 1, last_fetched_at: null },
       ],
     })
     const childADetail = makeDetail(childASlug, {
@@ -348,8 +349,8 @@ describe('AC3 — tail states', () => {
     const parentDetail = makeDetail(parentSlug, {
       cards: [makeCard('p1')],
       children: [
-        { slug: childASlug, name: 'Child A', card_count: 0, last_fetched_at: null },
-        { slug: 'child-b', name: 'Child B', card_count: 0, last_fetched_at: null },
+        { slug: childASlug, name: 'Child A', source_type: 'hellofresh_web', card_count: 0, last_fetched_at: null },
+        { slug: 'child-b', name: 'Child B', source_type: 'hellofresh_web', card_count: 0, last_fetched_at: null },
       ],
     })
 
@@ -389,7 +390,7 @@ describe('AC3 — tail states', () => {
   it('shows could-not when child has fetch_error and no cards', async () => {
     const parentDetail = makeDetail(parentSlug, {
       cards: [makeCard('p1')],
-      children: [{ slug: childASlug, name: 'Child A', card_count: 0, last_fetched_at: null }],
+      children: [{ slug: childASlug, name: 'Child A', source_type: 'hellofresh_web', card_count: 0, last_fetched_at: null }],
     })
     const failedChild = makeDetail(childASlug, {
       cards: [],
@@ -424,8 +425,8 @@ describe('Regression — settled child content survives a later sibling failure'
     const parentDetail = makeDetail(parentSlug, {
       cards: [],
       children: [
-        { slug: childASlug, name: 'Child A', card_count: 1, last_fetched_at: null },
-        { slug: 'child-b', name: 'Child B', card_count: 0, last_fetched_at: null },
+        { slug: childASlug, name: 'Child A', source_type: 'hellofresh_web', card_count: 1, last_fetched_at: null },
+        { slug: 'child-b', name: 'Child B', source_type: 'hellofresh_web', card_count: 0, last_fetched_at: null },
       ],
     })
     const childADetail = makeDetail(childASlug, {
@@ -471,7 +472,7 @@ describe('Regression — slug change resets walk state', () => {
   it('shows fresh state when re-rendered with a new slug key', async () => {
     const detailA = makeDetail('collection-a', {
       cards: [],
-      children: [{ slug: 'ca-child', name: 'Child A', card_count: 1, last_fetched_at: null }],
+      children: [{ slug: 'ca-child', name: 'Child A', source_type: 'hellofresh_web', card_count: 1, last_fetched_at: null }],
     })
     const detailB = makeDetail('collection-b', { cards: [makeCard('b1')], children: [] })
     const caChildDetail = makeDetail('ca-child', {
@@ -488,9 +489,9 @@ describe('Regression — slug change resets walk state', () => {
 
     // Render collection-a and advance the walk
     const { unmount } = render(
-      <MemoryRouter initialEntries={['/browse/hellofresh/collection-a']}>
+      <MemoryRouter initialEntries={['/browse/hellofresh_web/collection-a']}>
         <Routes>
-          <Route path="/browse/hellofresh/:slug" element={<Collection key="collection-a" />} />
+          <Route path="/browse/:source/:slug" element={<Collection key="collection-a" />} />
           <Route path="/recipes" element={<div>recipes page</div>} />
         </Routes>
       </MemoryRouter>
@@ -504,9 +505,9 @@ describe('Regression — slug change resets walk state', () => {
     observers.length = 0
     unmount()
     render(
-      <MemoryRouter initialEntries={['/browse/hellofresh/collection-b']}>
+      <MemoryRouter initialEntries={['/browse/hellofresh_web/collection-b']}>
         <Routes>
-          <Route path="/browse/hellofresh/:slug" element={<Collection key="collection-b" />} />
+          <Route path="/browse/:source/:slug" element={<Collection key="collection-b" />} />
           <Route path="/recipes" element={<div>recipes page</div>} />
         </Routes>
       </MemoryRouter>
@@ -530,8 +531,8 @@ describe('Regression — 0-card child advances the walk', () => {
     const parentDetail = makeDetail(parentSlug, {
       cards: [],
       children: [
-        { slug: 'child-empty', name: 'Child Empty', card_count: 0, last_fetched_at: null },
-        { slug: 'child-full', name: 'Child Full', card_count: 1, last_fetched_at: null },
+        { slug: 'child-empty', name: 'Child Empty', source_type: 'hellofresh_web', card_count: 0, last_fetched_at: null },
+        { slug: 'child-full', name: 'Child Full', source_type: 'hellofresh_web', card_count: 1, last_fetched_at: null },
       ],
     })
     const emptyChild = makeDetail('child-empty', { cards: [], fetch_error: null })
@@ -773,3 +774,20 @@ describe('In-list tag chips', () => {
   })
 })
 
+// ── LegacyCollectionRedirect ──────────────────────────────────────────────────────────────────────────────
+
+describe('LegacyCollectionRedirect', () => {
+  it('redirects /browse/hellofresh/:slug to /browse/hellofresh_web/:slug', async () => {
+    render(
+      <MemoryRouter initialEntries={['/browse/hellofresh/my-collection']}>
+        <Routes>
+          <Route path="/browse/hellofresh/:slug" element={<LegacyCollectionRedirect />} />
+          <Route path="/browse/hellofresh_web/:slug" element={<div data-testid="new-route">redirected</div>} />
+        </Routes>
+      </MemoryRouter>
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('new-route')).toBeInTheDocument()
+    })
+  })
+})

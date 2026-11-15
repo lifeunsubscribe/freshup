@@ -44,6 +44,7 @@ afterEach(() => {
 const baseCollection: CollectionSummary = {
   slug: 'quick-dinners',
   name: 'Quick Dinners',
+  source_type: 'hellofresh_web',
   card_count: 5,
   last_fetched_at: '2026-11-01T00:00:00Z',
 }
@@ -51,6 +52,7 @@ const baseCollection: CollectionSummary = {
 const makeCard = (id: string, overrides: Partial<CardResponse> = {}): CardResponse => ({
   id,
   name: `Recipe ${id}`,
+  source_type: 'hellofresh_web',
   headline: null,
   image_url: null,
   prep_time_minutes: null,
@@ -108,6 +110,16 @@ describe('CollectionRow', () => {
         'hellofresh_web',
         'quick-dinners',
         expect.objectContaining({ enabled: false })
+      )
+    })
+
+    it('passes collection.source_type (not a hardcoded string) to useCollection', () => {
+      setCollectionState({ isLoading: false })
+      renderRow({ ...baseCollection, source_type: 'hellofresh_web', slug: 'quick-dinners' })
+      expect(useCollection).toHaveBeenCalledWith(
+        'hellofresh_web',
+        'quick-dinners',
+        expect.any(Object)
       )
     })
 
@@ -244,11 +256,11 @@ describe('CollectionRow', () => {
   })
 
   describe('"See all" link', () => {
-    it('links to /browse/hellofresh/{slug}', () => {
+    it('links to /browse/{source_type}/{slug}', () => {
       setCollectionState({ isLoading: false })
       renderRow()
       const link = screen.getByRole('link', { name: /see all quick dinners/i })
-      expect(link).toHaveAttribute('href', '/browse/hellofresh/quick-dinners')
+      expect(link).toHaveAttribute('href', '/browse/hellofresh_web/quick-dinners')
     })
   })
 
@@ -273,11 +285,11 @@ describe('CollectionRow', () => {
   })
 
   describe('section id (anchor target)', () => {
-    it('section element has id hellofresh-{slug}', () => {
+    it('section element has id {source_type}-{slug}', () => {
       setCollectionState({ isLoading: false })
       const { container } = renderRow()
       const section = container.querySelector('section')
-      expect(section).toHaveAttribute('id', 'hellofresh-quick-dinners')
+      expect(section).toHaveAttribute('id', 'hellofresh_web-quick-dinners')
     })
   })
 

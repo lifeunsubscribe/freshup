@@ -104,8 +104,10 @@ TAG_ALIASES: dict[tuple[str, str], list[str]] = {
     ("meal_type", "desserts"): ["dessert"], ("meal_type", "snacks"): ["snack"],
 }
 
-# Top-level HelloFresh collections by slug -> (theme, value).
-HELLOFRESH_COLLECTION_THEMES: dict[str, tuple[str, str]] = {
+# Per-source top-level collection theme map: source_type -> slug -> (theme, value).
+# Add a new source by inserting its slug map under its source_type key.
+COLLECTION_THEMES: dict[str, dict[str, tuple[str, str]]] = {
+    HELLOFRESH_SOURCE: {
     **{f"{v}-recipes": ("cuisine", v) for v in (
         "african", "american", "asian", "cajun", "chinese", "cuban", "french", "hawaiian",
         "indian", "italian", "japanese", "korean", "latin-american", "mediterranean",
@@ -138,7 +140,11 @@ HELLOFRESH_COLLECTION_THEMES: dict[str, tuple[str, str]] = {
     "carb-smart-recipes": ("diet", "carb-smart"),
     "kid-friendly-recipes": ("diet", "kid-friendly"),
     "breakfast-and-brunch": ("meal_type", "breakfast-brunch"),
+    },
 }
+
+# Backward-compatible alias; existing code and tests that import this name continue to work.
+HELLOFRESH_COLLECTION_THEMES: dict[str, tuple[str, str]] = COLLECTION_THEMES[HELLOFRESH_SOURCE]
 
 # Source theme: recipe source_type -> (value, label). Several source types can
 # share a value (HelloFresh cards and web imports are both "HelloFresh").
@@ -232,9 +238,8 @@ def _collection_contains(db: Session) -> dict:
     )
     result: dict = {}
     for collection_id, source_type, other_slug in pairs:
-        if source_type != HELLOFRESH_SOURCE:
-            continue
-        classified = HELLOFRESH_COLLECTION_THEMES.get(other_slug)
+        source_map = COLLECTION_THEMES.get(source_type, {})
+        classified = source_map.get(other_slug)
         if classified:
             result.setdefault(collection_id, set()).add(f"{classified[0]}:{classified[1]}")
     return result
@@ -308,11 +313,7 @@ def build_themes(db: Session) -> list[ThemeData]:
             last_fetched_at=coll.last_fetched_at,
             contains=sorted(contains.get(coll.id, ())),
         )
-        classified = (
-            HELLOFRESH_COLLECTION_THEMES.get(coll.slug)
-            if coll.source_type == HELLOFRESH_SOURCE
-            else None
-        )
+        classified = COLLECTION_THEMES.get(coll.source_type, {}).get(coll.slug)
         if classified:
             theme, value = classified
             value_for(theme, value, VALUE_LABELS[theme][value]).collections.append(data)

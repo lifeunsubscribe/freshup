@@ -1,7 +1,8 @@
-export type SourceType = 'hellofresh' | 'kitchen_sanctuary'
+export type SourceType = 'hellofresh' | 'hellofresh_web' | 'kitchen_sanctuary'
 
 const SOURCE_NAMES: Record<SourceType, string> = {
   hellofresh: 'HelloFresh',
+  hellofresh_web: 'HelloFresh',
   kitchen_sanctuary: 'Kitchen Sanctuary',
 }
 
