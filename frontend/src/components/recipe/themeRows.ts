@@ -62,7 +62,7 @@ export function valueRows(themeKey: string, value: ThemeValue): RowSpec[] {
     })
   }
   for (const collection of value.collections) {
-    rows.push({ kind: 'collection', id: `hellofresh-${collection.slug}`, collection, size: collection.card_count })
+    rows.push({ kind: 'collection', id: `${collection.source_type}-${collection.slug}`, collection, size: collection.card_count })
   }
   return rows
 }

@@ -48,7 +48,7 @@ export default function CollectionRow({ collection, onCountChange }: CollectionR
   // default staleness logic decide whether to hit HelloFresh.
   const fresh = collection.card_count > 0 ? false : undefined
 
-  const { data, isLoading, isFetching } = useCollection('hellofresh_web', collection.slug, {
+  const { data, isLoading, isFetching } = useCollection(collection.source_type, collection.slug, {
     enabled: inView,
     fresh,
   })
@@ -102,18 +102,18 @@ export default function CollectionRow({ collection, onCountChange }: CollectionR
         : 'Not loaded yet'
   // Source goes in each row's byline, not a section header, so rows from
   // different sources can sit side by side and still say where they're from.
-  const subtitle = `${countText} · ${sourceName('hellofresh')}`
+  const subtitle = `${countText} · ${sourceName(collection.source_type)}`
 
   const cards = data?.cards.slice(0, MAX_ROW_CARDS) ?? []
   const fetchError = data?.fetch_error ?? null
   const isLoadingRow = inView && (isLoading || isFetching)
-  const browseUrl = `/browse/hellofresh/${collection.slug}`
+  const browseUrl = `/browse/${collection.source_type}/${collection.slug}`
 
   if (loadedCount === 0) return null
 
   return (
     <section
-      id={`hellofresh-${collection.slug}`}
+      id={`${collection.source_type}-${collection.slug}`}
       className="scroll-mt-24"
       role="region"
       aria-label={collection.name}

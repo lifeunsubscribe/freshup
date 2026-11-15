@@ -9,7 +9,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -40,6 +40,17 @@ logger = logging.getLogger(__name__)
 
 HELLOFRESH_SOURCE = "hellofresh_web"
 COLLECTIONS_SITEMAP_URL = f"{HELLOFRESH_BASE_URL}/sitemap_recipe_collections.xml"
+
+
+@dataclass
+class CatalogSource:
+    """Per-source configuration: display label, crawler factory, and seed function."""
+
+    label: str
+    # Callables are looked up at call time (not captured at import) so tests can
+    # patch catalog_service._make_crawler and catalog_service.seed_hellofresh_collections.
+    crawler_factory: Callable[[], Any]
+    seed_fn: Callable[..., int]
 _SITEMAP_NS = {"ns": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
 # Reuses the same slug validation as the crawler; ensures no path traversal.
@@ -295,7 +306,7 @@ def get_collection(
 
     if should_fetch:
         try:
-            crawler = _make_crawler()
+            crawler = CATALOG_SOURCES[source].crawler_factory()
             page = crawler.fetch_collection(slug, collection.url)
             upsert_collection_page(db, page, source_type=source)
             # Reload after upsert so the result reflects the fresh data
@@ -356,6 +367,18 @@ def get_collection(
 def _make_crawler() -> HelloFreshCrawler:
     """Return a HelloFreshCrawler; extracted so tests can patch it."""
     return HelloFreshCrawler()
+
+
+# Registry of supported catalog sources.  Each entry's callables delegate to
+# module-level functions so tests can patch _make_crawler or
+# seed_hellofresh_collections via monkeypatch/patch without breaking the registry.
+CATALOG_SOURCES: dict[str, CatalogSource] = {
+    HELLOFRESH_SOURCE: CatalogSource(
+        label="HelloFresh",
+        crawler_factory=lambda: _make_crawler(),
+        seed_fn=lambda db: seed_hellofresh_collections(db),
+    ),
+}
 
 
 # ---------------------------------------------------------------------------

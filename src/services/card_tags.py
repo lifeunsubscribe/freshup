@@ -33,8 +33,7 @@ from sqlalchemy.orm import Session
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard
 from src.services import ingredient_keys as _ingredient_keys
 from src.services.recipe_themes import (
-    HELLOFRESH_COLLECTION_THEMES,
-    HELLOFRESH_SOURCE,
+    COLLECTION_THEMES,
     TAG_INDEX,
     VALUE_LABELS,
     normalize_tag,
@@ -170,7 +169,7 @@ def overlap_tags(db: Session, card_ids: Iterable[UUID]) -> dict[UUID, set[str]]:
     )
     result: dict[UUID, set[str]] = {}
     for card_id, source_type, slug in rows:
-        classified = HELLOFRESH_COLLECTION_THEMES.get(slug) if source_type == HELLOFRESH_SOURCE else None
+        classified = COLLECTION_THEMES.get(source_type, {}).get(slug)
         if classified:
             result.setdefault(card_id, set()).add(f"{classified[0]}:{classified[1]}")
     return result
@@ -196,11 +195,7 @@ def tag_cards(
     Returns (card id -> sorted tag keys, options). The list's own theme value
     is dropped from both: every card in Chicken Recipes is chicken.
     """
-    own = (
-        HELLOFRESH_COLLECTION_THEMES.get(collection_slug)
-        if collection_source == HELLOFRESH_SOURCE
-        else None
-    )
+    own = COLLECTION_THEMES.get(collection_source, {}).get(collection_slug)
     own_key = f"{own[0]}:{own[1]}" if own else None
 
     overlap = overlap_tags(db, (c.id for c in cards))

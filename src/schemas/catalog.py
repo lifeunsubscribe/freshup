@@ -75,6 +75,7 @@ class CollectionSummary(BaseModel):
 
     slug: str
     name: str
+    source_type: str = Field(description="Catalog source identifier, e.g. 'hellofresh_web'")
     card_count: int = Field(description="Number of recipe cards currently stored for this collection")
     last_fetched_at: Optional[datetime] = Field(
         default=None, description="When the collection page was last fetched; null = never fetched"
@@ -88,6 +89,7 @@ class CardResponse(BaseModel):
 
     id: UUID
     name: str
+    source_type: str = Field(description="Catalog source identifier, e.g. 'hellofresh_web'")
     headline: Optional[str] = None
     image_url: Optional[str] = None
     prep_time_minutes: Optional[int] = None

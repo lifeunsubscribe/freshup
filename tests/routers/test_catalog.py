@@ -704,3 +704,72 @@ class TestOpenCard:
         card = _make_db_card(db_session)
         response = client.post(f"/catalog/cards/{card.id}/open")
         assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# source_type on response shapes (#599)
+# ---------------------------------------------------------------------------
+
+
+class TestSourceTypeFields:
+    """CollectionSummary (top-level and children) and CardResponse carry source_type."""
+
+    def _pre_seed_collection(self, db_session, slug="chicken-recipes"):
+        coll = SourceCollection(
+            source_type=HELLOFRESH_SOURCE,
+            slug=slug,
+            name="Chicken Recipes",
+            url=f"https://www.hellofresh.com/recipes/{slug}",
+            last_fetched_at=None,
+            parent_slug=None,
+        )
+        db_session.add(coll)
+        db_session.commit()
+        return coll
+
+    def test_list_endpoint_collection_summaries_carry_source_type(
+        self, client, db_session, member_headers, monkeypatch
+    ):
+        _mock_seed(monkeypatch, db_session)
+        response = client.get(f"/catalog/{HELLOFRESH_SOURCE}/collections", headers=member_headers)
+        assert response.status_code == 200
+        for item in response.json():
+            assert item.get("source_type") == HELLOFRESH_SOURCE
+
+    def test_detail_endpoint_children_carry_source_type(
+        self, client, db_session, member_headers
+    ):
+        self._pre_seed_collection(db_session)
+        page = _make_page(slug="chicken-recipes", n_cards=1, n_children=2)
+
+        mock_crawler = MagicMock()
+        mock_crawler.fetch_collection.return_value = page
+
+        with patch("src.services.catalog_service._make_crawler", return_value=mock_crawler):
+            response = client.get(
+                f"/catalog/{HELLOFRESH_SOURCE}/collections/chicken-recipes",
+                headers=member_headers,
+            )
+
+        assert response.status_code == 200
+        for child in response.json()["children"]:
+            assert child.get("source_type") == HELLOFRESH_SOURCE
+
+    def test_detail_endpoint_cards_carry_source_type(
+        self, client, db_session, member_headers
+    ):
+        self._pre_seed_collection(db_session)
+        page = _make_page(slug="chicken-recipes", n_cards=2, n_children=0)
+
+        mock_crawler = MagicMock()
+        mock_crawler.fetch_collection.return_value = page
+
+        with patch("src.services.catalog_service._make_crawler", return_value=mock_crawler):
+            response = client.get(
+                f"/catalog/{HELLOFRESH_SOURCE}/collections/chicken-recipes",
+                headers=member_headers,
+            )
+
+        assert response.status_code == 200
+        for card in response.json()["cards"]:
+            assert card.get("source_type") == HELLOFRESH_SOURCE

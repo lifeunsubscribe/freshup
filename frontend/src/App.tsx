@@ -12,15 +12,15 @@ import Pantry from './pages/Pantry'
 import Grocery from './pages/Grocery'
 import IShopped from './pages/IShopped'
 import Profile from './pages/Profile'
-import Collection from './pages/Collection'
+import Collection, { LegacyCollectionRedirect } from './pages/Collection'
 import NotFound from './pages/NotFound'
 import { ErrorBoundary } from './components/errors'
 import AuthErrorFallback from './components/errors/AuthErrorFallback'
 
-// Forces a full remount when the slug param changes, resetting all walk state.
+// Forces a full remount when source or slug changes, resetting all walk state.
 function CollectionRoute() {
-  const { slug } = useParams<{ slug: string }>()
-  return <Collection key={slug} />
+  const { source, slug } = useParams<{ source: string; slug: string }>()
+  return <Collection key={`${source}/${slug}`} />
 }
 
 function AppContent() {
@@ -107,10 +107,18 @@ function AppContent() {
           }
         />
         <Route
-          path="/browse/hellofresh/:slug"
+          path="/browse/:source/:slug"
           element={
             <ProtectedRoute>
               <CollectionRoute />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/browse/hellofresh/:slug"
+          element={
+            <ProtectedRoute>
+              <LegacyCollectionRedirect />
             </ProtectedRoute>
           }
         />

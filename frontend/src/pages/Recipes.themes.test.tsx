@@ -18,7 +18,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import Recipes from './Recipes'
 import { useRecipeList } from '../api'
 import { useCollections, useCollection } from '../api/hooks/useCatalog'
@@ -164,6 +164,7 @@ const recipe = (id: string, tags: string[]) => ({
 const summary = (slug: string, name: string, card_count: number): CollectionSummary => ({
   slug,
   name,
+  source_type: 'hellofresh_web',
   card_count,
   last_fetched_at: null,
 })
@@ -443,6 +444,24 @@ describe('Recipes page — themes', () => {
       await user.click(screen.getByRole('button', { name: 'More HelloFresh collections' }))
       await user.click(screen.getByRole('button', { name: 'Close' }))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('navigates to /browse/{source_type}/{slug} when a sheet item is selected', async () => {
+      const user = userEvent.setup()
+      render(
+        <MemoryRouter initialEntries={['/recipes']}>
+          <Routes>
+            <Route path="/recipes" element={<Recipes />} />
+            <Route path="/browse/:source/:slug" element={<div data-testid="browse-page" />} />
+          </Routes>
+        </MemoryRouter>
+      )
+      await user.click(screen.getByRole('button', { name: 'More HelloFresh collections' }))
+      const dialog = screen.getByRole('dialog')
+      await user.click(within(dialog).getByRole('button', { name: /Italian Recipes/ }))
+      await waitFor(() => {
+        expect(screen.getByTestId('browse-page')).toBeInTheDocument()
+      })
     })
   })
 

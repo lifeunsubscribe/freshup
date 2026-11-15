@@ -27,7 +27,7 @@ describe('valueRows', () => {
         collections: [{ source_type: 'hellofresh_web', slug: 'italian-recipes', name: 'Italian Recipes', card_count: 9, last_fetched_at: null, contains: [] }],
       })
     )
-    expect(rows.map((r) => r.id)).toEqual(['lib-cuisine-italian', 'hellofresh-italian-recipes'])
+    expect(rows.map((r) => r.id)).toEqual(['lib-cuisine-italian', 'hellofresh_web-italian-recipes'])
     expect(rows[0]).toMatchObject({ kind: 'library', filters: { tag: 'italian', limit: 20 } })
   })
 
@@ -66,7 +66,7 @@ describe('buildPageRows', () => {
     const themes: Theme[] = [
       { key: 'source', label: 'Source', values: [value({ value: 'a', collections: [shared] }), value({ value: 'b', collections: [shared] })] },
     ]
-    expect(buildPageRows(themes, 'source', []).rows.map((r) => r.id)).toEqual(['hellofresh-x'])
+    expect(buildPageRows(themes, 'source', []).rows.map((r) => r.id)).toEqual(['hellofresh_web-x'])
   })
 
   describe('combined filters', () => {
@@ -92,9 +92,9 @@ describe('buildPageRows', () => {
 
     it('keeps lists that pass every filter, by belonging or by containing', () => {
       const ids = buildPageRows(themes, null, both).rows.map((r) => r.id)
-      expect(ids).toContain('hellofresh-italian-recipes') // Italian, contains vegetarian cards
-      expect(ids).toContain('hellofresh-vegetarian-recipes') // Vegetarian, contains Italian cards
-      expect(ids).not.toContain('hellofresh-thai-recipes')
+      expect(ids).toContain('hellofresh_web-italian-recipes') // Italian, contains vegetarian cards
+      expect(ids).toContain('hellofresh_web-vegetarian-recipes') // Vegetarian, contains Italian cards
+      expect(ids).not.toContain('hellofresh_web-thai-recipes')
     })
 
     it('defers library rows to their recipes for filters they do not belong to', () => {
@@ -109,9 +109,9 @@ describe('buildPageRows', () => {
 
     it('applies filters on a theme page too', () => {
       const ids = buildPageRows(themes, 'cuisine', [{ theme: 'diet', value: 'vegetarian' }]).rows.map((r) => r.id)
-      expect(ids).toContain('hellofresh-italian-recipes')
-      expect(ids).not.toContain('hellofresh-thai-recipes')
-      expect(ids).not.toContain('hellofresh-vegetarian-recipes') // not a cuisine list
+      expect(ids).toContain('hellofresh_web-italian-recipes')
+      expect(ids).not.toContain('hellofresh_web-thai-recipes')
+      expect(ids).not.toContain('hellofresh_web-vegetarian-recipes') // not a cuisine list
     })
   })
 })

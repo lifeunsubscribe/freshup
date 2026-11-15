@@ -32,6 +32,7 @@ const renderCard = (props: Partial<React.ComponentProps<typeof CatalogCard>> = {
 const baseCard: CardResponse = {
   id: 'card-123',
   name: 'Lemon Herb Chicken',
+  source_type: 'hellofresh_web',
   headline: 'Fresh and zesty',
   image_url: 'https://example.com/chicken.jpg',
   prep_time_minutes: 20,
@@ -124,6 +125,16 @@ describe('CatalogCard', () => {
       expect(mockMutate).toHaveBeenCalledWith(
         { cardId: 'card-123', source: 'hellofresh_web', collectionSlug: 'my-collection' },
         expect.objectContaining({ onSuccess: expect.any(Function) })
+      )
+    })
+
+    it('uses card.source_type as the source when calling open', async () => {
+      const user = userEvent.setup()
+      renderCard({ card: { ...baseCard, source_type: 'some_other_source', recipe_id: null } })
+      await user.click(screen.getByRole('button', { name: 'Lemon Herb Chicken' }))
+      expect(mockMutate).toHaveBeenCalledWith(
+        expect.objectContaining({ source: 'some_other_source' }),
+        expect.any(Object)
       )
     })
 

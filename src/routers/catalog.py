@@ -29,6 +29,7 @@ from src.middleware.rate_limit import limiter
 from src.schemas.catalog import CardResponse, CollectionDetail, CollectionSummary, TagOption
 from src.schemas.recipe import RecipeResponse
 from src.services import catalog_service
+from src.services.catalog_service import CATALOG_SOURCES
 from src.services.card_tags import tag_cards
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
 from src.utils.sanitize import sanitize_exception_message
@@ -37,8 +38,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
-# Supported catalog sources — currently only HelloFresh.
-_VALID_SOURCES = frozenset({"hellofresh_web"})
+# Derived from the registry so adding a source to CATALOG_SOURCES is sufficient.
+_VALID_SOURCES = frozenset(CATALOG_SOURCES)
 
 
 def _validate_source(source: str) -> None:
@@ -93,7 +94,7 @@ def list_collections(
     )
     if row_count == 0:
         try:
-            catalog_service.seed_hellofresh_collections(db)
+            CATALOG_SOURCES[source].seed_fn(db)
         except IntegrityError:
             db.rollback()
         except CrawlerNetworkError as exc:
@@ -123,6 +124,7 @@ def list_collections(
         CollectionSummary(
             slug=coll.slug,
             name=coll.name,
+            source_type=coll.source_type,
             card_count=count,
             last_fetched_at=coll.last_fetched_at,
         )
@@ -223,6 +225,7 @@ def get_collection(
         CollectionSummary(
             slug=child.slug,
             name=child.name,
+            source_type=child.source_type,
             card_count=result.children_card_counts.get(str(child.id), 0),
             last_fetched_at=child.last_fetched_at,
         )
@@ -237,6 +240,7 @@ def get_collection(
         CardResponse(
             id=card.id,
             name=card.name,
+            source_type=card.source_type,
             headline=card.headline,
             image_url=card.image_url,
             prep_time_minutes=card.prep_time_minutes,

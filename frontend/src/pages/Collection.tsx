@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, Navigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import PageContainer from '../components/layout/PageContainer'
 import CatalogCard from '../components/recipe/CatalogCard'
@@ -113,11 +113,17 @@ function ChildSection({ child, source, enabled, index, filters, onSettled, onFai
 
 // ── Collection page ───────────────────────────────────────────────────────────
 
-export default function Collection() {
+/** Redirects old /browse/hellofresh/:slug URLs to /browse/hellofresh_web/:slug. */
+export function LegacyCollectionRedirect() {
   const { slug } = useParams<{ slug: string }>()
+  return <Navigate to={`/browse/hellofresh_web/${slug ?? ''}`} replace />
+}
 
-  const { data: parent, isLoading, isError, error } = useCollection('hellofresh_web', slug ?? '', {
-    enabled: !!slug,
+export default function Collection() {
+  const { source, slug } = useParams<{ source: string; slug: string }>()
+
+  const { data: parent, isLoading, isError, error } = useCollection(source ?? '', slug ?? '', {
+    enabled: !!source && !!slug,
   })
 
   const [filters, setFilters] = useState<RecipeFilters>({})
@@ -314,7 +320,7 @@ export default function Collection() {
           <ChildSection
             key={child.slug}
             child={child}
-            source="hellofresh_web"
+            source={source ?? ''}
             enabled={i < cursor || (i === cursor && !failed)}
             index={i}
             filters={filters}

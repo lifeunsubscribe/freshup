@@ -18,7 +18,7 @@ export default function CatalogCard({ card, collectionSlug, isNew = false }: Cat
 
   function handleOpen() {
     openCard(
-      { cardId: card.id, source: 'hellofresh_web', collectionSlug },
+      { cardId: card.id, source: card.source_type, collectionSlug },
       {
         onSuccess: (recipe) => navigate(`/recipes/${recipe.id}`),
       }
