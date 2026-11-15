@@ -423,16 +423,12 @@ def list_recipes(
             .subquery()
         )
         query = query.join(latest_view_sq, Recipe.id == latest_view_sq.c.recipe_id)
-        order_col = latest_view_sq.c.latest_viewed_at.desc()
-
     # Apply ordering and pagination
-    recipes = (
-        query
-        .order_by(order_col)
-        .limit(limit)
-        .offset(offset)
-        .all()
-    )
+    if viewed:
+        query = query.order_by(latest_view_sq.c.latest_viewed_at.desc(), Recipe.id.desc())
+    else:
+        query = query.order_by(order_col)
+    recipes = query.limit(limit).offset(offset).all()
 
     # One extra query: the caller's bookmarked recipe IDs.  Fetched once here
     # so each card is O(1) set membership, not a per-card relation fetch.

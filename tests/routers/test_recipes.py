@@ -698,20 +698,18 @@ class TestRecipeFiltering:
         """viewed=true returns only the caller's viewed recipes, one row per recipe even when
         viewed multiple times, ordered by the most recent view descending."""
         from src.db.models.user_recipe_view import UserRecipeView
-        import time
+        from datetime import datetime, timedelta
 
         viewed_first, viewed_second, viewed_by_other = sample_recipes[0], sample_recipes[1], sample_recipes[2]
+        now = datetime.utcnow()
         # viewed_second was viewed earlier; viewed_first most recently
-        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_second.id, source="detail"))
-        db_session.commit()
-        # Small sleep to ensure distinct viewed_at timestamps in SQLite
-        time.sleep(0.01)
-        # Three views of viewed_first — should appear once
-        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_first.id, source="detail"))
-        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_first.id, source="browse"))
-        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_first.id, source="search"))
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_second.id, source="detail", viewed_at=now - timedelta(seconds=10)))
+        # Three views of viewed_first — should appear once; most recent view is 5s ago
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_first.id, source="detail", viewed_at=now - timedelta(seconds=7)))
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_first.id, source="browse", viewed_at=now - timedelta(seconds=6)))
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=viewed_first.id, source="search", viewed_at=now - timedelta(seconds=5)))
         # Another user viewed viewed_by_other — must not appear in caller's results
-        db_session.add(UserRecipeView(user_id=test_user2.id, recipe_id=viewed_by_other.id, source="detail"))
+        db_session.add(UserRecipeView(user_id=test_user2.id, recipe_id=viewed_by_other.id, source="detail", viewed_at=now - timedelta(seconds=3)))
         db_session.commit()
 
         response = client.get("/recipes?viewed=true", headers=auth_headers)
@@ -742,13 +740,12 @@ class TestRecipeFiltering:
     ):
         """viewed=true&limit=1&offset=1 returns the second most recently viewed recipe."""
         from src.db.models.user_recipe_view import UserRecipeView
-        import time
+        from datetime import datetime, timedelta
 
+        now = datetime.utcnow()
         older, newer = sample_recipes[0], sample_recipes[1]
-        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=older.id, source="detail"))
-        db_session.commit()
-        time.sleep(0.01)
-        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=newer.id, source="detail"))
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=older.id, source="detail", viewed_at=now - timedelta(seconds=10)))
+        db_session.add(UserRecipeView(user_id=test_user.id, recipe_id=newer.id, source="detail", viewed_at=now - timedelta(seconds=5)))
         db_session.commit()
 
         response = client.get("/recipes?viewed=true&limit=1&offset=1", headers=auth_headers)
