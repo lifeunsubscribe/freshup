@@ -138,12 +138,34 @@ def user_affinities(user_id: UUID, db: Session) -> dict[str, float]:
         for k in keys:
             raw[k] = raw.get(k, 0.0) + delta
 
-    # --- Cook events (cap at 3 per recipe) ---
+    # Fetch all signal rows up-front so the recipe batch-load below is complete.
     cook_events = (
         db.query(UserCookEvent)
         .filter(UserCookEvent.user_id == user_id)
         .all()
     )
+    relations = (
+        db.query(UserRecipeRelation)
+        .filter(UserRecipeRelation.user_id == user_id)
+        .all()
+    )
+    views = (
+        db.query(UserRecipeView)
+        .filter(UserRecipeView.user_id == user_id)
+        .all()
+    )
+
+    # Batch-load all referenced recipes into the session identity map so the
+    # db.get() calls in the loops below are cache hits, not individual SELECTs.
+    _all_recipe_ids = (
+        {ev.recipe_id for ev in cook_events}
+        | {rel.recipe_id for rel in relations}
+        | {v.recipe_id for v in views}
+    )
+    if _all_recipe_ids:
+        db.query(Recipe).filter(Recipe.id.in_(_all_recipe_ids)).all()
+
+    # --- Cook events (cap at 3 per recipe) ---
     cook_groups: dict = {}
     for ev in cook_events:
         cook_groups.setdefault(ev.recipe_id, []).append(ev)
@@ -157,11 +179,6 @@ def user_affinities(user_id: UUID, db: Session) -> dict[str, float]:
             _add(keys, 3.0 * _age_factor(ev.cooked_at))
 
     # --- Ratings, likes, bookmarks ---
-    relations = (
-        db.query(UserRecipeRelation)
-        .filter(UserRecipeRelation.user_id == user_id)
-        .all()
-    )
     for rel in relations:
         recipe = db.get(Recipe, rel.recipe_id)
         if recipe is None:
@@ -179,11 +196,6 @@ def user_affinities(user_id: UUID, db: Session) -> dict[str, float]:
             _add(keys, 1.0 * af)
 
     # --- Views (cap at 2 per recipe) ---
-    views = (
-        db.query(UserRecipeView)
-        .filter(UserRecipeView.user_id == user_id)
-        .all()
-    )
     view_groups: dict = {}
     for v in views:
         view_groups.setdefault(v.recipe_id, []).append(v)
@@ -300,9 +312,13 @@ def popularity(card, source_prior: "float | None", featured: set[str]) -> float:
     in_featured = bool(featured & source_featured)
 
     rating = card.rating
-    count = card.rating_count or 0
+    # Distinguish None (count not available from scrape) from 0 (explicitly zero votes).
+    # None with a present rating is treated as 1 vote so the rating influences scoring.
+    count = card.rating_count if card.rating_count is not None else (1 if rating is not None else 0)
 
-    if rating is None or count == 0:
+    # Synthetic count (rating_count=None → 1) with no source prior gives no Bayesian anchor;
+    # collapse to unrated so a single unknown-provenance vote isn't given full weight.
+    if rating is None or count == 0 or (card.rating_count is None and source_prior is None):
         if source_prior is None:
             base = 0.5
         else:

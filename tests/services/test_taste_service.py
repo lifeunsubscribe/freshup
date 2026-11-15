@@ -56,9 +56,23 @@ def _days_ago(n: int) -> datetime:
 
 class _MockQuery:
     def __init__(self, items):
-        self._items = items
+        self._items = list(items)
 
-    def filter(self, *args, **kwargs):
+    def filter(self, *conditions):
+        items = self._items
+        for cond in conditions:
+            try:
+                # Handle SQLAlchemy col == val binary expressions
+                col_key = getattr(getattr(cond, "left", None), "key", None)
+                right = getattr(cond, "right", None)
+                if col_key and right is not None and hasattr(right, "value"):
+                    val = right.value
+                    # Skip tuple/list/set values — those are in_() not equality
+                    if not isinstance(val, (list, tuple, set, frozenset)):
+                        items = [i for i in items if getattr(i, col_key, None) == val]
+            except Exception:
+                pass
+        self._items = items
         return self
 
     def all(self):
@@ -825,3 +839,130 @@ class TestColdStart:
             _make_recipe(ingredient_names=["salmon"], tags=["vegetarian"]),
         ]:
             assert score_recipe(recipe, affinities) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# user_affinities — cross-user signal isolation
+# ---------------------------------------------------------------------------
+
+
+class TestUserAffinitiesIsolation:
+    def test_user_a_signals_do_not_leak_to_user_b(self):
+        """user_affinities must not include signals belonging to a different user."""
+        user_a = _make_user()
+        user_b = _make_user()
+        recipe_a = _make_recipe(ingredient_names=["salmon"])
+        recipe_b = _make_recipe(ingredient_names=["pork"])
+
+        # Both users' events are present in the mock DB
+        db = _MockDB(
+            cook_events=[
+                _cook_event(user_a.id, recipe_a.id),
+                _cook_event(user_b.id, recipe_b.id),
+            ],
+            recipes={recipe_a.id: recipe_a, recipe_b.id: recipe_b},
+            user=user_a,
+        )
+
+        affinities = user_affinities(user_a.id, db)
+
+        # user_a cooked salmon — expect positive affinity
+        assert affinities.get("ingredient:salmon", 0) > 0
+        # user_b cooked pork — must not leak into user_a's affinities
+        assert affinities.get("ingredient:pork", 0) == pytest.approx(0.0)
+
+    def test_relations_do_not_leak_across_users(self):
+        """High-rating signal from user_b must not appear in user_a's affinities."""
+        user_a = _make_user()
+        user_b = _make_user()
+        recipe_a = _make_recipe(ingredient_names=["tofu"])
+        recipe_b = _make_recipe(ingredient_names=["beef"])
+
+        db = _MockDB(
+            relations=[
+                _relation(user_a.id, recipe_a.id, is_liked=True),
+                _relation(user_b.id, recipe_b.id, rating=5),
+            ],
+            recipes={recipe_a.id: recipe_a, recipe_b.id: recipe_b},
+            user=user_a,
+        )
+
+        affinities = user_affinities(user_a.id, db)
+        assert affinities.get("ingredient:tofu", 0) > 0
+        assert affinities.get("ingredient:beef", 0) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# is_blocked — alias path coverage for "eggs", "nuts", "seafood"
+# ---------------------------------------------------------------------------
+
+
+class TestIsBlockedAliases:
+    def test_allergy_eggs_alias_blocks_egg_recipe(self):
+        # "eggs" (plural) is an alias for the "egg" allergen group
+        user = _make_user(allergies=["eggs"])
+        recipe = _make_recipe(ingredient_names=["egg"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_nuts_alias_blocks_peanut_recipe(self):
+        # "nuts" colloquially covers peanuts
+        user = _make_user(allergies=["nuts"])
+        recipe = _make_recipe(ingredient_names=["peanut butter"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_nuts_alias_blocks_tree_nut_recipe(self):
+        # "nuts" also covers tree nuts
+        user = _make_user(allergies=["nuts"])
+        recipe = _make_recipe(ingredient_names=["almond"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_seafood_alias_blocks_fish_recipe(self):
+        # "seafood" spans both fish and shellfish groups
+        user = _make_user(allergies=["seafood"])
+        recipe = _make_recipe(ingredient_names=["salmon"])
+        assert is_blocked(recipe, user)
+
+    def test_allergy_seafood_alias_blocks_shellfish_recipe(self):
+        # "seafood" must block shrimp (shellfish group) as well as fish
+        user = _make_user(allergies=["seafood"])
+        recipe = _make_recipe(ingredient_names=["shrimp"])
+        assert is_blocked(recipe, user)
+
+
+# ---------------------------------------------------------------------------
+# popularity — rating_count=None is not silently discarded
+# ---------------------------------------------------------------------------
+
+
+class TestPopularityNullRatingCount:
+    def test_null_rating_count_uses_rating_not_prior_only(self):
+        """Cards with rating_count=None but different ratings must score differently."""
+        card_high = _make_card(rating=5.0, rating_count=None)
+        card_low = _make_card(rating=1.0, rating_count=None)
+        score_high = popularity(card_high, 3.5, set())
+        score_low = popularity(card_low, 3.5, set())
+        # Without the fix, both would equal the unrated score (prior-only, identical).
+        assert score_high > score_low
+
+    def test_null_rating_count_high_rating_outscores_unrated(self):
+        """Card with rating=5.0, count=None should score above the unrated baseline."""
+        card_rated = _make_card(rating=5.0, rating_count=None)
+        card_unrated = _make_card(rating=None, rating_count=None)
+        score_rated = popularity(card_rated, 3.5, set())
+        score_unrated = popularity(card_unrated, 3.5, set())
+        assert score_rated > score_unrated
+
+    def test_zero_count_still_treated_as_unrated(self):
+        """Explicitly zero votes (rating_count=0) must still use the unrated branch."""
+        card = _make_card(source_type="hellofresh_web", rating=5.0, rating_count=0)
+        score = popularity(card, 3.5, set())
+        # Unrated branch: source_prior mapped → (3.5 - 1) / 4 = 0.625
+        assert score == pytest.approx((3.5 - 1.0) / 4.0)
+
+    def test_null_rating_count_no_source_prior_scores_half(self):
+        """rating_count=None + source_prior=None: no Bayesian anchor, falls back to 0.5."""
+        card = _make_card(rating=5.0, rating_count=None)
+        score = popularity(card, None, set())
+        # Synthetic count=1 with no source prior gives no anchor for the Bayesian mean;
+        # the unrated branch fires and returns 0.5 (same as a fully unrated card).
+        assert score == pytest.approx(0.5)
