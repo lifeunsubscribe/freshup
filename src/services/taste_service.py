@@ -21,7 +21,8 @@ from src.db.models.user_cook_event import UserCookEvent
 from src.db.models.user_recipe import UserRecipeRelation
 from src.db.models.user_recipe_view import UserRecipeView
 from src.services.card_tags import tags_from_text
-from src.services.ingredient_keys import ALLERGENS, allergens_for, keys_for, keys_for_recipe
+from src.services.allergy import allergy_hit, stated_allergies
+from src.services.ingredient_keys import keys_for_recipe
 from src.services.recipe_themes import TAG_INDEX, normalize_tag
 
 # source_type -> set of collection slugs considered "featured" for popularity scoring
@@ -34,50 +35,6 @@ _SIGNAL_CUTOFF_DAYS = 90
 
 # Explicit prior weights by taste level (never has no weight — it only blocks)
 _PRIOR_WEIGHTS: dict[str, float] = {"love": 6.0, "like": 3.0, "less": -4.0}
-
-# Common free-text aliases for allergen group slugs (see ALLERGENS in ingredient_keys.py).
-# Slugs that are already canonical (e.g. "milk", "peanut") pass through unchanged.
-# A value may be a list when the free-text term spans multiple allergen groups
-# (e.g. "nuts" covers both tree-nut and peanut).
-_ALLERGY_ALIASES: dict[str, str | list[str]] = {
-    "dairy": "milk",
-    "peanuts": "peanut",
-    "tree nut": "tree-nut",
-    "tree nuts": "tree-nut",
-    "tree-nuts": "tree-nut",
-    # "nut"/"nuts" colloquially covers both tree nuts and peanuts
-    "nut": ["tree-nut", "peanut"],
-    "nuts": ["tree-nut", "peanut"],
-    "soya": "soy",
-    "gluten": "wheat",
-    "eggs": "egg",
-    # ingredient-level shellfish terms that must map to the allergen group
-    "shrimp": "shellfish",
-    "prawn": "shellfish",
-    "crab": "shellfish",
-    "lobster": "shellfish",
-    # "seafood" spans both fish and shellfish allergen groups
-    "seafood": ["fish", "shellfish"],
-}
-
-
-def _allergy_groups(allergy_text: str) -> set[str]:
-    """
-    Resolve a free-text allergy string to canonical allergen group slugs.
-
-    Resolution order:
-    1. _ALLERGY_ALIASES lookup (handles "dairy", "peanuts", "tree nut", "shrimp", etc.)
-    2. Canonical allergen slug passthrough (the value is already e.g. "milk", "peanut")
-    3. keys_for() fallback: ingredient-level terms like "almonds", "cashews", "salmon", "prawns"
-    """
-    normalised = allergy_text.strip().lower()
-    mapped = _ALLERGY_ALIASES.get(normalised)
-    if mapped is not None:
-        return set(mapped) if isinstance(mapped, list) else {mapped}
-    if normalised in ALLERGENS:
-        return {normalised}
-    return allergens_for(keys_for(normalised))
-
 
 def recipe_keys(recipe) -> set[str]:
     """
@@ -231,8 +188,8 @@ def is_blocked(recipe, user) -> bool:
     Return True when the recipe should be blocked for this user.
 
     Blocked when any recipe key appears in taste_preferences with level "never",
-    or when any allergen group for the recipe's ingredient keys matches a user
-    allergy (case-insensitive).
+    or when one of the user's allergy entries covers one of the recipe's
+    ingredients (see src/services/allergy.py for how an entry is read).
     """
     prefs = user.taste_preferences or {}
     keys = recipe_keys(recipe)
@@ -242,16 +199,9 @@ def is_blocked(recipe, user) -> bool:
         if prefs.get(key) == "never":
             return True
 
-    # Allergen check: strip the "ingredient:" prefix before calling allergens_for
     ingredient_keys = {k[len("ingredient:"):] for k in keys if k.startswith("ingredient:")}
-    recipe_allergens = allergens_for(ingredient_keys)
-    user_allergies: set[str] = set()
-    for a in (user.allergies or []):
-        user_allergies.update(_allergy_groups(str(a)))
-    if recipe_allergens & user_allergies:
-        return True
-
-    return False
+    names = [getattr(ing, "ingredient_name", None) for ing in (recipe.ingredients or [])]
+    return allergy_hit(stated_allergies(user), ingredient_keys, names)
 
 
 def score_recipe(recipe, affinities: dict[str, float]) -> float:
@@ -338,26 +288,24 @@ def is_card_blocked(card, keys: set[str], user) -> bool:
 
     Blocked when any key appears in taste_preferences with level "never", or when the
     user has any allergy and the card's ingredient_keys is None (ingredients unknown),
-    or when the card's known ingredients match a user allergy group.
+    or when an allergy entry covers one of the card's known ingredients. An entry
+    outside the vocabulary can only be checked against the card's name and headline.
     """
     prefs = user.taste_preferences or {}
     for key in keys:
         if prefs.get(key) == "never":
             return True
 
-    # "Has allergies" is what the user typed, not what resolves to an allergen
-    # group: "garlic" or "lactose" maps to no group, and that user must still
-    # not be shown a card whose ingredients are unknown.
-    if not any(str(a).strip() for a in (user.allergies or [])):
+    # "Has allergies" is what the user typed, whether or not the vocabulary
+    # knows the food: that user must not be shown a card whose ingredients are
+    # unknown.
+    allergies = stated_allergies(user)
+    if not allergies:
         return False
 
     # Unknown ingredients are not safe for allergic users
     if card.ingredient_keys is None:
         return True
 
-    user_allergies: set[str] = set()
-    for a in (user.allergies or []):
-        user_allergies.update(_allergy_groups(str(a)))
-
     ingredient_key_set = {k[len("ingredient:"):] for k in keys if k.startswith("ingredient:")}
-    return bool(allergens_for(ingredient_key_set) & user_allergies)
+    return allergy_hit(allergies, ingredient_key_set, [card.name, getattr(card, "headline", None)])

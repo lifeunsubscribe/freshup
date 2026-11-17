@@ -205,7 +205,7 @@ FreshUp should feel like having a knowledgeable sous chef — one who knows what
 | name | String | Display name |
 | role | Enum | `coordinator` / `member` — coordinator has meal plan approval authority |
 | dietary_profile | Enum[] | Multi-select: `omnivore`, `vegetarian`, `vegan`, `pescatarian`, `keto`, `low_carb`, `low_sugar` |
-| allergies | String[] | Freeform: `lactose`, `gluten`, `tree nuts`, etc. |
+| allergies | String[] | Freeform: `lactose`, `gluten`, `tree nuts`, `garlic`, etc. How an entry is read: §5.16 |
 | disliked_ingredients | FK[] | Links to Ingredient entities |
 | favorite_ingredients | FK[] | Ranked list, used to boost suggestion priority |
 | favorite_recipes | FK[] | Links to Recipe entities via UserRecipeRelation (bookmarked or liked) |
@@ -743,7 +743,12 @@ Raw scores are normalised to −1..1 by dividing by the largest absolute value. 
 
 **Blocking rules (apply to recommendations only — never to search or list endpoints):**
 - Any `ingredient:` or `cuisine:` key mapped to `never` in `taste_preferences` → recipe is blocked.
-- Any allergen group for the recipe's ingredient keys intersects `user.allergies` (case-insensitive, common aliases like "dairy" and "tree nut" are normalised to canonical group slugs) → recipe is blocked.
+- Any entry in `user.allergies` covers one of the recipe's ingredients → recipe is blocked. The field is free text and an entry can be anything that applies to the user (`src/services/allergy.py`):
+  - A name for a major allergen group ("milk", "dairy", "lactose", "tree nuts", "gluten", "shellfish") covers every ingredient in the group. The groups in `ingredient_keys.ALLERGENS` are the FDA's nine major food allergens; "gluten" is wheat plus barley and rye.
+  - An ingredient in the vocabulary ("garlic", "coconut", "almonds") covers that ingredient, and the whole group when it belongs to one (almonds cover every tree nut: the cautious reading).
+  - Either way the entry also covers what is made from it (`ingredient_keys.MADE_FROM`): coconut covers coconut milk, chicken covers chicken stock. This runs one way only. Coconut milk still does not resolve to coconut or to milk, so a milk allergy does not block it.
+  - Anything else ("mustard", "strawberries") is matched as a whole word against ingredient names.
+  - Blank entries and "none" are not allergies. Sulphites cannot be inferred from an ingredient list.
 
 The `less` level only lowers affinity; it never blocks. All blocking is enforced in `taste_service.is_blocked`, which is called by the recommendation layer, not by search or catalog endpoints.
 
@@ -751,7 +756,7 @@ The `less` level only lowers affinity; it never blocks. All blocking is enforced
 
 For a user with no history, `popularity` (0..1) stands in for affinity. A rated card gets a Bayesian average, `(rating × count + source_mean × 50) / (count + 50)`, mapped from the 1..5 scale to 0..1, so a 4.6 card with 20,000 ratings outranks a 5.0 card with 5. A card in its source's featured collection (`FEATURED_COLLECTIONS`: HelloFresh `hall-of-fame`, Home Chef `customer-favorites`) scores at least 0.8. An unrated, unfeatured card scores its source's mean rating mapped the same way, or 0.5 when the source publishes no ratings. Popularity is computed on request and not stored.
 
-**Unknown ingredients.** `is_card_blocked` applies the `never` and allergen rules above to cards, plus one more: a card whose `ingredient_keys` is NULL (never imported, ingredients unknown) is blocked for a user with any allergy entry at all, including one that maps to no allergen group. Unknown ingredients are not safe to suggest to someone with an allergy.
+**Unknown ingredients.** `is_card_blocked` applies the `never` and allergen rules above to cards, plus one more: a card whose `ingredient_keys` is NULL (never imported, ingredients unknown) is blocked for a user with any allergy entry at all, including one that names a food outside the vocabulary. Unknown ingredients are not safe to suggest to someone with an allergy. A card stores ingredient keys, not names, so for an entry outside the vocabulary only the card's name and headline can be checked; the full ingredient list is checked once the card is imported as a recipe.
 
 ---
 

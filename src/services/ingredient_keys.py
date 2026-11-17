@@ -19,6 +19,16 @@ and not chicken). A compound never resolves to one of its words: that
 is how a dairy-free product gets flagged as milk and how fish sauce gets
 missed. When adding an ingredient whose name contains another ingredient's
 name, give it its own key and list its allergens in ALLERGENS explicitly.
+
+Resolving a name and covering an allergy are different questions. Coconut milk
+does not resolve to coconut, but someone allergic to coconut cannot eat it.
+MADE_FROM records what each compound is made from, and with_products() widens
+a set of keys to everything made from them. Only allergy matching uses it.
+
+ALLERGENS follows the FDA's nine major food allergens (FALCPA and the FASTER
+Act, with the tree nut list from the January 2025 labeling guidance, which
+dropped coconut). Each group lists every key in the vocabulary that contains
+it, so a food on a published allergen list needs a key here to be caught.
 """
 
 import re
@@ -52,9 +62,17 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "scallop": ("Scallop", ["scallop"]),
     "anchovy": ("Anchovy", ["anchovy"]),
     "sardine": ("Sardine", ["sardine"]),
+    "mussel": ("Mussel", ["mussel"]),
+    "squid": ("Squid", ["squid", "calamari"]),
+    "octopus": ("Octopus", ["octopus"]),
+    "crawfish": ("Crawfish", ["crawfish", "crayfish"]),
+    # Fish named only as fish, and species with no key of their own.
+    "fish": ("Fish", ["trout", "mackerel", "herring", "swordfish", "snapper", "sea bass",
+                      "mahi mahi", "pollock", "fish"]),
     "seafood": ("Seafood", ["seafood"]),
     # --- Proteins: plant ---
     "tofu": ("Tofu", ["tofu", "tempeh"]),
+    "miso": ("Miso", ["miso"]),
     "sausage": ("Sausage", ["sausage", "chorizo", "bratwurst", "kielbasa"]),
     "bacon": ("Bacon", ["bacon"]),
     # --- Legumes ---
@@ -64,7 +82,12 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     ]),
     "edamame": ("Edamame", ["edamame", "soybean", "soy bean"]),
     # --- Grains ---
-    "grains": ("Grains", ["quinoa", "farro", "barley", "millet", "bulgur", "oat", "grain"]),
+    "grains": ("Grains", ["quinoa", "millet", "oat", "grain"]),
+    # Farro and bulgur are wheat; barley and rye carry gluten but are not wheat.
+    "farro": ("Farro", ["farro"]),
+    "bulgur": ("Bulgur", ["bulgur"]),
+    "barley": ("Barley", ["barley"]),
+    "rye": ("Rye", ["rye"]),
     "rice": ("Rice", ["brown rice", "jasmine rice", "basmati rice", "arborio rice", "fried rice",
                       "risotto rice", "rice"]),
     "pasta": ("Pasta", ["pasta", "spaghetti", "penne", "fettuccine", "linguine", "rigatoni",
@@ -74,7 +97,9 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "tortilla": ("Tortilla", ["flour tortilla", "tortilla"]),
     "corn-tortilla": ("Corn tortilla", ["corn tortilla"]),
     "rice-noodles": ("Rice noodles", ["rice noodle", "rice vermicelli", "rice stick"]),
-    "wheat": ("Wheat", ["flour", "wheat", "all-purpose flour", "whole wheat flour"]),
+    "wheat": ("Wheat", ["flour", "wheat", "all-purpose flour", "whole wheat flour", "semolina", "spelt"]),
+    "seitan": ("Seitan", ["seitan"]),
+    "breadcrumbs": ("Breadcrumbs", ["breadcrumb", "bread crumb", "panko"]),
     # --- Produce: starchy vegetables ---
     "sweet-potato": ("Sweet potato", ["sweet potato"]),
     "potatoes": ("Potatoes", ["potato", "mashed potato", "yukon gold", "russet potato"]),
@@ -127,16 +152,20 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "oat-milk": ("Oat milk", ["oat milk"]),
     "cashew-cream": ("Cashew cream", ["cashew cream", "cashew milk"]),
     "buttermilk": ("Buttermilk", ["buttermilk"]),
-    "cream": ("Cream", ["heavy cream", "whipping cream", "cream"]),
+    "cream": ("Cream", ["heavy cream", "whipping cream", "half and half", "creme fraiche",
+                        "crème fraîche", "cream"]),
     "sour-cream": ("Sour cream", ["sour cream"]),
     "cream-cheese": ("Cream cheese", ["cream cheese"]),
     "butter": ("Butter", ["butter"]),
+    "ghee": ("Ghee", ["ghee"]),
     "cheese": ("Cheese", [
         "mozzarella", "cheddar", "parmesan", "feta", "brie", "gouda", "ricotta",
-        "gruyere", "cotija", "monterey jack", "cheese",
+        "gruyere", "cotija", "monterey jack", "mascarpone", "provolone", "paneer", "queso",
+        "pecorino", "asiago", "halloumi", "burrata", "cheese",
     ]),
     "yogurt": ("Yogurt", ["greek yogurt", "yogurt"]),
     "egg": ("Egg", ["egg white", "egg yolk", "egg"]),
+    "mayonnaise": ("Mayonnaise", ["mayonnaise", "mayo", "aioli"]),
     # --- Nuts & seeds ---
     "peanut": ("Peanut", ["peanut"]),
     "peanut-butter": ("Peanut butter", ["peanut butter"]),
@@ -148,6 +177,9 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
     "cashew": ("Cashew", ["cashew"]),
     "pine-nut": ("Pine nut", ["pine nut"]),
     "pistachio": ("Pistachio", ["pistachio"]),
+    "hazelnut": ("Hazelnut", ["hazelnut", "filbert"]),
+    "macadamia": ("Macadamia", ["macadamia nut", "macadamia"]),
+    "brazil-nut": ("Brazil nut", ["brazil nut"]),
     "sesame": ("Sesame", ["sesame seed", "sesame"]),
     "sesame-oil": ("Sesame oil", ["toasted sesame oil", "sesame oil"]),
     "tahini": ("Tahini", ["tahini"]),
@@ -185,18 +217,83 @@ INGREDIENTS: dict[str, tuple[str, list[str]]] = {
 
 # allergen name -> set of ingredient keys that contain that allergen
 ALLERGENS: dict[str, set[str]] = {
-    "milk": {"milk", "cream", "butter", "cheese", "yogurt", "buttermilk", "sour-cream", "cream-cheese"},
-    "egg": {"egg"},
+    "milk": {"milk", "cream", "butter", "ghee", "cheese", "yogurt", "buttermilk", "sour-cream",
+             "cream-cheese"},
+    "egg": {"egg", "mayonnaise"},
     "peanut": {"peanut", "peanut-butter", "peanut-oil"},
-    "tree-nut": {"almond", "walnut", "pecan", "cashew", "pine-nut", "pistachio",
-                 "almond-milk", "almond-butter", "cashew-cream"},
-    "fish": {"salmon", "white-fish", "tuna", "anchovy", "sardine", "seafood",
+    "tree-nut": {"almond", "walnut", "pecan", "cashew", "pine-nut", "pistachio", "hazelnut",
+                 "macadamia", "brazil-nut", "almond-milk", "almond-butter", "cashew-cream"},
+    "fish": {"salmon", "white-fish", "tuna", "anchovy", "sardine", "fish", "seafood",
              "fish-sauce", "worcestershire", "anchovy-paste"},
-    "shellfish": {"shrimp", "crab", "lobster", "clam", "oyster", "scallop", "seafood",
-                  "oyster-sauce", "shrimp-paste"},
-    "wheat": {"wheat", "pasta", "bread", "couscous", "tortilla"},
-    "soy": {"tofu", "soy-sauce", "edamame", "soy-milk"},
+    # Crustaceans are the FDA group; molluscs are kept with them because
+    # "shellfish allergy" is commonly both and the EU lists molluscs as well.
+    "shellfish": {"shrimp", "crab", "lobster", "crawfish", "clam", "oyster", "scallop", "mussel",
+                  "squid", "octopus", "seafood", "oyster-sauce", "shrimp-paste"},
+    # Soy sauce is brewed with wheat (tamari, spelled under the same key, often
+    # is not: blocking it for a wheat allergy is the safe direction to be wrong).
+    "wheat": {"wheat", "pasta", "bread", "breadcrumbs", "couscous", "tortilla", "farro", "bulgur",
+              "seitan", "soy-sauce"},
+    "soy": {"tofu", "soy-sauce", "edamame", "soy-milk", "miso"},
     "sesame": {"sesame", "sesame-oil", "tahini"},
+}
+
+# compound key -> the ingredient keys it is made from. For allergy matching
+# only (see the module docstring): keys_for never follows these links.
+# A compound whose source is already in the same allergen group needs no entry
+# for that group's sake, but listing it is harmless and keeps this complete.
+MADE_FROM: dict[str, set[str]] = {
+    "coconut-milk": {"coconut"},
+    "coconut-cream": {"coconut"},
+    "coconut-oil": {"coconut"},
+    "coconut-aminos": {"coconut"},
+    "almond-milk": {"almond"},
+    "almond-butter": {"almond"},
+    "cashew-cream": {"cashew"},
+    "peanut-butter": {"peanut"},
+    "peanut-oil": {"peanut"},
+    "sesame-oil": {"sesame"},
+    "tahini": {"sesame"},
+    "tofu": {"edamame"},
+    "soy-milk": {"edamame"},
+    "miso": {"edamame"},
+    "soy-sauce": {"edamame", "wheat"},
+    "oat-milk": {"grains"},
+    "lemon-juice": {"lemon"},
+    "lemon-zest": {"lemon"},
+    "lime-juice": {"lime"},
+    "lime-zest": {"lime"},
+    "tomato-sauce": {"tomato"},
+    "cornstarch": {"corn"},
+    "corn-tortilla": {"corn"},
+    "potato-starch": {"potatoes"},
+    "rice-noodles": {"rice"},
+    "rice-wine": {"rice"},
+    "chicken-stock": {"chicken"},
+    "chicken-broth": {"chicken"},
+    "beef-stock": {"beef"},
+    "beef-broth": {"beef"},
+    "bacon": {"pork"},
+    "sausage": {"pork"},
+    "fish-sauce": {"anchovy"},
+    "anchovy-paste": {"anchovy"},
+    "worcestershire": {"anchovy"},
+    "oyster-sauce": {"oyster"},
+    "shrimp-paste": {"shrimp"},
+    "mayonnaise": {"egg"},
+    "ghee": {"butter"},
+    "butter": {"milk"},
+    "cream": {"milk"},
+    "cheese": {"milk"},
+    "yogurt": {"milk"},
+    "buttermilk": {"milk"},
+    "sour-cream": {"cream"},
+    "cream-cheese": {"cream"},
+    "pasta": {"wheat"},
+    "bread": {"wheat"},
+    "breadcrumbs": {"bread"},
+    "couscous": {"wheat"},
+    "tortilla": {"wheat"},
+    "seitan": {"wheat"},
 }
 
 # pre-build: sorted spellings longest-first per key, normalised
@@ -252,3 +349,19 @@ def label_for(key: str) -> str:
 def allergens_for(keys: set[str]) -> set[str]:
     """Return allergen names for the given set of ingredient keys."""
     return {allergen for allergen, allergen_keys in ALLERGENS.items() if allergen_keys & keys}
+
+
+def with_products(keys: set[str]) -> set[str]:
+    """
+    Return keys plus every compound made from one of them, directly or through
+    another compound (bread, then breadcrumbs).
+
+    For allergy matching: an allergy to coconut covers coconut milk even though
+    "coconut milk" never resolves to the coconut key.
+    """
+    covered = set(keys)
+    while True:
+        more = {product for product, sources in MADE_FROM.items() if sources & covered} - covered
+        if not more:
+            return covered
+        covered |= more

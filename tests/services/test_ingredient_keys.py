@@ -7,10 +7,12 @@ import pytest
 from src.services.ingredient_keys import (
     ALLERGENS,
     INGREDIENTS,
+    MADE_FROM,
     allergens_for,
     keys_for,
     keys_for_recipe,
     label_for,
+    with_products,
 )
 from src.services.recipe_themes import VALUE_LABELS
 
@@ -396,3 +398,101 @@ class TestCompoundIngredients:
                 assert seen.setdefault(spelling, key) == key, (
                     f"{spelling!r} is listed under both {seen[spelling]!r} and {key!r}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Foods on the published allergen lists have keys in the right groups
+# ---------------------------------------------------------------------------
+
+class TestAllergenListCoverage:
+    @pytest.mark.parametrize("name, allergens", [
+        ("1/2 cup hazelnuts, toasted", {"tree-nut"}),
+        ("macadamia nuts", {"tree-nut"}),
+        ("brazil nuts", {"tree-nut"}),
+        ("2 trout fillets", {"fish"}),
+        ("white fish fillets", {"fish"}),
+        ("mahi-mahi", {"fish"}),
+        ("1 lb mussels", {"shellfish"}),
+        ("calamari", {"shellfish"}),
+        ("crawfish tails", {"shellfish"}),
+        ("1 cup farro", {"wheat"}),
+        ("bulgur wheat", {"wheat"}),
+        ("semolina", {"wheat"}),
+        ("seitan", {"wheat"}),
+        ("panko breadcrumbs", {"wheat"}),
+        ("2 tablespoons soy sauce", {"soy", "wheat"}),
+        ("white miso paste", {"soy"}),
+        ("1 tablespoon ghee", {"milk"}),
+        ("mascarpone", {"milk"}),
+        ("queso fresco", {"milk"}),
+        ("half-and-half", {"milk"}),
+        ("creme fraiche", {"milk"}),
+        ("2 tablespoons mayonnaise", {"egg"}),
+        ("garlic aioli", {"egg"}),
+        # Not allergens under the FDA list
+        ("pearl barley", set()),
+        ("rye berries", set()),
+        ("quinoa", set()),
+        ("shredded coconut", set()),
+    ])
+    def test_allergens(self, name, allergens):
+        assert allergens_for(keys_for(name)) == allergens
+
+    def test_farro_bulgur_and_barley_are_not_generic_grains(self):
+        assert keys_for("farro") == {"farro"}
+        assert keys_for("bulgur") == {"bulgur"}
+        assert keys_for("pearl barley") == {"barley"}
+        assert keys_for("quinoa") == {"grains"}
+
+    def test_fish_sauce_is_still_only_fish_sauce(self):
+        assert keys_for("fish sauce") == {"fish-sauce"}
+
+
+# ---------------------------------------------------------------------------
+# MADE_FROM: what an allergy to an ingredient also covers
+# ---------------------------------------------------------------------------
+
+class TestMadeFrom:
+    def test_every_key_and_source_is_in_ingredients(self):
+        missing = [k for product, sources in MADE_FROM.items() for k in {product, *sources}
+                   if k not in INGREDIENTS]
+        assert missing == []
+
+    def test_nothing_is_made_from_itself(self):
+        """No cycles: following a product's sources never leads back to it."""
+        for product in MADE_FROM:
+            seen, frontier = set(), set(MADE_FROM[product])
+            while frontier:
+                seen |= frontier
+                frontier = set().union(*(MADE_FROM.get(k, set()) for k in frontier)) - seen
+            assert product not in seen
+
+    def test_with_products_follows_links_through_compounds(self):
+        assert with_products({"coconut"}) == {
+            "coconut", "coconut-milk", "coconut-cream", "coconut-oil", "coconut-aminos",
+        }
+        # wheat -> bread -> breadcrumbs
+        assert "breadcrumbs" in with_products({"wheat"})
+        # milk -> cream -> sour cream; milk -> butter -> ghee
+        assert {"sour-cream", "cream-cheese", "ghee"} <= with_products({"milk"})
+
+    def test_with_products_does_not_run_backwards(self):
+        assert with_products({"coconut-milk"}) == {"coconut-milk"}
+        assert with_products({"lemon-juice"}) == {"lemon-juice"}
+
+    def test_with_products_of_nothing_or_unknown(self):
+        assert with_products(set()) == set()
+        assert with_products({"xyloberrinium"}) == {"xyloberrinium"}
+
+    def test_keys_for_never_follows_made_from(self):
+        """Resolution is unchanged: a compound still resolves to its own key only."""
+        for name, key in [("coconut milk", "coconut-milk"), ("lemon juice", "lemon-juice"),
+                          ("chicken stock", "chicken-stock"), ("peanut butter", "peanut-butter")]:
+            assert keys_for(name) == {key}
+
+    def test_every_group_contains_its_members_products(self):
+        """Whatever is made from an ingredient in an allergen group is in that group too."""
+        gaps = [(group, product)
+                for group, members in ALLERGENS.items()
+                for product in with_products(set(members)) - members]
+        assert gaps == []

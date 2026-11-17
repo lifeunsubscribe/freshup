@@ -553,6 +553,39 @@ class TestIsBlocked:
         recipe = _make_recipe(ingredient_names=["peanut butter"])
         assert not is_blocked(recipe, user)
 
+    @pytest.mark.parametrize("allergy, ingredient", [
+        ("garlic", "3 cloves garlic"),            # any ingredient, not only the major allergens
+        ("coconut", "1 can coconut milk"),        # made from what the user is allergic to
+        ("lactose", "heavy cream"),
+        ("Lactose intolerance", "1 cup whole milk"),
+        ("gluten", "pearl barley"),
+        ("mustard", "1 tablespoon Dijon mustard"),  # outside the vocabulary: matched by name
+        ("strawberries", "1 cup strawberries"),
+        ("tree nuts", "1/2 cup hazelnuts"),
+    ])
+    def test_allergy_entry_blocks(self, allergy, ingredient):
+        user = _make_user(allergies=[allergy])
+        recipe = _make_recipe(ingredient_names=["chicken breast", ingredient])
+        assert is_blocked(recipe, user)
+
+    @pytest.mark.parametrize("allergy, ingredient", [
+        ("milk", "1 can coconut milk"),   # coconut milk is not milk
+        ("garlic", "1 yellow onion"),
+        ("coconut milk", "shredded coconut"),
+        ("mustard", "ketchup"),
+        ("none", "peanut butter"),
+        ("", "peanut butter"),
+    ])
+    def test_allergy_entry_does_not_block(self, allergy, ingredient):
+        user = _make_user(allergies=[allergy])
+        recipe = _make_recipe(ingredient_names=["chicken breast", ingredient])
+        assert not is_blocked(recipe, user)
+
+    def test_one_matching_entry_among_several_blocks(self):
+        user = _make_user(allergies=["kiwi", "penicillin", "garlic"])
+        recipe = _make_recipe(ingredient_names=["garlic"])
+        assert is_blocked(recipe, user)
+
     def test_less_does_not_block(self):
         user = _make_user(taste_preferences={"ingredient:pork": "less"})
         recipe = _make_recipe(ingredient_names=["pork chop"])
@@ -816,6 +849,43 @@ class TestIsCardBlocked:
         card = _make_card(ingredient_keys=None)
         keys = card_keys(card, set())
         assert not is_card_blocked(card, keys, user)
+
+    def test_none_entry_is_not_an_allergy(self):
+        user = _make_user(allergies=["none", "N/A"])
+        card = _make_card(ingredient_keys=None)
+        keys = card_keys(card, set())
+        assert not is_card_blocked(card, keys, user)
+
+    @pytest.mark.parametrize("allergy, stored", [
+        ("garlic", ["chicken", "garlic"]),
+        ("coconut", ["coconut-milk", "rice"]),
+        ("lactose", ["cheese"]),
+        ("gluten", ["barley"]),
+    ])
+    def test_allergy_entry_blocks_known_ingredients(self, allergy, stored):
+        user = _make_user(allergies=[allergy])
+        card = _make_card(ingredient_keys=stored)
+        assert is_card_blocked(card, card_keys(card, set()), user)
+
+    @pytest.mark.parametrize("allergy, stored", [
+        ("garlic", ["chicken", "onion"]),
+        ("milk", ["coconut-milk"]),
+        ("coconut milk", ["coconut"]),
+    ])
+    def test_allergy_entry_does_not_block_other_known_ingredients(self, allergy, stored):
+        user = _make_user(allergies=[allergy])
+        card = _make_card(ingredient_keys=stored)
+        assert not is_card_blocked(card, card_keys(card, set()), user)
+
+    def test_entry_outside_the_vocabulary_reads_the_card_name_and_headline(self):
+        """Stored keys cannot hold a food the vocabulary lacks; the card's text is all there is."""
+        user = _make_user(allergies=["strawberries"])
+        named = _make_card(name="Strawberry Spinach Salad", ingredient_keys=["spinach"])
+        headlined = _make_card(name="Summer Salad", headline="with fresh strawberries", ingredient_keys=["spinach"])
+        neither = _make_card(name="Summer Salad", headline="with feta", ingredient_keys=["spinach"])
+        assert is_card_blocked(named, card_keys(named, set()), user)
+        assert is_card_blocked(headlined, card_keys(headlined, set()), user)
+        assert not is_card_blocked(neither, card_keys(neither, set()), user)
 
 
 # ---------------------------------------------------------------------------
