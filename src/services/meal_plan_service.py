@@ -613,6 +613,192 @@ def opt_out_entry(
     return entry_with_opts
 
 
+def swap_entry(
+    entry_id: UUID,
+    user_id: UUID,
+    db: Session,
+) -> MealPlanEntry:
+    """
+    Replace a suggested (draft) dinner with the next best candidate for that day.
+
+    Applies the same weeknight and household-allergy rules used by select_week,
+    but operates on a single slot.  Tracks previously offered items in
+    entry.user_variations["swap_history"] so repeated swaps on the same day
+    never re-surface an item already shown.
+
+    Args:
+        entry_id: ID of the draft entry to swap.
+        user_id: ID of the requesting user.
+        db: Database session.
+
+    Returns:
+        The updated MealPlanEntry with relationships loaded.
+
+    Raises:
+        NotFoundError: If the entry does not exist.
+        ValidationError: If the entry is not in draft status, or no suitable
+                         candidate can be found.
+    """
+    from src.services.recommendation_service import rank_candidates
+    from src.services.taste_service import is_blocked, is_card_blocked, card_keys
+    from src.services.card_tags import overlap_tags
+
+    entry = (
+        db.query(MealPlanEntry)
+        .options(
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+        )
+        .filter(MealPlanEntry.id == entry_id)
+        .first()
+    )
+    if not entry:
+        raise NotFoundError(f"Meal plan entry {entry_id} not found")
+
+    if entry.status != MealPlanStatus.draft.value:
+        raise ValidationError(
+            f"Cannot swap entry with status '{entry.status}'. "
+            f"Only draft entries can be swapped."
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise ValidationError(f"User {user_id} not found")
+
+    # Determine week bounds from the entry's date
+    days_since_monday = entry.date.weekday()  # 0=Mon, 6=Sun
+    week_start = entry.date - timedelta(days=days_since_monday)
+    week_end = week_start + timedelta(days=6)
+
+    # Exclude every item already placed in this week (other entries)
+    week_entries = (
+        db.query(MealPlanEntry)
+        .filter(
+            MealPlanEntry.date >= week_start,
+            MealPlanEntry.date <= week_end,
+            MealPlanEntry.id != entry_id,
+        )
+        .all()
+    )
+    exclude_card_ids: set = set()
+    exclude_recipe_ids: set = set()
+    for e in week_entries:
+        if e.catalog_card_id:
+            exclude_card_ids.add(e.catalog_card_id)
+        if e.recipe_id:
+            exclude_recipe_ids.add(e.recipe_id)
+
+    # Also exclude what this slot is currently showing (we're replacing it)
+    if entry.catalog_card_id:
+        exclude_card_ids.add(entry.catalog_card_id)
+    if entry.recipe_id:
+        exclude_recipe_ids.add(entry.recipe_id)
+
+    # Exclude items already offered to the user for this slot in prior swaps
+    variations = entry.user_variations or {}
+    swap_history = variations.get("swap_history", {})
+    for cid in swap_history.get("offered_card_ids", []):
+        exclude_card_ids.add(UUID(cid) if isinstance(cid, str) else cid)
+    for rid in swap_history.get("offered_recipe_ids", []):
+        exclude_recipe_ids.add(UUID(rid) if isinstance(rid, str) else rid)
+
+    candidates = rank_candidates(
+        user, db, limit=40,
+        exclude_card_ids=exclude_card_ids,
+        exclude_recipe_ids=exclude_recipe_ids,
+    )
+    if not candidates:
+        raise ValidationError("No alternative candidates available for this entry.")
+
+    # Filter for every household member's allergies
+    other_members = db.query(User).filter(User.id != user.id).all()
+    card_ids = [c.card.id for c in candidates if c.kind == "card" and c.card is not None]
+    card_overlap = overlap_tags(db, card_ids) if card_ids else {}
+
+    def _household_blocked(c) -> bool:
+        for member in other_members:
+            if c.kind == "card":
+                keys = card_keys(c.card, card_overlap.get(c.card.id, set()))
+                if is_card_blocked(c.card, keys, member):
+                    return True
+            else:
+                if is_blocked(c.recipe, member):
+                    return True
+        return False
+
+    eligible = [c for c in candidates if not _household_blocked(c)]
+    if not eligible:
+        raise ValidationError("No alternative candidates available for this entry after allergy filtering.")
+
+    # Apply weeknight time rule (Mon–Thu: prefer ≤40 min candidates)
+    is_weeknight = entry.date.weekday() <= 3
+
+    pick = _pick_for_slot(
+        eligible,
+        card_overlap,
+        prev_cuisine=frozenset(),
+        ing_counts={},
+        explore_placed=0,
+        is_weeknight=is_weeknight,
+        source_counts={},
+        multi_source=False,
+        slots_left=1,
+    )
+    if pick is None:
+        raise ValidationError("No alternative candidates available for this entry.")
+
+    # Record what this slot was showing before the swap, so it is not offered again
+    new_history: dict = {
+        "offered_card_ids": list(swap_history.get("offered_card_ids", [])),
+        "offered_recipe_ids": list(swap_history.get("offered_recipe_ids", [])),
+    }
+    if entry.catalog_card_id:
+        new_history["offered_card_ids"].append(str(entry.catalog_card_id))
+    if entry.recipe_id:
+        new_history["offered_recipe_ids"].append(str(entry.recipe_id))
+
+    # Replace the entry's item
+    if pick.kind == "card":
+        entry.catalog_card_id = pick.card.id
+        entry.recipe_id = None
+        entry.planned_servings = 2  # default until confirmed
+    else:
+        entry.recipe_id = pick.recipe.id
+        entry.catalog_card_id = None
+        entry.planned_servings = pick.recipe.base_servings
+
+    # Assign a new dict so SQLAlchemy detects the JSON column mutation
+    entry.user_variations = {**variations, "swap_history": new_history}
+
+    try:
+        db.commit()
+        db.refresh(entry)
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error during swap for entry {entry_id}: {e}")
+        raise ValidationError("Failed to swap meal plan entry")
+
+    # Reload with relationships for the response serialiser
+    swapped = (
+        db.query(MealPlanEntry)
+        .options(
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+            selectinload(MealPlanEntry.user_opt_ins),
+        )
+        .filter(MealPlanEntry.id == entry_id)
+        .one()
+    )
+
+    logger.info(
+        "Swapped meal plan entry %s for user %s: now shows %s %s",
+        entry_id, user_id,
+        pick.kind,
+        pick.card.id if pick.kind == "card" else pick.recipe.id,
+    )
+    return swapped
+
+
 def create_entry(
     request_date: date,
     meal_type: str,

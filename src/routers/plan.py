@@ -23,6 +23,7 @@ from src.schemas.plan import (
     WeekViewResponse,
     ConfirmEntryResponse,
     OptOutEntryResponse,
+    SwapEntryResponse,
     MealPlanEntrySchema,
     CreateEntryRequest,
 )
@@ -203,6 +204,48 @@ def opt_out_entry(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to opt out of meal plan entry",
+        )
+
+
+@router.post("/entries/{entry_id}/swap", response_model=SwapEntryResponse)
+def swap_entry(
+    entry_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> SwapEntryResponse:
+    """
+    Replace a suggested dinner with the next best candidate for that day.
+
+    Applies weeknight and allergy rules.  Tracks previously offered items so
+    repeated swaps on the same slot never resurface something already shown.
+
+    **Auth:** Required
+    **Scope:** Phase 2.5J - Swap a suggested dinner
+    """
+    try:
+        entry = meal_plan_service.swap_entry(
+            entry_id=entry_id,
+            user_id=current_user.id,
+            db=db,
+        )
+        return SwapEntryResponse(entry=MealPlanEntrySchema.model_validate(entry))
+    except NotFoundError as e:
+        logger.warning(f"Entry not found during swap: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValidationError as e:
+        logger.warning(f"Validation error during swap: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during swap: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to swap meal plan entry",
         )
 
 
