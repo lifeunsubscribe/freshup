@@ -10,10 +10,11 @@ Tests cover:
 """
 
 import pytest
+from collections import Counter
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from uuid import uuid4
+from uuid import uuid4, UUID
 from datetime import date, timedelta, datetime
 
 from src.db.database import Base, get_db
@@ -24,6 +25,7 @@ from src.db.models.recipe_ingredient import RecipeIngredient
 from src.db.models.inventory_item import InventoryItem
 from src.db.models.meal_plan import MealPlanEntry, MealPlanStatus, MealType
 from src.db.models.grocery_list import GroceryListItem
+from src.db.models.source_catalog import SourceCollection, SourceRecipeCard, SourceCollectionCard
 from src.services.auth_service import hash_password, create_access_token
 
 from fastapi import FastAPI
@@ -161,7 +163,28 @@ def recipes_pool(db_session, test_user):
     return recipes
 
 
-def test_generate_draft_creates_seven_entries(client, db_session, auth_headers, recipes_pool):
+@pytest.fixture
+def one_top_level_collection(db_session):
+    """Create a single top-level SourceCollection so rank_candidates processes recipe candidates.
+
+    rank_candidates early-returns when no top-level collections exist, so any
+    test that calls generate_draft and expects recipe-based entries must provide this.
+    """
+    collection = SourceCollection(
+        id=uuid4(),
+        source_type="manual",
+        slug="test-collection",
+        name="Test Collection",
+        url="https://example.com/recipes",
+        parent_slug=None,
+    )
+    db_session.add(collection)
+    db_session.commit()
+    db_session.refresh(collection)
+    return collection
+
+
+def test_generate_draft_creates_seven_entries(client, db_session, auth_headers, recipes_pool, one_top_level_collection):
     """Test that draft generation creates 7 dinner entries."""
     # Use fixed Monday date to avoid flakiness around week boundaries
     week_start = date(2025, 6, 2)  # Monday, June 2, 2025
@@ -199,13 +222,26 @@ def test_generate_draft_requires_monday(client, auth_headers, recipes_pool):
     assert response.status_code == 422  # Validation error
 
 
-def test_generate_draft_fails_without_enough_recipes(client, db_session, auth_headers, test_user):
-    """Test that draft generation fails if fewer than 7 recipes available."""
-    # Create only 3 recipes
+def test_generate_draft_with_few_candidates_fills_what_it_can(client, db_session, auth_headers, test_user):
+    """With fewer than 7 eligible candidates, draft fills what it can (logs a warning, no error).
+
+    With 3 persisted recipes and a top-level collection, rank_candidates returns 3
+    candidates.  select_week places all 3; generate returns 200 with entries_created=3.
+    """
+    collection = SourceCollection(
+        id=uuid4(),
+        source_type="manual",
+        slug="few-recipes-coll",
+        name="Few Recipes Collection",
+        url="https://example.com/few",
+        parent_slug=None,
+    )
+    db_session.add(collection)
+
     for i in range(3):
         recipe = Recipe(
             id=uuid4(),
-            name=f"Test Recipe {i}",
+            name=f"Sparse Recipe {i}",
             source_type="manual",
             base_servings=4,
             is_persisted=True,
@@ -214,8 +250,7 @@ def test_generate_draft_fails_without_enough_recipes(client, db_session, auth_he
         db_session.add(recipe)
     db_session.commit()
 
-    # Use fixed Monday date to avoid flakiness
-    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
+    week_start = date(2025, 6, 2)
 
     response = client.post(
         "/plan/draft/generate",
@@ -223,11 +258,13 @@ def test_generate_draft_fails_without_enough_recipes(client, db_session, auth_he
         headers=auth_headers,
     )
 
-    assert response.status_code == 400
-    assert "Insufficient recipes" in response.json()["detail"]
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entries_created"] == 3
+    assert len(data["entries"]) == 3
 
 
-def test_generate_draft_prevents_duplicates(client, db_session, auth_headers, recipes_pool):
+def test_generate_draft_prevents_duplicates(client, db_session, auth_headers, recipes_pool, one_top_level_collection):
     """Test that draft generation fails if draft entries already exist for the week."""
     # Use fixed Monday date to avoid flakiness
     week_start = date(2025, 6, 2)  # Monday, June 2, 2025
@@ -1031,3 +1068,443 @@ def test_opt_out_db_commit_failure_returns_400(
     )
 
     assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.5J: draft from recommendations, card entries, display field
+# ---------------------------------------------------------------------------
+
+
+def _make_collection(db_session, source_type: str, slug: str) -> SourceCollection:
+    coll = SourceCollection(
+        id=uuid4(),
+        source_type=source_type,
+        slug=slug,
+        name=slug.replace("-", " ").capitalize(),
+        url=f"https://example.com/{slug}",
+        parent_slug=None,
+    )
+    db_session.add(coll)
+    db_session.flush()
+    return coll
+
+
+def _make_card(
+    db_session,
+    collection: SourceCollection,
+    name: str,
+    *,
+    ingredient_keys: list = None,
+    prep_time_minutes: int = 30,
+    position: int = 0,
+) -> SourceRecipeCard:
+    card = SourceRecipeCard(
+        id=uuid4(),
+        source_type=collection.source_type,
+        external_id=str(uuid4()),
+        name=name,
+        recipe_url=f"https://example.com/recipe/{uuid4()}",
+        ingredient_keys=ingredient_keys or [],
+        prep_time_minutes=prep_time_minutes,
+        image_url=f"https://cdn.example.com/{uuid4()}.jpg",
+    )
+    db_session.add(card)
+    db_session.flush()
+    db_session.add(SourceCollectionCard(
+        collection_id=collection.id,
+        card_id=card.id,
+        position=position,
+    ))
+    return card
+
+
+@pytest.fixture
+def two_source_draft_pool(db_session, test_user):
+    """3 persisted recipes + 20 cards from two sources for draft generation tests."""
+    for i in range(3):
+        db_session.add(Recipe(
+            id=uuid4(),
+            name=f"Persisted Recipe {i}",
+            source_type="manual",
+            base_servings=4,
+            is_persisted=True,
+            created_by=test_user.id,
+        ))
+
+    coll_a = _make_collection(db_session, "hellofresh_web", "hf-weekly")
+    coll_b = _make_collection(db_session, "homechef_web", "hc-weekly")
+
+    cards = []
+    for i in range(10):
+        cards.append(_make_card(
+            db_session, coll_a, f"HF Card {i}",
+            ingredient_keys=["chicken" if i % 2 == 0 else "beef"],
+            prep_time_minutes=30,
+            position=i,
+        ))
+    for i in range(10):
+        cards.append(_make_card(
+            db_session, coll_b, f"HC Card {i}",
+            ingredient_keys=["pork"],
+            prep_time_minutes=25,
+            position=i,
+        ))
+
+    db_session.commit()
+    return {"coll_a": coll_a, "coll_b": coll_b, "cards": cards}
+
+
+def test_draft_generates_seven_from_recipes_and_cards(
+    client, auth_headers, two_source_draft_pool
+):
+    """With 3 recipes and 20 cards from two sources, generation creates 7 draft dinners."""
+    week_start = date(2025, 6, 2)
+
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": week_start.isoformat()},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entries_created"] == 7
+    assert len(data["entries"]) == 7
+    for entry in data["entries"]:
+        assert entry["status"] == MealPlanStatus.draft.value
+        assert entry["meal_type"] == MealType.dinner.value
+        # Every entry must have either recipe_id or catalog_card_id set
+        assert entry["recipe_id"] is not None or entry["catalog_card_id"] is not None
+
+
+def test_draft_ingredient_limit_and_two_source_rules(
+    client, db_session, auth_headers, two_source_draft_pool
+):
+    """Ingredient key cap (≤2 per key) and two-source (≥2 from second source) rules hold."""
+    pool = two_source_draft_pool
+    hf_card_ids = {str(c.id) for c in pool["cards"][:10]}
+
+    week_start = date(2025, 6, 2)
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": week_start.isoformat()},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert len(entries) == 7
+
+    card_ids_in_plan = {e["catalog_card_id"] for e in entries if e["catalog_card_id"]}
+
+    # Look up source types for the placed cards
+    if card_ids_in_plan:
+        placed_cards = db_session.query(SourceRecipeCard).filter(
+            SourceRecipeCard.id.in_([UUID(cid) for cid in card_ids_in_plan])
+        ).all()
+        source_counts = Counter(c.source_type for c in placed_cards)
+        # At least 2 sources represented in the draft
+        assert len(source_counts) >= 2, f"Expected ≥2 sources, got {dict(source_counts)}"
+
+    # HF cards: half have ingredient:chicken, half have ingredient:beef.
+    # At most 2 of each should appear (ingredient key cap).
+    hf_in_plan = [cid for cid in card_ids_in_plan if cid in hf_card_ids]
+    # 10 HF cards; at most 4 should appear (2 chicken + 2 beef)
+    assert len(hf_in_plan) <= 4, f"Expected ≤4 HF cards (ingredient cap), got {len(hf_in_plan)}"
+
+
+def test_draft_weeknight_rule_excludes_slow_cards_when_fast_exist(
+    client, db_session, auth_headers, test_user
+):
+    """Mon–Thu entries use fast (≤40 min) candidates when any remain."""
+    coll = _make_collection(db_session, "hellofresh_web", "time-test-coll")
+
+    # 7 fast cards (25 min)
+    fast_ids = set()
+    for i in range(7):
+        c = _make_card(db_session, coll, f"Fast Card {i}", prep_time_minutes=25, position=i)
+        fast_ids.add(str(c.id))
+
+    # 7 slow cards (90 min) — these should not appear Mon–Thu
+    slow_ids = set()
+    for i in range(7):
+        c = _make_card(db_session, coll, f"Slow Card {i}", prep_time_minutes=90, position=i + 7)
+        slow_ids.add(str(c.id))
+
+    db_session.commit()
+
+    week_start = date(2025, 6, 2)  # Monday
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": week_start.isoformat()},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+    assert len(entries) == 7
+
+    # Mon=0, Tue=1, Wed=2, Thu=3 must not use slow cards (fast ones are available)
+    for day_offset in range(4):
+        entry = entries[day_offset]
+        if entry["catalog_card_id"] in slow_ids:
+            pytest.fail(
+                f"Day offset {day_offset} (weeknight) got a slow card; "
+                f"fast cards were available"
+            )
+
+
+def test_draft_peanut_allergy_excludes_peanut_cards(
+    client, db_session, auth_headers, test_user
+):
+    """A peanut allergy on another household member keeps peanut cards out of the draft."""
+    allergic = User(
+        id=uuid4(),
+        name="Allergic Member",
+        email="allergic@example.com",
+        hashed_password=hash_password("testpass123"),
+        role=UserRole.member.value,
+        allergies=["peanut"],
+    )
+    db_session.add(allergic)
+
+    coll = _make_collection(db_session, "hellofresh_web", "allergy-test-coll")
+
+    peanut_ids = set()
+    for i in range(5):
+        c = _make_card(db_session, coll, f"Peanut Dish {i}", ingredient_keys=["peanut"], position=i)
+        peanut_ids.add(str(c.id))
+
+    safe_ids = set()
+    for i in range(10):
+        c = _make_card(
+            db_session, coll, f"Safe Dish {i}",
+            ingredient_keys=["chicken"],
+            position=i + 5,
+        )
+        safe_ids.add(str(c.id))
+
+    db_session.commit()
+
+    week_start = date(2025, 6, 2)
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": week_start.isoformat()},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    entries = response.json()["entries"]
+
+    card_ids_in_plan = {e["catalog_card_id"] for e in entries if e["catalog_card_id"]}
+    overlap = card_ids_in_plan & peanut_ids
+    assert not overlap, f"Peanut cards should be excluded but found: {overlap}"
+
+
+# ---------------------------------------------------------------------------
+# Confirm card entry tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def card_draft_entry(db_session, test_user):
+    """A draft MealPlanEntry pointing at a catalog card (no recipe yet)."""
+    coll = SourceCollection(
+        id=uuid4(),
+        source_type="hellofresh_web",
+        slug="confirm-test-coll",
+        name="Confirm Test",
+        url="https://example.com/confirm",
+        parent_slug=None,
+    )
+    db_session.add(coll)
+    db_session.flush()
+
+    card = SourceRecipeCard(
+        id=uuid4(),
+        source_type="hellofresh_web",
+        external_id="confirm-card-01",
+        name="Lemon Herb Chicken",
+        recipe_url="https://hellofresh.com/recipes/lemon-herb-chicken",
+        ingredient_keys=["chicken"],
+        prep_time_minutes=35,
+        image_url="https://cdn.hellofresh.com/lemon-herb-chicken.jpg",
+    )
+    db_session.add(card)
+    db_session.flush()
+
+    db_session.add(SourceCollectionCard(
+        collection_id=coll.id,
+        card_id=card.id,
+        position=0,
+    ))
+
+    entry = MealPlanEntry(
+        id=uuid4(),
+        date=date(2025, 6, 2),
+        meal_type=MealType.dinner.value,
+        catalog_card_id=card.id,
+        planned_servings=2,
+        status=MealPlanStatus.draft.value,
+    )
+    db_session.add(entry)
+    db_session.commit()
+    db_session.refresh(entry)
+    return {"entry": entry, "card": card}
+
+
+@pytest.fixture
+def imported_recipe_for_card(db_session, test_user):
+    """A recipe that open_card will return when mocked."""
+    recipe = Recipe(
+        id=uuid4(),
+        name="Lemon Herb Chicken (imported)",
+        source_type="hellofresh_web",
+        base_servings=2,
+        prep_time_minutes=35,
+        is_persisted=True,
+        created_by=test_user.id,
+    )
+    db_session.add(recipe)
+    db_session.commit()
+    db_session.refresh(recipe)
+    return recipe
+
+
+def test_confirm_card_entry_imports_recipe(
+    client, db_session, auth_headers, card_draft_entry, imported_recipe_for_card, monkeypatch
+):
+    """Confirming a card entry calls open_card, sets recipe_id, and returns 200."""
+    from src.services import catalog_service
+    from src.services.catalog_service import OpenCardResult
+
+    recipe = imported_recipe_for_card
+    monkeypatch.setattr(
+        catalog_service,
+        "open_card",
+        lambda db, card_id: OpenCardResult(recipe=recipe, imported=True),
+    )
+
+    entry = card_draft_entry["entry"]
+    response = client.put(
+        f"/plan/entries/{entry.id}/confirm",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entry"]["status"] == MealPlanStatus.approved.value
+    assert data["entry"]["recipe_id"] == str(recipe.id)
+    assert data["entry"]["catalog_card_id"] == str(card_draft_entry["card"].id)
+
+
+def test_confirm_card_entry_import_failure_returns_400(
+    client, auth_headers, card_draft_entry, monkeypatch
+):
+    """An open_card failure on confirm returns 400 with the expected message."""
+    from src.services import catalog_service
+
+    monkeypatch.setattr(
+        catalog_service,
+        "open_card",
+        lambda db, card_id: (_ for _ in ()).throw(ValueError("scrape failed")),
+    )
+
+    entry = card_draft_entry["entry"]
+    response = client.put(
+        f"/plan/entries/{entry.id}/confirm",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    assert "Could not bring this recipe in" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Display field tests
+# ---------------------------------------------------------------------------
+
+
+def test_entries_have_display_field_for_recipe_and_card(
+    client, db_session, auth_headers, recipes_pool
+):
+    """Both recipe entries and card entries carry a populated display field in the response."""
+    week_start = date(2025, 6, 2)
+
+    coll = SourceCollection(
+        id=uuid4(),
+        source_type="hellofresh_web",
+        slug="display-test-coll",
+        name="Display Test",
+        url="https://example.com/display",
+        parent_slug=None,
+    )
+    db_session.add(coll)
+    db_session.flush()
+
+    card = SourceRecipeCard(
+        id=uuid4(),
+        source_type="hellofresh_web",
+        external_id="display-card-01",
+        name="Display Test Recipe",
+        recipe_url="https://hellofresh.com/recipes/display-test",
+        ingredient_keys=["chicken"],
+        prep_time_minutes=25,
+        image_url="https://cdn.hellofresh.com/display-test.jpg",
+    )
+    db_session.add(card)
+    db_session.flush()
+    db_session.add(SourceCollectionCard(collection_id=coll.id, card_id=card.id, position=0))
+
+    # Recipe entry (day 0)
+    db_session.add(MealPlanEntry(
+        id=uuid4(),
+        date=week_start,
+        meal_type=MealType.dinner.value,
+        recipe_id=recipes_pool[0].id,
+        planned_servings=4,
+        status=MealPlanStatus.draft.value,
+    ))
+
+    # Card entry (day 1)
+    db_session.add(MealPlanEntry(
+        id=uuid4(),
+        date=week_start + timedelta(days=1),
+        meal_type=MealType.dinner.value,
+        catalog_card_id=card.id,
+        planned_servings=2,
+        status=MealPlanStatus.draft.value,
+    ))
+
+    db_session.commit()
+
+    response = client.get(
+        f"/plan/week?week_start={week_start.isoformat()}",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    entries = response.json()["draft_entries"]
+    assert len(entries) == 2
+
+    for entry in entries:
+        d = entry["display"]
+        assert d is not None, f"Expected display field on entry {entry['id']}"
+        assert isinstance(d["name"], str) and d["name"]
+        assert isinstance(d["source_type"], str) and d["source_type"]
+
+
+def test_migration_chain_has_one_head_after_catalog_card_id_migration():
+    """Sanity: the new migration did not introduce a second head in the alembic chain."""
+    from pathlib import Path
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    cfg = Config(str(project_root / "alembic.ini"))
+    script = ScriptDirectory.from_config(cfg)
+    heads = script.get_heads()
+    assert len(heads) == 1, (
+        f"Expected exactly 1 head, found {len(heads)}: {heads}. "
+        "The catalog_card_id migration introduced a second head."
+    )
+
