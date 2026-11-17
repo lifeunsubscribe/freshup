@@ -1651,6 +1651,16 @@ def test_swap_does_not_repeat_offered_items(client, db_session, auth_headers, sw
     assert after_second != original_card_id, "Second swap re-offered the original item"
     assert after_second != after_first, "Second swap re-offered the first swap's item"
 
+    # Third swap — verifies that after_second was recorded in swap history;
+    # a broken append on swap 2 would leave it out and allow it to reappear here.
+    r3 = client.post(f"/plan/entries/{entry.id}/swap", headers=auth_headers)
+    assert r3.status_code == 200
+    after_third = r3.json()["entry"]["catalog_card_id"]
+
+    assert after_third != original_card_id, "Third swap re-offered the original item"
+    assert after_third != after_first, "Third swap re-offered the first swap's item"
+    assert after_third != after_second, "Third swap re-offered the second swap's item"
+
 
 def test_swap_requires_authentication(client, swap_candidate_pool):
     """POST /plan/entries/{id}/swap without auth returns 401."""
