@@ -5,6 +5,7 @@ Manages seeding top-level collections from the HelloFresh sitemap, checking
 staleness, fetching on demand, and upserting cards and join rows.
 """
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -21,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from src.config import get_settings
+from src.db.database import get_session_factory
 from src.db.models.recipe import Recipe
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard, SourceRecipeCard
 from src.schemas.catalog import CollectionPage
@@ -33,7 +35,8 @@ from src.services.crawlers.hellofresh_crawler import (
     classify_hellofresh_url,
 )
 from src.services.import_service import import_recipe_from_url
-from src.services.ingredient_keys import keys_for_recipe
+from src.services.ingredient_keys import keys_for, keys_for_recipe
+from src.services.scraper_service import scrape_recipe
 from src.utils.sanitize import sanitize_exception_message
 
 logger = logging.getLogger(__name__)
@@ -464,3 +467,103 @@ def open_card(db: Session, card_id: UUID) -> Optional[OpenCardResult]:
     # Import failed or recipe lookup returned None after a successful import (unexpected).
     raw_msg = result.error_message or "Import failed"
     raise ValueError(sanitize_exception_message(raw_msg, max_length=250))
+
+
+# ---------------------------------------------------------------------------
+# Background enrichment
+# ---------------------------------------------------------------------------
+
+
+def enrich_next_cards(db: Session, limit: int = 5) -> int:
+    """
+    Fill ingredient_keys for up to `limit` stored cards that have never been opened.
+
+    Picks cards with ingredient_keys IS NULL ordered by collection popularity
+    (most collections first).  For each card the function checks robots.txt,
+    waits on the rate limiter, fetches the recipe page via scrape_recipe, and
+    stores sorted(keys_for(ing) for all ingredients).
+
+    A fetch or parse failure stores [] so the card is not retried.  A
+    robots.txt disallow raises CrawlerNetworkError inside the loop which is
+    caught here to stop the batch early; remaining cards are left NULL.
+
+    Does not create Recipe rows.
+
+    Returns:
+        Number of cards whose ingredient_keys column was updated.
+    """
+    # Cards ordered by how many collections they appear in (most popular first)
+    cards = (
+        db.query(SourceRecipeCard)
+        .outerjoin(SourceCollectionCard, SourceCollectionCard.card_id == SourceRecipeCard.id)
+        .filter(SourceRecipeCard.ingredient_keys.is_(None))
+        .group_by(SourceRecipeCard.id)
+        .order_by(func.count(SourceCollectionCard.collection_id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    if not cards:
+        return 0
+
+    crawler = _make_crawler()
+    domain = urlparse(HELLOFRESH_BASE_URL).netloc
+    updated = 0
+
+    for card in cards:
+        # robots.txt disallow stops the batch; remaining cards stay NULL
+        if not crawler.robots_parser.can_fetch(card.recipe_url):
+            logger.warning("robots.txt disallows enrichment fetch for %s; stopping batch", card.recipe_url)
+            break
+
+        crawler.rate_limiter.wait_if_needed(domain)
+
+        try:
+            scraped = scrape_recipe(card.recipe_url)
+            keys: set[str] = set()
+            for ing in scraped.ingredients or []:
+                keys |= keys_for(ing)
+            card.ingredient_keys = sorted(keys)
+        except Exception as exc:
+            logger.warning("Enrichment failed for card %s (%s): %s", card.id, card.recipe_url, exc)
+            card.ingredient_keys = []
+
+        db.commit()
+        updated += 1
+
+    return updated
+
+
+async def card_enrichment_worker() -> None:
+    """
+    Background worker that enriches catalog cards with ingredient keys.
+
+    Runs until cancelled.  Each pass calls enrich_next_cards with the
+    configured batch size, logs how many cards were updated, then sleeps
+    for catalog_enrich_interval_seconds.  Exceptions from enrich_next_cards
+    are logged and swallowed so the worker never dies from a transient error.
+    """
+    settings = get_settings()
+    logger.info(
+        "Card enrichment worker started (interval: %ds, batch: %d)",
+        settings.catalog_enrich_interval_seconds,
+        settings.catalog_enrich_batch_size,
+    )
+
+    try:
+        while True:
+            try:
+                SessionFactory = get_session_factory()
+                with SessionFactory() as session:
+                    count = enrich_next_cards(session, limit=settings.catalog_enrich_batch_size)
+                logger.info("enriched %d card(s)", count)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error("Card enrichment iteration failed: %s", exc, exc_info=True)
+
+            await asyncio.sleep(settings.catalog_enrich_interval_seconds)
+
+    except asyncio.CancelledError:
+        logger.info("Card enrichment worker shutting down")
+        raise

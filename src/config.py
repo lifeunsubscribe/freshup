@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # Catalog Configuration
     # How long before a fetched collection is considered stale and re-fetched on next request
     catalog_refresh_hours: int = Field(default=24, gt=0)
+    # Seconds between background enrichment passes; 0 disables the worker entirely
+    catalog_enrich_interval_seconds: int = Field(default=300, ge=0)
+    # Cards processed per enrichment pass
+    catalog_enrich_batch_size: int = Field(default=5, gt=0)
 
     # Password Hashing Configuration
     # bcrypt cost factor (rounds). Lower values speed up tests; production should use >= 10.

@@ -753,6 +753,12 @@ For a user with no history, `popularity` (0..1) stands in for affinity. A rated 
 
 **Unknown ingredients.** `is_card_blocked` applies the `never` and allergen rules above to cards, plus one more: a card whose `ingredient_keys` is NULL (never imported, ingredients unknown) is blocked for a user with any allergy entry at all, including one that maps to no allergen group. Unknown ingredients are not safe to suggest to someone with an allergy.
 
+### 5.17 Catalog Card Background Enrichment (added Phase 2.5J)
+
+Recipe cards fetched from HelloFresh collection pages are stored in `source_recipe_cards` with `ingredient_keys = NULL` until a user opens the card via the API (`open_card`). With only a handful of opened cards the allergy-blocking and taste-scoring logic in Section 5.16 sees almost no data: `is_card_blocked` treats every NULL-keyed card as unsafe for users with allergies, and `card_keys` falls back to name/headline heuristics when the column is not set.
+
+To fill the gap without blocking request paths, `enrich_next_cards` is called by a background worker (`card_enrichment_worker`) that runs at startup when `CATALOG_ENRICH_INTERVAL_SECONDS > 0` (default 300 s). Each pass fetches up to `CATALOG_ENRICH_BATCH_SIZE` (default 5) cards, prioritising cards that appear in the most collections, respects HelloFresh's robots.txt and rate-limiter exactly as the collection crawler does, and stores `sorted(keys_for(ing) for ing in scraped.ingredients)` per card without creating a `Recipe` row. A fetch or parse failure stores `[]` so the card is not retried; a robots-disallow stops the pass early and leaves the remaining cards NULL until the next pass.
+
 ---
 
 ## 6. Recipe Source Strategy
