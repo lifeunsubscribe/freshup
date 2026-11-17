@@ -104,7 +104,9 @@ def rank_candidates(
     affinity_keys = set(affinities.keys())
 
     # --- Recently cooked IDs (last 14 days) --------------------------------
-    cutoff = datetime.now(timezone.utc) - timedelta(days=_COOKED_WITHIN_DAYS)
+    # cooked_at is stored as naive UTC; strip tzinfo so the SQL comparison is correct
+    # on non-UTC database sessions (matches taste_service._age_factor convention).
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=_COOKED_WITHIN_DAYS)
     recently_cooked_ids: set[UUID] = {
         row[0]
         for row in db.query(UserCookEvent.recipe_id)
@@ -230,6 +232,13 @@ def rank_candidates(
     # --- Sort by score descending -----------------------------------------
     candidates.sort(key=lambda c: c.score, reverse=True)
 
+    # --- Source diversity pre-pass ----------------------------------------
+    # Apply diversity before explore insertion so the every-fifth-slot explore
+    # guarantee and the no-four-consecutive-same-source guarantee can both hold.
+    # (Post-pass reordering would shift explore anchors and can produce long tails
+    # from one source when the other source's items are exhausted mid-list.)
+    main_pool = _apply_source_diversity(candidates)
+
     # --- Explore pool: no affinity overlap, sorted by popularity ----------
     explore_pool = sorted(
         [c for c in candidates if not (c._keys & affinity_keys)],
@@ -267,15 +276,14 @@ def rank_candidates(
             # Explore pool exhausted: fall through to main pool
 
         # Advance to the next unplaced main candidate
-        while main_idx < len(candidates) and _candidate_id(candidates[main_idx]) in placed:
+        while main_idx < len(main_pool) and _candidate_id(main_pool[main_idx]) in placed:
             main_idx += 1
-        if main_idx >= len(candidates):
+        if main_idx >= len(main_pool):
             break
-        c = candidates[main_idx]
+        c = main_pool[main_idx]
         main_idx += 1
         placed.add(_candidate_id(c))
         result.append(c)
         slot += 1
 
-    # --- Source diversity post-pass ----------------------------------------
-    return _apply_source_diversity(result)
+    return result

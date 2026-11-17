@@ -395,6 +395,48 @@ class TestExploreAndDiversity:
         explore_items = [r for r in result if r.reason == "explore"]
         assert len(explore_items) >= 1
 
+    def test_diversity_and_explore_slot_coexist(self, db_session, test_user):
+        """Multi-source: diversity (<=3 consecutive) and explore slot at index 4 both hold."""
+        test_user.taste_preferences = {"ingredient:chicken": "love"}
+        db_session.commit()
+
+        coll_hf = _add_collection(db_session, source_type="hellofresh_web", slug="hf-top2")
+        coll_hc = _add_collection(db_session, source_type="homechef_web", slug="hc-top2")
+
+        # 4 chicken cards per source (match affinity)
+        for i in range(4):
+            _add_card(db_session, coll_hf, name=f"HF Chicken {i}",
+                      source_type="hellofresh_web", rating=4.0, rating_count=100,
+                      ingredient_keys=["chicken"])
+            _add_card(db_session, coll_hc, name=f"HC Chicken {i}",
+                      source_type="homechef_web", rating=4.0, rating_count=100,
+                      ingredient_keys=["chicken"])
+        # 1 explore card per source (no affinity match)
+        _add_card(db_session, coll_hf, name="HF Beef Explore",
+                  source_type="hellofresh_web", rating=4.5, rating_count=200,
+                  ingredient_keys=["beef"])
+        _add_card(db_session, coll_hc, name="HC Beef Explore",
+                  source_type="homechef_web", rating=4.5, rating_count=200,
+                  ingredient_keys=["beef"])
+        db_session.commit()
+
+        result = rank_candidates(test_user, db_session, limit=10)
+
+        # Explore guarantee: slot 4 is an explore pick
+        assert len(result) >= 5
+        assert result[4].reason == "explore"
+
+        # Diversity guarantee: no 4 consecutive from same source
+        max_consecutive = 1
+        current = 1
+        for i in range(1, len(result)):
+            if result[i]._source_type == result[i - 1]._source_type:
+                current += 1
+                max_consecutive = max(max_consecutive, current)
+            else:
+                current = 1
+        assert max_consecutive <= 3
+
 
 # ---------------------------------------------------------------------------
 # Exclude parameters
