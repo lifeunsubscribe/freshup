@@ -800,6 +800,23 @@ For a user with no history, `popularity` (0..1) stands in for affinity. A rated 
 - User-created recipes built from inventory selections (see Section 5.5).
 - The organic growth path for the recipe database — capturing what the household actually cooks.
 
+### 6.8 Home Chef (Catalog Browse)
+
+Home Chef's category pages (`/recipes/<slug>`) and weekly menu (`/menu`) are
+crawled as catalog collections under source type `homechef_web`.  26 fixed
+category slugs plus a `this-week` entry pointing at the menu are seeded
+without any network request.  Fetching a collection follows `?page=N`
+pagination up to 3 pages for categories; the menu is a single page.
+
+**Name/sides split.** Home Chef meal titles include the protein name and the
+side description separated by " with " (e.g. "Teriyaki Ginger-Glazed Salmon
+with stir-fried bok choy and carrots"). The crawler splits on the first " with "
+to produce `name` and `headline`, matching the HelloFresh card shape so side
+tags work across both sources.
+
+**Ratings.** Home Chef publishes no customer ratings; `rating` and
+`rating_count` stay null and are filled only by future enrichment.
+
 ### 6.7 Browse-Then-Persist Model (added v1.1)
 
 All recipe sources above (except ad-hoc creation, which is always persisted) now follow the browse-then-persist pattern described in Section 5.12. Scraped and imported recipes enter the database with `is_persisted = false` and become permanent only when a user takes action (bookmark, like, or add to meal plan). This prevents the database from accumulating thousands of recipes that no household member has expressed interest in.
