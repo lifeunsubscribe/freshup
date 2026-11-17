@@ -28,5 +28,6 @@ from src.routers.plan import router as plan_router
 from src.routers.sources import router as sources_router
 from src.routers.catalog import router as catalog_router
 from src.routers.themes import router as themes_router
+from src.routers.recommendations import router as recommendations_router
 
-__all__ = ["auth_router", "users_router", "substitutions_router", "inventory_router", "recipes_router", "grocery_router", "prepared_foods_router", "scraper_router", "tasks_router", "receipts_router", "feed_router", "menus_router", "plan_router", "sources_router", "catalog_router", "themes_router"]
+__all__ = ["auth_router", "users_router", "substitutions_router", "inventory_router", "recipes_router", "grocery_router", "prepared_foods_router", "scraper_router", "tasks_router", "receipts_router", "feed_router", "menus_router", "plan_router", "sources_router", "catalog_router", "themes_router", "recommendations_router"]
