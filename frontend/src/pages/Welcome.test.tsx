@@ -222,7 +222,8 @@ describe('Welcome page', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('location-display')).toHaveTextContent('/')
+      // Exact match: /^\/$/ ensures we landed on '/', not still on '/welcome' (which contains '/')
+      expect(screen.getByTestId('location-display')).toHaveTextContent(/^\/$/)
     })
   })
 })
