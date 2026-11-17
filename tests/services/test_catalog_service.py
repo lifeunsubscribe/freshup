@@ -1082,10 +1082,15 @@ class TestCardEnrichmentWorker:
         mock_ctx.__exit__ = MagicMock(return_value=False)
         mock_factory = MagicMock(return_value=mock_ctx)
 
+        mock_settings = MagicMock()
+        mock_settings.catalog_enrich_batch_size = 7
+        mock_settings.catalog_enrich_interval_seconds = 300
+
         async def mock_sleep(_):
             raise asyncio.CancelledError()
 
         with (
+            patch("src.services.catalog_service.get_settings", return_value=mock_settings),
             patch("src.services.catalog_service.get_session_factory", return_value=mock_factory),
             patch("src.services.catalog_service.enrich_next_cards", side_effect=mock_enrich),
             patch("asyncio.sleep", side_effect=mock_sleep),
@@ -1093,9 +1098,8 @@ class TestCardEnrichmentWorker:
             with pytest.raises(asyncio.CancelledError):
                 await catalog_service.card_enrichment_worker()
 
-        # Default batch size is 5; enrich must have been called with it
         assert len(enrich_calls) == 1
-        assert enrich_calls[0] == 5
+        assert enrich_calls[0] == mock_settings.catalog_enrich_batch_size
 
     async def test_worker_logs_enriched_count(self, monkeypatch, caplog):
         """Worker logs 'enriched N card(s)' after each successful pass."""

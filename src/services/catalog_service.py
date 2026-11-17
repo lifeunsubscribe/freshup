@@ -677,9 +677,15 @@ async def card_enrichment_worker() -> None:
     try:
         while True:
             try:
-                SessionFactory = get_session_factory()
-                with SessionFactory() as db:
-                    count = enrich_next_cards(db, settings.catalog_enrich_batch_size)
+                batch_size = settings.catalog_enrich_batch_size
+
+                def _run_pass():
+                    factory = get_session_factory()
+                    with factory() as db:
+                        return enrich_next_cards(db, batch_size)
+
+                loop = asyncio.get_running_loop()
+                count = await loop.run_in_executor(None, _run_pass)
                 logger.info("enriched %d card(s)", count)
             except asyncio.CancelledError:
                 raise
