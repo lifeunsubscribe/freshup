@@ -58,7 +58,10 @@ class SourceRecipeCard(Base):
     recipe_url: Mapped[str] = mapped_column(String(2048))
     # Sorted ingredient keys from the imported recipe. NULL = not yet imported;
     # [] = imported but no known ingredients matched.
-    ingredient_keys: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    # none_as_null: without it, assigning None stores the JSON value null, which
+    # reads back as None but is not SQL NULL, so `ingredient_keys IS NULL` in a
+    # query misses the row.
+    ingredient_keys: Mapped[Optional[list]] = mapped_column(JSON(none_as_null=True), nullable=True)
     # Set once the card is imported as a full Recipe. ON DELETE SET NULL preserves
     # the card if the imported recipe is later pruned (is_persisted cleanup).
     recipe_id: Mapped[Optional[UUID]] = mapped_column(
