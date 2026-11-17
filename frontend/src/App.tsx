@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, useLocation, useParams } from 'react-router-dom'
-import { AuthProvider } from './contexts/AuthContext'
+import { BrowserRouter, Routes, Route, useLocation, useParams, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import BottomNav from './components/layout/BottomNav'
 import Login from './pages/Login'
@@ -12,6 +13,7 @@ import Pantry from './pages/Pantry'
 import Grocery from './pages/Grocery'
 import IShopped from './pages/IShopped'
 import Profile from './pages/Profile'
+import Welcome from './pages/Welcome'
 import Collection, { LegacyCollectionRedirect } from './pages/Collection'
 import NotFound from './pages/NotFound'
 import { ErrorBoundary } from './components/errors'
@@ -25,7 +27,23 @@ function CollectionRoute() {
 
 function AppContent() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { currentUser, isAuthenticated, isLoading } = useAuth()
   const isLoginPage = location.pathname === '/login'
+  const isWelcomePage = location.pathname === '/welcome'
+
+  // Redirect un-onboarded users to the first-run quiz
+  useEffect(() => {
+    if (
+      !isLoading &&
+      isAuthenticated &&
+      currentUser?.onboarded_at === null &&
+      !isWelcomePage &&
+      !isLoginPage
+    ) {
+      navigate('/welcome', { replace: true })
+    }
+  }, [isLoading, isAuthenticated, currentUser?.onboarded_at, isWelcomePage, isLoginPage, navigate])
 
   return (
     <div className="min-h-screen bg-cream">
@@ -107,6 +125,14 @@ function AppContent() {
           }
         />
         <Route
+          path="/welcome"
+          element={
+            <ProtectedRoute>
+              <Welcome />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/browse/:source/:slug"
           element={
             <ProtectedRoute>
@@ -124,7 +150,7 @@ function AppContent() {
         />
         <Route path="*" element={<NotFound />} />
       </Routes>
-      {!isLoginPage && <BottomNav />}
+      {!isLoginPage && !isWelcomePage && <BottomNav />}
     </div>
   )
 }

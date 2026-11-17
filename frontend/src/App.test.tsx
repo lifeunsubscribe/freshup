@@ -7,7 +7,7 @@ import App from './App'
 // Mock the auth hooks
 vi.mock('./api/hooks/useAuth', () => ({
   useCurrentUser: vi.fn(() => ({
-    data: { id: 'user-1', email: 'test@example.com', name: 'Test User' },
+    data: { id: 'user-1', email: 'test@example.com', name: 'Test User', onboarded_at: '2024-01-01' },
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
@@ -20,6 +20,34 @@ vi.mock('./api/hooks/useAuth', () => ({
   })),
   useSwitchUser: vi.fn(() => ({
     mutateAsync: vi.fn(),
+  })),
+  useUpdateProfile: vi.fn(() => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn().mockResolvedValue({}),
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+    error: null,
+    reset: vi.fn(),
+    status: 'idle',
+    isIdle: true,
+    isPaused: false,
+    submittedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+    variables: undefined,
+    context: undefined,
+    data: undefined,
+  })),
+}))
+
+// Mock useThemes (needed by TastePreferencesSection and Welcome page)
+vi.mock('./api/hooks/useThemes', () => ({
+  useThemes: vi.fn(() => ({
+    data: [],
+    isLoading: false,
+    isError: false,
+    error: null,
   })),
 }))
 
@@ -147,6 +175,7 @@ describe('App', () => {
     afterEach(() => {
       // Restore window.location if it was mocked
       if (window.location !== originalLocation) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, no-extra-semi
         ;(window as any).location = originalLocation
       }
       // Clean up localStorage to prevent test pollution
@@ -229,7 +258,9 @@ describe('App', () => {
       })
 
       // Mock window.location.href
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (window as any).location
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, no-extra-semi
       ;(window as any).location = { href: '' } as Location
 
       renderApp()
@@ -273,7 +304,7 @@ describe('App', () => {
           isLoading: false,
           isError: false,
           refetch: vi.fn(),
-        } as any
+        } as any // eslint-disable-line @typescript-eslint/no-explicit-any
       })
 
       // Wrap App in QueryClientProvider to support successful rendering after recovery
@@ -349,6 +380,89 @@ describe('App', () => {
 
       // Should have logged the error
       expect(consoleSpy).toHaveBeenCalled()
+    })
+  })
+
+  describe('onboarding redirect', () => {
+    it('redirects an authenticated user with onboarded_at: null to /welcome', async () => {
+      const { useCurrentUser } = await import('./api/hooks/useAuth')
+      vi.mocked(useCurrentUser).mockReturnValue({
+        data: {
+          id: 'user-1',
+          email: 'test@example.com',
+          name: 'Test User',
+          onboarded_at: null,
+          role: 'member',
+          dietary_profile: [],
+          allergies: [],
+          disliked_ingredients: [],
+          favorite_ingredients: [],
+          taste_preferences: {},
+          failed_login_attempts: 0,
+          lockout_until: null,
+          lockout_count: 0,
+        },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      window.history.pushState({}, '', '/')
+      renderApp()
+
+      await waitFor(() => {
+        expect(window.location.pathname).toBe('/welcome')
+      })
+    })
+
+    it('does not redirect an authenticated user with onboarded_at set', async () => {
+      const { useCurrentUser } = await import('./api/hooks/useAuth')
+      vi.mocked(useCurrentUser).mockReturnValue({
+        data: {
+          id: 'user-1',
+          email: 'test@example.com',
+          name: 'Test User',
+          onboarded_at: '2024-01-01T00:00:00Z',
+          role: 'member',
+          dietary_profile: [],
+          allergies: [],
+          disliked_ingredients: [],
+          favorite_ingredients: [],
+          taste_preferences: {},
+          failed_login_attempts: 0,
+          lockout_until: null,
+          lockout_count: 0,
+        },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      window.history.pushState({}, '', '/')
+      renderApp()
+
+      // Should remain on '/' (no redirect to /welcome)
+      await waitFor(() => {
+        expect(window.location.pathname).toBe('/')
+      })
+      expect(window.location.pathname).not.toBe('/welcome')
+    })
+
+    it('does not redirect a user who is loading (onboarded_at not yet known)', async () => {
+      const { useCurrentUser } = await import('./api/hooks/useAuth')
+      vi.mocked(useCurrentUser).mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        isError: false,
+        refetch: vi.fn(),
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      window.history.pushState({}, '', '/')
+      renderApp()
+
+      // Loading state → no redirect; we just verify we don't end up on /welcome
+      // (ProtectedRoute shows a spinner, not a redirect to /welcome)
+      expect(window.location.pathname).not.toBe('/welcome')
     })
   })
 })
