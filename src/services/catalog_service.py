@@ -590,15 +590,18 @@ def enrich_next_cards(db: Session, limit: int = 5) -> int:
     waits on the rate limiter, scrapes the recipe page, and fills:
 
     - ``ingredient_keys``: set to ``sorted(keys_for(ing) for all ingredients)``
-    - ``image_url``: set via ``_safe_image_url`` when the card has no image
+    - ``image_url``: set via ``_safe_image_url`` when the card has no image; falls
+      back to ``""`` (sentinel) when no image URL is obtainable, so the card exits
+      the ``image_url IS NULL`` selection filter and is not re-queued indefinitely
     - ``prep_time_minutes``: set from ``total_time_minutes`` when the card has no time
 
     Existing non-null values are never overwritten.  Does not create a Recipe row.
 
     A ``CrawlerNetworkError`` raised by the robots.txt check stops the batch
     immediately; remaining cards are left as-is.  Any other fetch or parse
-    failure is logged and the card's ``ingredient_keys`` is stored as ``[]``
-    (when it was NULL) so it is not retried forever.  Commits after each card.
+    failure is logged; ``ingredient_keys`` is stored as ``[]`` (when it was NULL)
+    and ``image_url`` as ``""`` (when it was NULL) so the card is not retried
+    forever.  Commits after each card.
 
     Args:
         db:    Database session.
@@ -652,6 +655,7 @@ def enrich_next_cards(db: Session, limit: int = 5) -> int:
 
         rate_limiter.wait_if_needed(domain)
 
+        any_field_assigned = False
         try:
             scraped = scrape_recipe(card.recipe_url)
             if card.ingredient_keys is None:
@@ -659,14 +663,23 @@ def enrich_next_cards(db: Session, limit: int = 5) -> int:
                 for ing in scraped.ingredients or []:
                     ingredient_keys |= keys_for(ing)
                 card.ingredient_keys = sorted(ingredient_keys)
+                any_field_assigned = True
             if card.image_url is None:
-                card.image_url = _safe_image_url(scraped.image_url)
+                # "" sentinel when scraper finds no image — exits IS NULL filter
+                # to prevent this card from occupying the queue head indefinitely.
+                card.image_url = _safe_image_url(scraped.image_url) or ""
+                any_field_assigned = True
             if card.prep_time_minutes is None and scraped.total_time_minutes is not None:
                 card.prep_time_minutes = scraped.total_time_minutes
+                any_field_assigned = True
         except Exception as exc:
             logger.warning("enrich_next_cards: failed to fetch/parse %s: %s", card.recipe_url, exc)
             if card.ingredient_keys is None:
                 card.ingredient_keys = []
+                any_field_assigned = True
+            if card.image_url is None:
+                card.image_url = ""  # sentinel: exits IS NULL filter after failed scrape
+                any_field_assigned = True
 
         try:
             db.commit()
@@ -675,7 +688,8 @@ def enrich_next_cards(db: Session, limit: int = 5) -> int:
             logger.error("enrich_next_cards: DB commit failed for card %s", card.id)
             continue
 
-        updated += 1
+        if any_field_assigned:
+            updated += 1
 
     return updated
 

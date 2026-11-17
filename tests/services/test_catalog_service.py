@@ -1143,6 +1143,80 @@ class TestEnrichNextCards:
         assert card.prep_time_minutes == 30
         assert card.ingredient_keys is not None
 
+    def test_scrape_returns_no_image_exits_selection_filter(self, db_session):
+        """Successful scrape with image_url=None sets sentinel so card exits IS NULL filter."""
+        card = SourceRecipeCard(
+            source_type=HELLOFRESH_SOURCE,
+            external_id="imgnone" + "0" * 23,
+            name="No Image Recipe",
+            recipe_url="https://www.hellofresh.com/recipes/no-image-aabbccdd1122334455667788",
+            ingredient_keys=["chicken"],  # already enriched; image-only selection path
+            image_url=None,
+            prep_time_minutes=None,
+        )
+        db_session.add(card)
+        db_session.commit()
+        db_session.refresh(card)
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch(
+                "src.services.catalog_service.scrape_recipe",
+                return_value=_scraped([], image_url=None),
+            ),
+        ):
+            count = catalog_service.enrich_next_cards(db_session, limit=5)
+
+        assert count == 1
+        db_session.refresh(card)
+        # Sentinel must be set so card exits image_url IS NULL
+        assert card.image_url is not None
+        remaining = (
+            db_session.query(SourceRecipeCard)
+            .filter(SourceRecipeCard.image_url.is_(None))
+            .count()
+        )
+        assert remaining == 0
+
+    def test_scrape_exception_on_image_only_card_exits_selection_filter(self, db_session):
+        """Scrape exception on an image-only card sets sentinel so card exits IS NULL filter."""
+        card = SourceRecipeCard(
+            source_type=HELLOFRESH_SOURCE,
+            external_id="imgexc" + "0" * 24,
+            name="Exception Image Recipe",
+            recipe_url="https://www.hellofresh.com/recipes/exc-image-aabbccdd1122334455667788",
+            ingredient_keys=["tomato"],  # already enriched; image-only selection path
+            image_url=None,
+            prep_time_minutes=None,
+        )
+        db_session.add(card)
+        db_session.commit()
+        db_session.refresh(card)
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch(
+                "src.services.catalog_service.scrape_recipe",
+                side_effect=ValueError("connection refused"),
+            ),
+        ):
+            count = catalog_service.enrich_next_cards(db_session, limit=5)
+
+        assert count == 1
+        db_session.refresh(card)
+        # Sentinel must be set so card exits image_url IS NULL
+        assert card.image_url is not None
+        remaining = (
+            db_session.query(SourceRecipeCard)
+            .filter(SourceRecipeCard.image_url.is_(None))
+            .count()
+        )
+        assert remaining == 0
+
     def test_image_missing_cards_prioritized_over_key_missing_cards(self, db_session):
         """Cards with no image are processed before cards that only lack ingredient keys."""
         # Card with image set but no ingredient keys
