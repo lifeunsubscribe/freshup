@@ -122,8 +122,10 @@ export function useUpdateProfile() {
         body: JSON.stringify(userData),
       });
     },
-    onSuccess: () => {
-      // Invalidate current user query to show updated data
+    onSuccess: (updatedUser) => {
+      // Seed cache immediately so redirect guards see the new onboarded_at before
+      // the background refetch triggered by invalidateQueries completes.
+      queryClient.setQueryData(authKeys.currentUser(), updatedUser);
       queryClient.invalidateQueries({ queryKey: authKeys.currentUser() });
     },
   });

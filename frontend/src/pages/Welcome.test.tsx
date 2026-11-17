@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useLocation } from 'react-router-dom'
 import { renderWithProviders } from '../test/renderWithProviders'
 import Welcome from './Welcome'
 import { useAuth } from '../contexts/AuthContext'
@@ -197,7 +198,7 @@ describe('Welcome page', () => {
     expect(screen.getByTestId('welcome-step-1')).toBeInTheDocument()
   })
 
-  it('redirects to / when user is already onboarded', () => {
+  it('redirects to / when user is already onboarded', async () => {
     vi.mocked(useAuth).mockReturnValue({
       currentUser: { ...BASE_USER, onboarded_at: '2024-01-01T00:00:00Z' },
       isAuthenticated: true,
@@ -207,10 +208,21 @@ describe('Welcome page', () => {
       switchUser: vi.fn(),
     })
 
-    // renderWithProviders uses MemoryRouter starting at '/';
-    // the useEffect will call navigate('/') immediately — the component should not crash
-    renderWithProviders(<Welcome />, { route: '/welcome' })
-    // Test passes if no crash occurs (navigation replaces the route)
-    expect(document.body).toBeInTheDocument()
+    function LocationDisplay() {
+      const { pathname } = useLocation()
+      return <span data-testid="location-display">{pathname}</span>
+    }
+
+    renderWithProviders(
+      <>
+        <Welcome />
+        <LocationDisplay />
+      </>,
+      { route: '/welcome' }
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-display')).toHaveTextContent('/')
+    })
   })
 })
