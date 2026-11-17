@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 import asyncio
 import logging
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +15,7 @@ from src.db.database import Base, init_engine, get_engine, get_session_factory
 from src.routers import auth_router, users_router, substitutions_router, inventory_router, recipes_router, grocery_router, prepared_foods_router, scraper_router, tasks_router, receipts_router, feed_router, menus_router, plan_router, sources_router, catalog_router, themes_router
 from src.middleware.rate_limit import limiter
 from src.services.task_worker import background_task_worker
+from src.services.catalog_service import card_enrichment_worker
 from src.services.cleanup_service import prune_unpersisted_recipes
 from src.services.llm.client import OllamaClient
 
@@ -115,18 +116,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             # Don't block startup if cleanup fails - log and continue
 
     # Start background task worker for processing async LLM tasks (Phase 2A)
-    # Worker polls for pending tasks and processes them using OllamaClient
     worker_task = asyncio.create_task(background_task_worker())
+
+    # Start card enrichment worker when interval > 0 (Phase 2.5J)
+    enrich_task: Optional[asyncio.Task] = None
+    if settings.catalog_enrich_interval_seconds > 0:
+        enrich_task = asyncio.create_task(card_enrichment_worker())
 
     yield
 
-    # Gracefully shut down background worker on application shutdown
-    # Cancel the task and wait for it to complete cleanup
+    # Gracefully shut down background workers on application shutdown
     worker_task.cancel()
     try:
         await worker_task
     except asyncio.CancelledError:
         pass  # Expected on clean shutdown
+
+    if enrich_task is not None:
+        enrich_task.cancel()
+        try:
+            await enrich_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(

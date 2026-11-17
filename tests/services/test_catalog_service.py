@@ -1,10 +1,13 @@
 """
-Tests for catalog_service: seed, upsert_collection_page, get_collection, open_card.
+Tests for catalog_service: seed, upsert_collection_page, get_collection, open_card,
+enrich_next_cards, card_enrichment_worker.
 """
 
+import asyncio
+import logging
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from sqlalchemy import create_engine
@@ -19,6 +22,7 @@ from src.db.models.recipe_ingredient import RecipeIngredient
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard, SourceRecipeCard
 from src.schemas.catalog import CollectionCard, CollectionChild, CollectionPage
 from src.schemas.import_service import ImportResult, ImportStatus
+from src.schemas.scraper import ScrapedRecipeData
 from src.services import catalog_service
 from src.services.crawlers.exceptions import CrawlerNetworkError, CrawlerParseError
 
@@ -824,3 +828,358 @@ class TestOpenCard:
         assert result.imported is False
         db_session.refresh(card)
         assert card.ingredient_keys is None
+
+
+# ---------------------------------------------------------------------------
+# enrich_next_cards
+# ---------------------------------------------------------------------------
+
+
+def _make_enrich_card(
+    db,
+    recipe_url: str = "https://www.hellofresh.com/recipes/test-{n}-aabbccdd1122334455667788",
+    ingredient_keys=None,
+    n: int = 0,
+) -> SourceRecipeCard:
+    """Insert a SourceRecipeCard suitable for enrichment tests."""
+    card = SourceRecipeCard(
+        source_type=HELLOFRESH_SOURCE,
+        external_id=f"enrichtest{n:024x}",
+        name=f"Enrich Test Recipe {n}",
+        recipe_url=recipe_url.format(n=n),
+        ingredient_keys=ingredient_keys,
+    )
+    db.add(card)
+    db.commit()
+    db.refresh(card)
+    return card
+
+
+def _add_card_to_collection(db, card: SourceRecipeCard, collection: SourceCollection, position: int = 0) -> None:
+    """Insert a SourceCollectionCard join row."""
+    db.add(SourceCollectionCard(collection_id=collection.id, card_id=card.id, position=position))
+    db.commit()
+
+
+def _scraped(ingredients: list[str]) -> ScrapedRecipeData:
+    """Build a minimal ScrapedRecipeData with the given ingredient strings."""
+    return ScrapedRecipeData(
+        source_url="https://www.hellofresh.com/recipes/dummy",
+        source_type="hellofresh_web",
+        ingredients=ingredients,
+    )
+
+
+def _mock_robots_rate(can_fetch=True):
+    """Return (mock_robots_cls, mock_rate_cls) context managers that do nothing."""
+    mock_rp = MagicMock()
+    mock_rp.can_fetch.return_value = can_fetch
+    mock_rl = MagicMock()
+    mock_rl.wait_if_needed.return_value = None
+    return mock_rp, mock_rl
+
+
+class TestEnrichNextCards:
+    def test_fills_null_cards(self, db_session):
+        """enrich_next_cards populates ingredient_keys for NULL cards."""
+        card = _make_enrich_card(db_session, n=0)
+        assert card.ingredient_keys is None
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch(
+                "src.services.catalog_service.scrape_recipe",
+                return_value=_scraped(["chicken breast", "broccoli"]),
+            ),
+        ):
+            count = catalog_service.enrich_next_cards(db_session, limit=5)
+
+        assert count == 1
+        db_session.refresh(card)
+        assert card.ingredient_keys is not None
+        assert "chicken" in card.ingredient_keys
+        assert "broccoli" in card.ingredient_keys
+        assert card.ingredient_keys == sorted(card.ingredient_keys)
+
+    def test_skips_cards_with_existing_keys(self, db_session):
+        """Cards that already have ingredient_keys (including []) are not re-processed."""
+        already = _make_enrich_card(db_session, n=0, ingredient_keys=["chicken"])
+        null_card = _make_enrich_card(
+            db_session,
+            recipe_url="https://www.hellofresh.com/recipes/second-{n}-aabbccdd1122334455667788",
+            n=1,
+        )
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        scrape_calls = []
+
+        def tracking_scrape(url):
+            scrape_calls.append(url)
+            return _scraped(["salmon"])
+
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch("src.services.catalog_service.scrape_recipe", side_effect=tracking_scrape),
+        ):
+            count = catalog_service.enrich_next_cards(db_session, limit=5)
+
+        assert count == 1
+        # Only the NULL card was scraped
+        assert len(scrape_calls) == 1
+        assert null_card.recipe_url in scrape_calls[0]
+        # The already-enriched card is unchanged
+        db_session.refresh(already)
+        assert already.ingredient_keys == ["chicken"]
+
+    def test_respects_limit(self, db_session):
+        """enrich_next_cards processes at most `limit` cards."""
+        for i in range(4):
+            _make_enrich_card(
+                db_session,
+                recipe_url=f"https://www.hellofresh.com/recipes/limit-{i}-aabbccdd1122334455667788",
+                n=i,
+            )
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch("src.services.catalog_service.scrape_recipe", return_value=_scraped([])),
+        ):
+            count = catalog_service.enrich_next_cards(db_session, limit=2)
+
+        assert count == 2
+        total_null = (
+            db_session.query(SourceRecipeCard)
+            .filter(SourceRecipeCard.ingredient_keys.is_(None))
+            .count()
+        )
+        assert total_null == 2
+
+    def test_parse_failure_stores_empty_list_and_continues(self, db_session):
+        """A scrape/parse failure stores [] for that card and continues to the next."""
+        bad_card = _make_enrich_card(
+            db_session,
+            recipe_url="https://www.hellofresh.com/recipes/bad-{n}-aabbccdd1122334455667788",
+            n=0,
+        )
+        good_card = _make_enrich_card(
+            db_session,
+            recipe_url="https://www.hellofresh.com/recipes/good-{n}-aabbccdd1122334455667788",
+            n=1,
+        )
+
+        mock_rp, mock_rl = _mock_robots_rate()
+
+        def selective_scrape(url):
+            if "bad" in url:
+                raise ValueError("parse error")
+            return _scraped(["salmon"])
+
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch("src.services.catalog_service.scrape_recipe", side_effect=selective_scrape),
+        ):
+            count = catalog_service.enrich_next_cards(db_session, limit=5)
+
+        assert count == 2
+        db_session.refresh(bad_card)
+        db_session.refresh(good_card)
+        assert bad_card.ingredient_keys == []
+        assert "salmon" in good_card.ingredient_keys
+
+    def test_robots_disallow_stops_batch(self, db_session):
+        """A robots.txt disallow raises CrawlerNetworkError and leaves the card NULL."""
+        card = _make_enrich_card(db_session, n=0)
+
+        mock_rp, mock_rl = _mock_robots_rate(can_fetch=False)
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch("src.services.catalog_service.scrape_recipe") as mock_scrape,
+        ):
+            with pytest.raises(CrawlerNetworkError):
+                catalog_service.enrich_next_cards(db_session, limit=5)
+
+        mock_scrape.assert_not_called()
+        db_session.refresh(card)
+        assert card.ingredient_keys is None
+
+    def test_no_recipe_row_created(self, db_session):
+        """enrich_next_cards never creates Recipe rows."""
+        _make_enrich_card(db_session, n=0)
+        before = db_session.query(Recipe).count()
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch("src.services.catalog_service.scrape_recipe", return_value=_scraped(["chicken"])),
+        ):
+            catalog_service.enrich_next_cards(db_session, limit=5)
+
+        assert db_session.query(Recipe).count() == before
+
+    def test_orders_by_collection_count_descending(self, db_session):
+        """Cards in more collections are processed before cards in fewer."""
+        coll_a = _seed_collection(db_session, slug="collection-a")
+        coll_b = _seed_collection(db_session, slug="collection-b")
+
+        single_coll_card = _make_enrich_card(
+            db_session,
+            recipe_url="https://www.hellofresh.com/recipes/single-{n}-aabbccdd1122334455667788",
+            n=0,
+        )
+        two_coll_card = _make_enrich_card(
+            db_session,
+            recipe_url="https://www.hellofresh.com/recipes/two-{n}-aabbccdd1122334455667788",
+            n=1,
+        )
+
+        _add_card_to_collection(db_session, single_coll_card, coll_a, position=0)
+        _add_card_to_collection(db_session, two_coll_card, coll_a, position=1)
+        _add_card_to_collection(db_session, two_coll_card, coll_b, position=0)
+
+        scraped_order = []
+
+        def tracking_scrape(url):
+            scraped_order.append(url)
+            return _scraped([])
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch("src.services.catalog_service.scrape_recipe", side_effect=tracking_scrape),
+        ):
+            catalog_service.enrich_next_cards(db_session, limit=2)
+
+        assert len(scraped_order) == 2
+        assert two_coll_card.recipe_url == scraped_order[0]
+
+
+# ---------------------------------------------------------------------------
+# card_enrichment_worker
+# ---------------------------------------------------------------------------
+
+
+class TestCardEnrichmentWorker:
+    async def test_worker_calls_enrich_with_configured_batch_size(self, monkeypatch, caplog):
+        """Worker calls enrich_next_cards with catalog_enrich_batch_size each pass."""
+        enrich_calls = []
+
+        def mock_enrich(db, limit=5):
+            enrich_calls.append(limit)
+            return 2
+
+        mock_session = MagicMock()
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_session)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+        mock_factory = MagicMock(return_value=mock_ctx)
+
+        async def mock_sleep(_):
+            raise asyncio.CancelledError()
+
+        with (
+            patch("src.services.catalog_service.get_session_factory", return_value=mock_factory),
+            patch("src.services.catalog_service.enrich_next_cards", side_effect=mock_enrich),
+            patch("asyncio.sleep", side_effect=mock_sleep),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await catalog_service.card_enrichment_worker()
+
+        # Default batch size is 5; enrich must have been called with it
+        assert len(enrich_calls) == 1
+        assert enrich_calls[0] == 5
+
+    async def test_worker_logs_enriched_count(self, monkeypatch, caplog):
+        """Worker logs 'enriched N card(s)' after each successful pass."""
+        mock_session = MagicMock()
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_session)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+        mock_factory = MagicMock(return_value=mock_ctx)
+
+        async def mock_sleep(_):
+            raise asyncio.CancelledError()
+
+        with (
+            patch("src.services.catalog_service.get_session_factory", return_value=mock_factory),
+            patch("src.services.catalog_service.enrich_next_cards", return_value=3),
+            patch("asyncio.sleep", side_effect=mock_sleep),
+            caplog.at_level(logging.INFO, logger="src.services.catalog_service"),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await catalog_service.card_enrichment_worker()
+
+        assert any("enriched 3 card(s)" in r.message for r in caplog.records)
+
+    async def test_worker_survives_exception_from_enrich(self, monkeypatch, caplog):
+        """Worker catches exceptions from enrich_next_cards and continues the loop."""
+        call_count = [0]
+
+        def mock_enrich(db, limit=5):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise RuntimeError("simulated enrich failure")
+            return 1
+
+        mock_session = MagicMock()
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_session)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
+        mock_factory = MagicMock(return_value=mock_ctx)
+
+        sleep_count = [0]
+
+        async def mock_sleep(_):
+            sleep_count[0] += 1
+            if sleep_count[0] >= 2:
+                raise asyncio.CancelledError()
+
+        with (
+            patch("src.services.catalog_service.get_session_factory", return_value=mock_factory),
+            patch("src.services.catalog_service.enrich_next_cards", side_effect=mock_enrich),
+            patch("asyncio.sleep", side_effect=mock_sleep),
+            caplog.at_level(logging.ERROR, logger="src.services.catalog_service"),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await catalog_service.card_enrichment_worker()
+
+        # Worker ran two passes: first raised, second succeeded
+        assert call_count[0] == 2
+        assert any("Card enrichment worker error" in r.message for r in caplog.records)
+
+    async def test_interval_zero_starts_no_worker(self, monkeypatch):
+        """When catalog_enrich_interval_seconds=0, the lifespan skips the enrichment worker."""
+        import src.main as main_module
+        from src.main import app
+
+        async def _noop_coro():
+            pass
+
+        with (
+            patch.object(main_module, "init_engine"),
+            patch.object(main_module, "_ensure_schema"),
+            patch.object(main_module, "_ensure_seed_data"),
+            patch.object(main_module, "prune_unpersisted_recipes", return_value=0),
+            patch.object(main_module, "background_task_worker", return_value=_noop_coro()),
+            patch.object(main_module, "get_session_factory") as mock_sf,
+            patch.object(main_module, "settings") as mock_s,
+            patch.object(main_module, "card_enrichment_worker") as mock_ew,
+        ):
+            mock_s.catalog_enrich_interval_seconds = 0
+            mock_ctx = MagicMock()
+            mock_ctx.__enter__ = MagicMock(return_value=MagicMock())
+            mock_ctx.__exit__ = MagicMock(return_value=False)
+            mock_sf.return_value.return_value = mock_ctx
+
+            async with main_module.lifespan(app):
+                pass
+
+        mock_ew.assert_not_called()
