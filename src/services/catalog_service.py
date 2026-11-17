@@ -32,6 +32,12 @@ from src.services.crawlers.hellofresh_crawler import (
     HelloFreshCrawler,
     classify_hellofresh_url,
 )
+from src.services.crawlers.homechef_crawler import (
+    HOMECHEF_BASE_URL,
+    HOMECHEF_MENU_URL,
+    MENU_SLUG,
+    HomeChefCrawler,
+)
 from src.services.import_service import import_recipe_from_url
 from src.services.ingredient_keys import keys_for_recipe
 from src.utils.sanitize import sanitize_exception_message
@@ -39,7 +45,39 @@ from src.utils.sanitize import sanitize_exception_message
 logger = logging.getLogger(__name__)
 
 HELLOFRESH_SOURCE = "hellofresh_web"
+HOMECHEF_SOURCE = "homechef_web"
 COLLECTIONS_SITEMAP_URL = f"{HELLOFRESH_BASE_URL}/sitemap_recipe_collections.xml"
+
+# Fixed list of Home Chef category slugs (derived from the category nav on homechef.com/recipes/*).
+# Seeding is static — no network request needed.
+_HOMECHEF_CATEGORY_SLUGS: list[tuple[str, str]] = [
+    ("breakfast", "Breakfast"),
+    ("beef", "Beef"),
+    ("calorie-conscious", "Calorie-Conscious"),
+    ("carb-conscious", "Carb-Conscious"),
+    ("chicken", "Chicken"),
+    ("cod", "Cod"),
+    ("customer-favorites", "Customer Favorites"),
+    ("dessert", "Dessert"),
+    ("fish", "Fish"),
+    ("lamb", "Lamb"),
+    ("pasta", "Pasta"),
+    ("pork", "Pork"),
+    ("poultry", "Poultry"),
+    ("premium", "Premium"),
+    ("salad", "Salad"),
+    ("salmon", "Salmon"),
+    ("seafood", "Seafood"),
+    ("shrimp", "Shrimp"),
+    ("smoothie", "Smoothie"),
+    ("staff-picks", "Staff Picks"),
+    ("steak", "Steak"),
+    ("vegetarian", "Vegetarian"),
+    ("without-milk", "Without Milk"),
+    ("without-nuts", "Without Nuts"),
+    ("without-soy", "Without Soy"),
+    ("without-wheat", "Without Wheat"),
+]
 
 
 @dataclass
@@ -164,6 +202,61 @@ def seed_hellofresh_collections(db: Session) -> int:
         db.add_all(new_rows)
         db.commit()
         logger.info("Seeded %d HelloFresh collections from sitemap", len(new_rows))
+
+    return len(new_rows)
+
+
+def seed_homechef_collections(db: Session) -> int:
+    """
+    Seed Home Chef collections from the fixed category slug list.
+
+    Inserts a row for each category slug not already in the database, plus
+    the weekly menu collection ("this-week").  No network request is made.
+
+    Args:
+        db: Database session.
+
+    Returns:
+        Number of new rows inserted.
+    """
+    existing_slugs: set[str] = {
+        row[0]
+        for row in db.query(SourceCollection.slug).filter_by(source_type=HOMECHEF_SOURCE).all()
+    }
+
+    new_rows: list[SourceCollection] = []
+    for slug, name in _HOMECHEF_CATEGORY_SLUGS:
+        if slug in existing_slugs:
+            continue
+        existing_slugs.add(slug)
+        new_rows.append(
+            SourceCollection(
+                source_type=HOMECHEF_SOURCE,
+                slug=slug,
+                name=name,
+                url=f"{HOMECHEF_BASE_URL}/recipes/{slug}",
+                last_fetched_at=None,
+                parent_slug=None,
+            )
+        )
+
+    # Weekly menu entry.
+    if MENU_SLUG not in existing_slugs:
+        new_rows.append(
+            SourceCollection(
+                source_type=HOMECHEF_SOURCE,
+                slug=MENU_SLUG,
+                name="This week at Home Chef",
+                url=HOMECHEF_MENU_URL,
+                last_fetched_at=None,
+                parent_slug=None,
+            )
+        )
+
+    if new_rows:
+        db.add_all(new_rows)
+        db.commit()
+        logger.info("Seeded %d Home Chef collections", len(new_rows))
 
     return len(new_rows)
 
@@ -369,14 +462,24 @@ def _make_crawler() -> HelloFreshCrawler:
     return HelloFreshCrawler()
 
 
+def _make_homechef_crawler() -> HomeChefCrawler:
+    """Return a HomeChefCrawler; extracted so tests can patch it."""
+    return HomeChefCrawler()
+
+
 # Registry of supported catalog sources.  Each entry's callables delegate to
-# module-level functions so tests can patch _make_crawler or
-# seed_hellofresh_collections via monkeypatch/patch without breaking the registry.
+# module-level functions so tests can patch crawlers or seed functions via
+# monkeypatch/patch without breaking the registry.
 CATALOG_SOURCES: dict[str, CatalogSource] = {
     HELLOFRESH_SOURCE: CatalogSource(
         label="HelloFresh",
         crawler_factory=lambda: _make_crawler(),
         seed_fn=lambda db: seed_hellofresh_collections(db),
+    ),
+    HOMECHEF_SOURCE: CatalogSource(
+        label="Home Chef",
+        crawler_factory=lambda: _make_homechef_crawler(),
+        seed_fn=lambda db: seed_homechef_collections(db),
     ),
 }
 

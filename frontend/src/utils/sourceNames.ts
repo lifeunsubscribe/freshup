@@ -1,8 +1,10 @@
-export type SourceType = 'hellofresh' | 'hellofresh_web' | 'kitchen_sanctuary'
+export type SourceType = 'hellofresh' | 'hellofresh_web' | 'homechef' | 'homechef_web' | 'kitchen_sanctuary'
 
 const SOURCE_NAMES: Record<SourceType, string> = {
   hellofresh: 'HelloFresh',
   hellofresh_web: 'HelloFresh',
+  homechef: 'Home Chef',
+  homechef_web: 'Home Chef',
   kitchen_sanctuary: 'Kitchen Sanctuary',
 }
 
@@ -14,6 +16,7 @@ export function sourceName(sourceType: string): string {
 // Mirrors SUPPORTED_IMPORT_DOMAINS in src/routers/scraper.py.
 const URL_SOURCE_TYPES: Partial<Record<string, SourceType>> = {
   'hellofresh.com': 'hellofresh',
+  'homechef.com': 'homechef',
   'kitchensanctuary.com': 'kitchen_sanctuary',
 }
 

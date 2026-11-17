@@ -291,6 +291,72 @@ class TestListCollections:
 
 
 # ---------------------------------------------------------------------------
+# Other-source seeding (router seeds all sources opportunistically)
+# ---------------------------------------------------------------------------
+
+HOMECHEF_SOURCE = "homechef_web"
+
+
+class TestListCollectionsOtherSources:
+    def test_listing_hellofresh_also_seeds_homechef(self, client, db_session, member_headers, monkeypatch):
+        """When hellofresh is seeded on first call, homechef collections are also seeded."""
+        from src.services import catalog_service as cs
+        from sqlalchemy import func
+
+        def fake_hf_seed(db):
+            db.add(SourceCollection(
+                source_type=HELLOFRESH_SOURCE,
+                slug="vegetarian-recipes",
+                name="Vegetarian Recipes",
+                url="https://www.hellofresh.com/recipes/vegetarian-recipes",
+                last_fetched_at=None,
+                parent_slug=None,
+            ))
+            db.commit()
+            return 1
+
+        monkeypatch.setattr(cs, "seed_hellofresh_collections", fake_hf_seed)
+
+        response = client.get(f"/catalog/{HELLOFRESH_SOURCE}/collections", headers=member_headers)
+        assert response.status_code == 200
+
+        hc_count = (
+            db_session.query(func.count(SourceCollection.id))
+            .filter_by(source_type=HOMECHEF_SOURCE)
+            .scalar()
+        )
+        assert hc_count == 27
+
+    def test_homechef_seed_failure_still_returns_hellofresh_200(self, client, db_session, member_headers, monkeypatch):
+        """A failed homechef seed does not cause the hellofresh list request to fail."""
+        from src.services import catalog_service as cs
+        from src.services.crawlers.exceptions import CrawlerNetworkError
+
+        def fake_hf_seed(db):
+            db.add(SourceCollection(
+                source_type=HELLOFRESH_SOURCE,
+                slug="vegetarian-recipes",
+                name="Vegetarian Recipes",
+                url="https://www.hellofresh.com/recipes/vegetarian-recipes",
+                last_fetched_at=None,
+                parent_slug=None,
+            ))
+            db.commit()
+            return 1
+
+        def failing_hc_seed(db):
+            raise CrawlerNetworkError("simulated network failure")
+
+        monkeypatch.setattr(cs, "seed_hellofresh_collections", fake_hf_seed)
+        monkeypatch.setattr(cs, "seed_homechef_collections", failing_hc_seed)
+
+        response = client.get(f"/catalog/{HELLOFRESH_SOURCE}/collections", headers=member_headers)
+        assert response.status_code == 200
+        slugs = {d["slug"] for d in response.json()}
+        assert "vegetarian-recipes" in slugs
+
+
+# ---------------------------------------------------------------------------
 # Detail — fetch on demand
 # ---------------------------------------------------------------------------
 

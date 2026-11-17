@@ -61,7 +61,7 @@ router = APIRouter(prefix="/scraper", tags=["scraper"])
 
 # The only sites recipes may be imported from, by link or by saved page.
 # Every import endpoint validates against this one list.
-SUPPORTED_IMPORT_DOMAINS = ["hellofresh.com", "kitchensanctuary.com"]
+SUPPORTED_IMPORT_DOMAINS = ["hellofresh.com", "homechef.com", "kitchensanctuary.com"]
 
 
 def validate_domain(url: str, allowed_domains: list[str]) -> bool:

@@ -18,9 +18,12 @@ from src.db.models.user import User, UserRole
 from src.routers import themes as themes_router_module
 from src.services.auth_service import create_access_token, hash_password
 from src.services.recipe_themes import (
+    CATALOG_SOURCE_VALUES,
     COLLECTION_THEMES,
     HELLOFRESH_COLLECTION_THEMES,
     HELLOFRESH_SOURCE,
+    HOMECHEF_SOURCE,
+    SOURCE_VALUES,
     VALUE_LABELS,
     build_themes,
     normalize_tag,
@@ -267,3 +270,47 @@ class TestCollectionThemesRegistry:
         # The other_source collection carries the slug "italian-recipes" but is NOT classified.
         classified_slugs = [c.slug for v in cuisine.values for c in v.collections]
         assert "italian-recipes" not in classified_slugs
+
+
+# ---------------------------------------------------------------------------
+# Home Chef theme map and source values
+# ---------------------------------------------------------------------------
+
+
+class TestHomechefThemes:
+    def test_homechef_web_key_in_collection_themes(self):
+        assert HOMECHEF_SOURCE in COLLECTION_THEMES
+
+    def test_every_homechef_slug_points_at_known_value(self):
+        for slug, (theme, value) in COLLECTION_THEMES[HOMECHEF_SOURCE].items():
+            assert theme in VALUE_LABELS, (slug, theme)
+            assert value in VALUE_LABELS[theme], (slug, theme, value)
+
+    def test_homechef_web_in_source_values(self):
+        assert HOMECHEF_SOURCE in SOURCE_VALUES
+        value, label = SOURCE_VALUES[HOMECHEF_SOURCE]
+        assert value == "homechef"
+        assert label == "Home Chef"
+
+    def test_homechef_web_in_catalog_source_values(self):
+        assert HOMECHEF_SOURCE in CATALOG_SOURCE_VALUES
+        assert CATALOG_SOURCE_VALUES[HOMECHEF_SOURCE] == "homechef"
+
+    def test_known_ingredient_slugs_map_correctly(self):
+        hc = COLLECTION_THEMES[HOMECHEF_SOURCE]
+        assert hc["chicken"] == ("ingredient", "chicken")
+        assert hc["beef"] == ("ingredient", "beef")
+        assert hc["steak"] == ("ingredient", "beef")
+        assert hc["salmon"] == ("ingredient", "salmon")
+        assert hc["shrimp"] == ("ingredient", "shrimp")
+
+    def test_known_diet_slugs_map_correctly(self):
+        hc = COLLECTION_THEMES[HOMECHEF_SOURCE]
+        assert hc["vegetarian"] == ("diet", "vegetarian")
+        assert hc["calorie-conscious"] == ("diet", "calorie-smart")
+        assert hc["carb-conscious"] == ("diet", "carb-smart")
+
+    def test_unthemed_slugs_not_in_map(self):
+        hc = COLLECTION_THEMES[HOMECHEF_SOURCE]
+        for slug in ("poultry", "premium", "staff-picks", "customer-favorites", "smoothie", "this-week"):
+            assert slug not in hc, f"Unthemed slug {slug!r} should not be in COLLECTION_THEMES"

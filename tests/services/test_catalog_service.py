@@ -230,6 +230,63 @@ class TestSeedHellofreshCollections:
 
 
 # ---------------------------------------------------------------------------
+# seed_homechef_collections
+# ---------------------------------------------------------------------------
+
+HOMECHEF_SOURCE = "homechef_web"
+
+
+class TestSeedHomechefCollections:
+    def test_inserts_27_rows(self, db_session):
+        count = catalog_service.seed_homechef_collections(db_session)
+        assert count == 27
+        rows = db_session.query(SourceCollection).filter_by(source_type=HOMECHEF_SOURCE).all()
+        assert len(rows) == 27
+
+    def test_includes_menu_collection(self, db_session):
+        catalog_service.seed_homechef_collections(db_session)
+        menu = db_session.query(SourceCollection).filter_by(
+            source_type=HOMECHEF_SOURCE, slug="this-week"
+        ).first()
+        assert menu is not None
+        assert menu.name == "This week at Home Chef"
+
+    def test_menu_url_is_homechef_menu(self, db_session):
+        from src.services.crawlers.homechef_crawler import HOMECHEF_MENU_URL
+        catalog_service.seed_homechef_collections(db_session)
+        menu = db_session.query(SourceCollection).filter_by(
+            source_type=HOMECHEF_SOURCE, slug="this-week"
+        ).first()
+        assert menu.url == HOMECHEF_MENU_URL
+
+    def test_category_url_uses_recipes_path(self, db_session):
+        catalog_service.seed_homechef_collections(db_session)
+        chicken = db_session.query(SourceCollection).filter_by(
+            source_type=HOMECHEF_SOURCE, slug="chicken"
+        ).first()
+        assert chicken is not None
+        assert chicken.url == "https://www.homechef.com/recipes/chicken"
+
+    def test_last_fetched_at_is_null(self, db_session):
+        catalog_service.seed_homechef_collections(db_session)
+        rows = db_session.query(SourceCollection).filter_by(source_type=HOMECHEF_SOURCE).all()
+        assert all(r.last_fetched_at is None for r in rows)
+
+    def test_idempotent_second_call_inserts_zero(self, db_session):
+        catalog_service.seed_homechef_collections(db_session)
+        count2 = catalog_service.seed_homechef_collections(db_session)
+        assert count2 == 0
+        total = db_session.query(SourceCollection).filter_by(source_type=HOMECHEF_SOURCE).count()
+        assert total == 27
+
+    def test_no_network_call_made(self, db_session):
+        # seed_homechef_collections must not make any HTTP requests
+        import requests
+        with patch.object(requests.Session, "get", side_effect=AssertionError("network call made")):
+            catalog_service.seed_homechef_collections(db_session)
+
+
+# ---------------------------------------------------------------------------
 # upsert_collection_page
 # ---------------------------------------------------------------------------
 

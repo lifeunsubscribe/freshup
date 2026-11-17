@@ -29,6 +29,7 @@ from src.db.models.recipe import Recipe
 from src.db.models.source_catalog import SourceCollection, SourceCollectionCard
 
 HELLOFRESH_SOURCE = "hellofresh_web"
+HOMECHEF_SOURCE = "homechef_web"
 
 # Display order of the theme bar.
 THEMES: list[tuple[str, str]] = [
@@ -141,6 +142,25 @@ COLLECTION_THEMES: dict[str, dict[str, tuple[str, str]]] = {
     "kid-friendly-recipes": ("diet", "kid-friendly"),
     "breakfast-and-brunch": ("meal_type", "breakfast-brunch"),
     },
+    HOMECHEF_SOURCE: {
+        "chicken": ("ingredient", "chicken"),
+        "beef": ("ingredient", "beef"),
+        "steak": ("ingredient", "beef"),
+        "pork": ("ingredient", "pork"),
+        "lamb": ("ingredient", "lamb"),
+        "salmon": ("ingredient", "salmon"),
+        "shrimp": ("ingredient", "shrimp"),
+        "seafood": ("ingredient", "seafood"),
+        "fish": ("ingredient", "seafood"),
+        "cod": ("ingredient", "seafood"),
+        "vegetarian": ("diet", "vegetarian"),
+        "calorie-conscious": ("diet", "calorie-smart"),
+        "carb-conscious": ("diet", "carb-smart"),
+        "breakfast": ("meal_type", "breakfast-brunch"),
+        "dessert": ("meal_type", "desserts"),
+        "pasta": ("dish", "pasta"),
+        "salad": ("dish", "salads"),
+    },
 }
 
 # Backward-compatible alias; existing code and tests that import this name continue to work.
@@ -151,6 +171,7 @@ HELLOFRESH_COLLECTION_THEMES: dict[str, tuple[str, str]] = COLLECTION_THEMES[HEL
 SOURCE_VALUES: dict[str, tuple[str, str]] = {
     "hellofresh_web": ("hellofresh", "HelloFresh"),
     "hellofresh_card": ("hellofresh", "HelloFresh"),
+    "homechef_web": ("homechef", "Home Chef"),
     "kitchen_sanctuary": ("kitchen_sanctuary", "Kitchen Sanctuary"),
     "url_import": ("web", "From the web"),
     "photo_upload": ("photos", "From photos"),
@@ -158,7 +179,10 @@ SOURCE_VALUES: dict[str, tuple[str, str]] = {
     "ad_hoc": ("pantry", "Made from the pantry"),
 }
 # Catalog source -> source theme value, so its collections join that value.
-CATALOG_SOURCE_VALUES: dict[str, str] = {HELLOFRESH_SOURCE: "hellofresh"}
+CATALOG_SOURCE_VALUES: dict[str, str] = {
+    HELLOFRESH_SOURCE: "hellofresh",
+    HOMECHEF_SOURCE: "homechef",
+}
 
 
 def normalize_tag(tag: str) -> str:

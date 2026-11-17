@@ -110,6 +110,24 @@ def list_collections(
                 detail="Unable to process collection data from the source. The source format may have changed.",
             )
 
+    # Opportunistically seed every other registered source that has no rows.
+    # A failure here is logged and ignored — the requested source's list is unaffected.
+    for other_source, cfg in CATALOG_SOURCES.items():
+        if other_source == source:
+            continue
+        other_count = (
+            db.query(func.count(SourceCollection.id))
+            .filter_by(source_type=other_source)
+            .scalar()
+        )
+        if other_count == 0:
+            try:
+                cfg.seed_fn(db)
+            except IntegrityError:
+                db.rollback()
+            except Exception as exc:
+                logger.warning("Background seed failed for %r: %s", other_source, exc)
+
     # Query top-level collections with their card counts.
     rows = (
         db.query(SourceCollection, func.count(SourceCollectionCard.card_id).label("card_count"))

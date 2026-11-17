@@ -39,7 +39,7 @@ class CollectionCard(BaseModel):
     )
     name: str = Field(..., description="Recipe name")
     headline: Optional[str] = Field(default=None, description="Short tagline")
-    image_url: str = Field(..., description="Absolute CDN image URL")
+    image_url: Optional[str] = Field(default=None, description="Absolute CDN image URL")
     prep_time_minutes: Optional[int] = Field(
         default=None,
         description="Preparation time in minutes; None when absent or unparseable",

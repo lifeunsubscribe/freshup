@@ -67,6 +67,10 @@ class TestDetectSourceType:
         assert _detect_source_type("https://WWW.HELLOFRESH.COM/recipes/recipe-123") == "hellofresh_web"
         assert _detect_source_type("https://KitchenSanctuary.com/recipe-123") == "kitchen_sanctuary"
 
+    def test_homechef_domain(self):
+        assert _detect_source_type("https://www.homechef.com/meals/teriyaki-ginger-glazed-salmon") == "homechef_web"
+        assert _detect_source_type("https://homechef.com/meals/teriyaki-ginger-glazed-salmon") == "homechef_web"
+
 
 class TestScrapeRecipe:
     """Tests for scrape_recipe function."""

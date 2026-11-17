@@ -52,6 +52,8 @@ class ParseError(ScraperError):
 DOMAIN_TO_SOURCE_TYPE = {
     "hellofresh.com": SourceType.hellofresh_web.value,
     "www.hellofresh.com": SourceType.hellofresh_web.value,
+    "homechef.com": SourceType.homechef_web.value,
+    "www.homechef.com": SourceType.homechef_web.value,
     "kitchensanctuary.com": SourceType.kitchen_sanctuary.value,
     "www.kitchensanctuary.com": SourceType.kitchen_sanctuary.value,
 }

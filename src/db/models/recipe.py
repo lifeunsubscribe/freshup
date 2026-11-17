@@ -14,6 +14,7 @@ from src.db.database import Base
 class SourceType(str, PyEnum):
     hellofresh_card = "hellofresh_card"
     hellofresh_web = "hellofresh_web"
+    homechef_web = "homechef_web"
     kitchen_sanctuary = "kitchen_sanctuary"
     url_import = "url_import"
     manual = "manual"
