@@ -758,6 +758,8 @@ For a user with no history, `popularity` (0..1) stands in for affinity. A rated 
 
 **Unknown ingredients.** `is_card_blocked` applies the `never` and allergen rules above to cards, plus one more: a card whose `ingredient_keys` is NULL (never imported, ingredients unknown) is blocked for a user with any allergy entry at all, including one that names a food outside the vocabulary. Unknown ingredients are not safe to suggest to someone with an allergy. A card stores ingredient keys, not names, so for an entry outside the vocabulary only the card's name and headline can be checked; the full ingredient list is checked once the card is imported as a recipe.
 
+**`GET /recommendations` (#595).** Returns a ranked mix of catalog cards (from top-level collections) and imported recipes not linked to a card, blended as `0.75 × (taste + 1) / 2 + 0.25 × popularity` when the user has affinities, or plain `popularity` for a cold-start user.  Every fifth slot is an exploration pick — the most popular candidate whose keys have no affinity entry yet.  Source diversity prevents more than three consecutive items from the same source.
+
 ---
 
 ## 6. Recipe Source Strategy
