@@ -21,8 +21,8 @@ vi.mock('../components/profile/DietarySection', () => ({
 vi.mock('../components/profile/AllergiesSection', () => ({
   default: () => <div data-testid="allergies-section">AllergiesSection</div>,
 }))
-vi.mock('../components/profile/DislikedIngredientsSection', () => ({
-  default: () => <div data-testid="disliked-section">DislikedIngredientsSection</div>,
+vi.mock('../components/profile/TastePreferencesSection', () => ({
+  default: () => <div data-testid="taste-preferences-section">TastePreferencesSection</div>,
 }))
 vi.mock('../components/profile/SubstitutionsSection', () => ({
   default: () => <div data-testid="substitutions-section">SubstitutionsSection</div>,
@@ -96,7 +96,7 @@ describe('Profile Page', () => {
     expect(screen.getByTestId('profile-header')).toBeInTheDocument()
     expect(screen.getByTestId('dietary-section')).toBeInTheDocument()
     expect(screen.getByTestId('allergies-section')).toBeInTheDocument()
-    expect(screen.getByTestId('disliked-section')).toBeInTheDocument()
+    expect(screen.getByTestId('taste-preferences-section')).toBeInTheDocument()
     expect(screen.getByTestId('substitutions-section')).toBeInTheDocument()
     expect(screen.getByTestId('source-health-section')).toBeInTheDocument()
     expect(screen.getByTestId('user-switcher')).toBeInTheDocument()
@@ -131,7 +131,7 @@ describe('Profile Page', () => {
     expect(screen.queryByTestId('profile-header')).not.toBeInTheDocument()
     expect(screen.queryByTestId('dietary-section')).not.toBeInTheDocument()
     expect(screen.queryByTestId('allergies-section')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('disliked-section')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('taste-preferences-section')).not.toBeInTheDocument()
     expect(screen.queryByTestId('substitutions-section')).not.toBeInTheDocument()
     expect(screen.queryByTestId('source-health-section')).not.toBeInTheDocument()
     expect(screen.queryByTestId('user-switcher')).not.toBeInTheDocument()
@@ -153,7 +153,7 @@ describe('Profile Page', () => {
     expect(sections[0]).toHaveAttribute('data-testid', 'profile-header')
     expect(sections[1]).toHaveAttribute('data-testid', 'dietary-section')
     expect(sections[2]).toHaveAttribute('data-testid', 'allergies-section')
-    expect(sections[3]).toHaveAttribute('data-testid', 'disliked-section')
+    expect(sections[3]).toHaveAttribute('data-testid', 'taste-preferences-section')
     expect(sections[4]).toHaveAttribute('data-testid', 'substitutions-section')
     expect(sections[5]).toHaveAttribute('data-testid', 'source-health-section')
     expect(sections[6]).toHaveAttribute('data-testid', 'user-switcher')

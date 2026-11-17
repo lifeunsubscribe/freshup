@@ -4,7 +4,7 @@ import UserSwitcher from '../components/auth/UserSwitcher'
 import ProfileHeader from '../components/profile/ProfileHeader'
 import DietarySection from '../components/profile/DietarySection'
 import AllergiesSection from '../components/profile/AllergiesSection'
-import DislikedIngredientsSection from '../components/profile/DislikedIngredientsSection'
+import TastePreferencesSection from '../components/profile/TastePreferencesSection'
 import SubstitutionsSection from '../components/profile/SubstitutionsSection'
 import SourceHealthSection from '../components/profile/SourceHealthSection'
 import { useAuth } from '../contexts/AuthContext'
@@ -16,7 +16,7 @@ import { useAuth } from '../contexts/AuthContext'
  * - ProfileHeader: user info, role badge, logout
  * - DietarySection: multi-select dietary preferences
  * - AllergiesSection: tag input for allergies
- * - DislikedIngredientsSection: tag input for disliked ingredients
+ * - TastePreferencesSection: segmented-control taste map (replaces DislikedIngredientsSection)
  * - SubstitutionsSection: CRUD for ingredient substitution preferences
  * - UserSwitcher: switch between household members (coordinators only)
  */
@@ -51,8 +51,8 @@ export default function Profile() {
           {/* Allergies */}
           <AllergiesSection currentAllergies={currentUser.allergies} />
 
-          {/* Disliked Ingredients */}
-          <DislikedIngredientsSection currentDisliked={currentUser.disliked_ingredients} />
+          {/* Taste Preferences */}
+          <TastePreferencesSection currentTastePreferences={currentUser.taste_preferences} />
 
           {/* Substitution Preferences */}
           <SubstitutionsSection />
