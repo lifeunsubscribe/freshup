@@ -1498,6 +1498,169 @@ def test_entries_have_display_field_for_recipe_and_card(
         assert isinstance(d["source_type"], str) and d["source_type"]
 
 
+# ---------------------------------------------------------------------------
+# POST /plan/entries/{id}/swap tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def swap_candidate_pool(db_session, test_user):
+    """15 distinct cards in one collection, plus a draft entry pointing at cards[0].
+
+    Provides enough candidates for repeated-swap tests while keeping each card's
+    ingredient_keys unique so the ingredient-cap rule never blocks a pick.
+    """
+    coll = SourceCollection(
+        id=uuid4(),
+        source_type="hellofresh_web",
+        slug="swap-test-coll",
+        name="Swap Test Collection",
+        url="https://example.com/swap-test",
+        parent_slug=None,
+    )
+    db_session.add(coll)
+    db_session.flush()
+
+    cards = []
+    for i in range(15):
+        card = SourceRecipeCard(
+            id=uuid4(),
+            source_type="hellofresh_web",
+            external_id=f"swap-card-{i}",
+            name=f"Swap Card {i}",
+            recipe_url=f"https://example.com/swap/{i}",
+            ingredient_keys=[f"ingredient_{i}"],
+            prep_time_minutes=30,
+            image_url=f"https://cdn.example.com/swap-{i}.jpg",
+        )
+        db_session.add(card)
+        db_session.flush()
+        db_session.add(SourceCollectionCard(
+            collection_id=coll.id,
+            card_id=card.id,
+            position=i,
+        ))
+        cards.append(card)
+
+    entry = MealPlanEntry(
+        id=uuid4(),
+        date=date(2025, 6, 2),  # Monday
+        meal_type=MealType.dinner.value,
+        catalog_card_id=cards[0].id,
+        planned_servings=2,
+        status=MealPlanStatus.draft.value,
+    )
+    db_session.add(entry)
+    db_session.commit()
+    db_session.refresh(entry)
+    return {"entry": entry, "cards": cards}
+
+
+def test_swap_returns_different_item(client, auth_headers, swap_candidate_pool):
+    """Swap replaces the draft entry with a different card and returns 200."""
+    entry = swap_candidate_pool["entry"]
+    original_card_id = str(entry.catalog_card_id)
+
+    response = client.post(
+        f"/plan/entries/{entry.id}/swap",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "entry" in data
+    result_entry = data["entry"]
+    assert result_entry["id"] == str(entry.id)
+    # Must have a different item
+    assert result_entry["catalog_card_id"] != original_card_id or result_entry["recipe_id"] is not None
+
+
+def test_swap_item_not_already_in_week(client, db_session, auth_headers, swap_candidate_pool):
+    """Swapped-in item is not already placed elsewhere in the same week."""
+    cards = swap_candidate_pool["cards"]
+    entry = swap_candidate_pool["entry"]
+
+    # Place cards[1] through cards[6] on other days of the same week
+    week_start = date(2025, 6, 2)
+    for day_offset in range(1, 7):
+        db_session.add(MealPlanEntry(
+            id=uuid4(),
+            date=week_start + timedelta(days=day_offset),
+            meal_type=MealType.dinner.value,
+            catalog_card_id=cards[day_offset].id,
+            planned_servings=2,
+            status=MealPlanStatus.draft.value,
+        ))
+    db_session.commit()
+
+    occupied_card_ids = {str(c.id) for c in cards[1:7]}
+
+    response = client.post(
+        f"/plan/entries/{entry.id}/swap",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    result_card_id = response.json()["entry"]["catalog_card_id"]
+    assert result_card_id not in occupied_card_ids, (
+        f"Swap returned a card already in the week: {result_card_id}"
+    )
+
+
+def test_swap_confirmed_entry_returns_400(client, db_session, auth_headers, swap_candidate_pool):
+    """Swapping a confirmed (approved) entry returns 400."""
+    entry = swap_candidate_pool["entry"]
+    entry.status = MealPlanStatus.approved.value
+    db_session.commit()
+
+    response = client.post(
+        f"/plan/entries/{entry.id}/swap",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 400
+    assert "Only draft entries can be swapped" in response.json()["detail"]
+
+
+def test_swap_unknown_entry_returns_404(client, auth_headers):
+    """Swapping an unknown entry id returns 404."""
+    response = client.post(
+        f"/plan/entries/{uuid4()}/swap",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+
+
+def test_swap_does_not_repeat_offered_items(client, db_session, auth_headers, swap_candidate_pool):
+    """Repeated swaps on the same entry never return an item already offered for that day."""
+    entry = swap_candidate_pool["entry"]
+    original_card_id = str(entry.catalog_card_id)
+
+    # First swap
+    r1 = client.post(f"/plan/entries/{entry.id}/swap", headers=auth_headers)
+    assert r1.status_code == 200
+    after_first = r1.json()["entry"]["catalog_card_id"]
+
+    # Second swap
+    r2 = client.post(f"/plan/entries/{entry.id}/swap", headers=auth_headers)
+    assert r2.status_code == 200
+    after_second = r2.json()["entry"]["catalog_card_id"]
+
+    # Neither previous item should reappear
+    assert after_second != original_card_id, "Second swap re-offered the original item"
+    assert after_second != after_first, "Second swap re-offered the first swap's item"
+
+
+def test_swap_requires_authentication(client, swap_candidate_pool):
+    """POST /plan/entries/{id}/swap without auth returns 401."""
+    entry = swap_candidate_pool["entry"]
+
+    response = client.post(f"/plan/entries/{entry.id}/swap")
+
+    assert response.status_code == 401
+
+
 def test_migration_chain_has_one_head_after_catalog_card_id_migration():
     """Sanity: the new migration did not introduce a second head in the alembic chain."""
     from pathlib import Path

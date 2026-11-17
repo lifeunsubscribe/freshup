@@ -130,6 +130,12 @@ class OptOutEntryResponse(BaseModel):
     entry: MealPlanEntrySchema = Field(..., description="Updated meal plan entry after opt-out")
 
 
+class SwapEntryResponse(BaseModel):
+    """Response schema for POST /plan/entries/{id}/swap."""
+
+    entry: MealPlanEntrySchema = Field(..., description="Updated meal plan entry after swap")
+
+
 class CreateEntryRequest(BaseModel):
     """Request schema for POST /plan/entries — place a recipe into a meal slot."""
 
