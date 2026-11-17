@@ -1202,8 +1202,13 @@ def test_draft_ingredient_limit_and_two_source_rules(
             SourceRecipeCard.id.in_([UUID(cid) for cid in card_ids_in_plan])
         ).all()
         source_counts = Counter(c.source_type for c in placed_cards)
-        # At least 2 sources represented in the draft
+        # At least 2 sources represented, and the second-most source has ≥2 entries
         assert len(source_counts) >= 2, f"Expected ≥2 sources, got {dict(source_counts)}"
+        dominant = source_counts.most_common(1)[0][0]
+        second_max = max(v for s, v in source_counts.items() if s != dominant)
+        assert second_max >= 2, (
+            f"Expected second source to have ≥2 entries, got {dict(source_counts)}"
+        )
 
     # HF cards: half have ingredient:chicken, half have ingredient:beef.
     # At most 2 of each should appear (ingredient key cap).

@@ -80,12 +80,13 @@ def _pick_for_slot(
     """
     Return the first candidate from `unplaced` that satisfies the selection rules.
 
-    Rules applied in four relaxation passes:
+    Rules applied in five relaxation passes:
     1. All five rules (strict).
     2. Same but relax the second-source enforcement.
     3. Same but also relax the weeknight time constraint.
     4. Skip only the explore limit (allow at most 1 explore item).
-    Returns None only when unplaced is empty.
+    5. Take anything, but still refuse a second explore item when one is placed.
+    Returns None only when unplaced is empty or all remaining are blocked explores.
     """
     dominant = max(source_counts, key=lambda s: source_counts[s]) if source_counts else None
     second_count = sum(v for s, v in source_counts.items() if s != dominant) if dominant else 0
@@ -135,8 +136,12 @@ def _pick_for_slot(
             continue
         return c
 
-    # Pass 5: take anything (explore limit may be violated only here)
-    return unplaced[0] if unplaced else None
+    # Pass 5: take anything except a second explore item
+    for c in unplaced:
+        if c.reason == "explore" and explore_placed >= 1:
+            continue
+        return c
+    return None
 
 
 def select_week(user, db: Session, week_start: date) -> list[WeekChoice]:
@@ -353,7 +358,11 @@ def get_week_plan(
     # Query all entries for the week with user opt-ins loaded
     all_entries = (
         db.query(MealPlanEntry)
-        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .options(
+            selectinload(MealPlanEntry.user_opt_ins),
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+        )
         .filter(MealPlanEntry.date >= week_start)
         .filter(MealPlanEntry.date <= week_end)
         .order_by(MealPlanEntry.date, MealPlanEntry.meal_type)
@@ -450,6 +459,7 @@ def confirm_entry(
             raise ValidationError("Could not bring this recipe in. Try again.")
         # Link the imported recipe to the entry.
         entry.recipe_id = result.recipe.id
+        entry.recipe_rel = result.recipe
         entry.planned_servings = result.recipe.base_servings
 
     if not entry.recipe_id or not entry.recipe_rel:
@@ -550,7 +560,11 @@ def opt_out_entry(
     # Load the entry with its current opt-in list
     entry = (
         db.query(MealPlanEntry)
-        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .options(
+            selectinload(MealPlanEntry.user_opt_ins),
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+        )
         .filter(MealPlanEntry.id == entry_id)
         .first()
     )
@@ -583,7 +597,11 @@ def opt_out_entry(
     # Reload with fresh opt-ins so the response serialiser can access the list
     entry_with_opts = (
         db.query(MealPlanEntry)
-        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .options(
+            selectinload(MealPlanEntry.user_opt_ins),
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+        )
         .filter(MealPlanEntry.id == entry.id)
         .one()
     )
@@ -679,7 +697,11 @@ def create_entry(
     db.refresh(entry)
     entry_with_opts = (
         db.query(MealPlanEntry)
-        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .options(
+            selectinload(MealPlanEntry.user_opt_ins),
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+        )
         .filter(MealPlanEntry.id == entry.id)
         .one()
     )
