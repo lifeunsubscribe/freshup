@@ -656,6 +656,8 @@ Once persisted, a recipe is permanent — it accumulates ratings, cook events, a
 
 **Scraper behavior change:** Scrapers no longer bulk-insert recipes as permanent entries. They write to the browse cache (`is_persisted = false`). Dedup logic accounts for persistence status — if a persisted recipe already exists, skip; if a non-persisted recipe was pruned, re-create on next scrape.
 
+**Background ingredient enrichment (added Phase 2.5J):** Catalog cards stored by the browse crawler carry `ingredient_keys = NULL` until a user opens one, because the full recipe page is only fetched on demand. To make allergy filtering and ingredient-based recommendations useful before anyone opens a card, a low-priority background worker (`card_enrichment_worker`) runs on a configurable slow loop (default 300 s) and fetches recipe pages for un-enriched cards in small batches (default 5 per pass), respecting robots.txt and the same rate-limiting policy as the collection crawler. The worker applies `keys_for` to the scraped ingredient strings and stores the sorted key list on the card; it never creates a `Recipe` row. A single unreachable page stores an empty key list so it is not retried; a robots-disallow stops the whole batch so the domain is not hammered. The worker is controlled by `CATALOG_ENRICH_INTERVAL_SECONDS` (0 disables it) and `CATALOG_ENRICH_BATCH_SIZE`.
+
 ### 5.13 Menu System (added v1.1)
 
 Menus are user-owned recipe collections — the FreshUp equivalent of playlists. They come in two flavors:
