@@ -18,7 +18,7 @@ from uuid import UUID
 import defusedxml.ElementTree as ET
 import requests.exceptions
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
@@ -42,7 +42,7 @@ from src.services.crawlers.homechef_crawler import (
     MENU_SLUG,
     HomeChefCrawler,
 )
-from src.services.import_service import import_recipe_from_url
+from src.services.import_service import import_recipe_from_url, _safe_image_url
 from src.services.ingredient_keys import keys_for, keys_for_recipe
 from src.services.scraper_service import scrape_recipe
 from src.utils.sanitize import sanitize_exception_message
@@ -581,26 +581,31 @@ def open_card(db: Session, card_id: UUID) -> Optional[OpenCardResult]:
 
 def enrich_next_cards(db: Session, limit: int = 5) -> int:
     """
-    Fill ingredient_keys for the next batch of un-enriched catalog cards.
+    Fill ingredient_keys, image_url, and prep_time_minutes for un-enriched catalog cards.
 
-    Picks up to ``limit`` cards with ``ingredient_keys IS NULL``, ordering by
-    collection-membership count descending so the most-visible cards are
-    enriched first.  For each card: checks robots.txt, waits on the rate
-    limiter, scrapes the recipe page, and stores
-    ``sorted(keys_for(ing) for all ingredients)``.  Does not create a Recipe
-    row.
+    Picks up to ``limit`` cards where ``ingredient_keys IS NULL`` or
+    ``image_url IS NULL``, ordering cards missing an image first (so listing
+    sources that omit photos, e.g. Home Chef, are filled quickly), then by
+    collection-membership count descending.  For each card: checks robots.txt,
+    waits on the rate limiter, scrapes the recipe page, and fills:
+
+    - ``ingredient_keys``: set to ``sorted(keys_for(ing) for all ingredients)``
+    - ``image_url``: set via ``_safe_image_url`` when the card has no image
+    - ``prep_time_minutes``: set from ``total_time_minutes`` when the card has no time
+
+    Existing non-null values are never overwritten.  Does not create a Recipe row.
 
     A ``CrawlerNetworkError`` raised by the robots.txt check stops the batch
-    immediately; remaining cards are left NULL.  Any other fetch or parse
-    failure is logged and the card is stored as ``[]`` so it is not retried
-    forever.  Commits after each card.
+    immediately; remaining cards are left as-is.  Any other fetch or parse
+    failure is logged and the card's ``ingredient_keys`` is stored as ``[]``
+    (when it was NULL) so it is not retried forever.  Commits after each card.
 
     Args:
         db:    Database session.
         limit: Maximum number of cards to process (default: 5).
 
     Returns:
-        Number of cards whose ingredient_keys were updated.
+        Number of cards updated.
 
     Raises:
         CrawlerNetworkError: When robots.txt disallows a card URL.
@@ -616,8 +621,17 @@ def enrich_next_cards(db: Session, limit: int = 5) -> int:
     cards = (
         db.query(SourceRecipeCard)
         .outerjoin(subq, SourceRecipeCard.id == subq.c.card_id)
-        .filter(SourceRecipeCard.ingredient_keys.is_(None))
-        .order_by(func.coalesce(subq.c.coll_count, 0).desc())
+        .filter(
+            or_(
+                SourceRecipeCard.ingredient_keys.is_(None),
+                SourceRecipeCard.image_url.is_(None),
+            )
+        )
+        # Cards missing an image come before cards that only lack ingredient keys.
+        .order_by(
+            SourceRecipeCard.image_url.is_(None).desc(),
+            func.coalesce(subq.c.coll_count, 0).desc(),
+        )
         .limit(limit)
         .all()
     )
@@ -640,13 +654,19 @@ def enrich_next_cards(db: Session, limit: int = 5) -> int:
 
         try:
             scraped = scrape_recipe(card.recipe_url)
-            ingredient_keys: set[str] = set()
-            for ing in scraped.ingredients or []:
-                ingredient_keys |= keys_for(ing)
-            card.ingredient_keys = sorted(ingredient_keys)
+            if card.ingredient_keys is None:
+                ingredient_keys: set[str] = set()
+                for ing in scraped.ingredients or []:
+                    ingredient_keys |= keys_for(ing)
+                card.ingredient_keys = sorted(ingredient_keys)
+            if card.image_url is None:
+                card.image_url = _safe_image_url(scraped.image_url)
+            if card.prep_time_minutes is None and scraped.total_time_minutes is not None:
+                card.prep_time_minutes = scraped.total_time_minutes
         except Exception as exc:
             logger.warning("enrich_next_cards: failed to fetch/parse %s: %s", card.recipe_url, exc)
-            card.ingredient_keys = []
+            if card.ingredient_keys is None:
+                card.ingredient_keys = []
 
         try:
             db.commit()

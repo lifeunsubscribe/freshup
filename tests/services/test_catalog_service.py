@@ -839,6 +839,8 @@ def _make_enrich_card(
     db,
     recipe_url: str = "https://www.hellofresh.com/recipes/test-{n}-aabbccdd1122334455667788",
     ingredient_keys=None,
+    image_url=None,
+    prep_time_minutes=None,
     n: int = 0,
 ) -> SourceRecipeCard:
     """Insert a SourceRecipeCard suitable for enrichment tests."""
@@ -848,6 +850,8 @@ def _make_enrich_card(
         name=f"Enrich Test Recipe {n}",
         recipe_url=recipe_url.format(n=n),
         ingredient_keys=ingredient_keys,
+        image_url=image_url,
+        prep_time_minutes=prep_time_minutes,
     )
     db.add(card)
     db.commit()
@@ -861,12 +865,14 @@ def _add_card_to_collection(db, card: SourceRecipeCard, collection: SourceCollec
     db.commit()
 
 
-def _scraped(ingredients: list[str]) -> ScrapedRecipeData:
+def _scraped(ingredients: list[str], image_url=None, total_time_minutes=None) -> ScrapedRecipeData:
     """Build a minimal ScrapedRecipeData with the given ingredient strings."""
     return ScrapedRecipeData(
         source_url="https://www.hellofresh.com/recipes/dummy",
         source_type="hellofresh_web",
         ingredients=ingredients,
+        image_url=image_url,
+        total_time_minutes=total_time_minutes,
     )
 
 
@@ -904,8 +910,11 @@ class TestEnrichNextCards:
         assert card.ingredient_keys == sorted(card.ingredient_keys)
 
     def test_skips_cards_with_existing_keys(self, db_session):
-        """Cards that already have ingredient_keys (including []) are not re-processed."""
-        already = _make_enrich_card(db_session, n=0, ingredient_keys=["chicken"])
+        """Cards that already have ingredient_keys and image_url are not re-processed."""
+        already = _make_enrich_card(
+            db_session, n=0, ingredient_keys=["chicken"],
+            image_url="https://img.hellofresh.com/image/recipe0.jpg",
+        )
         null_card = _make_enrich_card(
             db_session,
             recipe_url="https://www.hellofresh.com/recipes/second-{n}-aabbccdd1122334455667788",
@@ -1060,6 +1069,112 @@ class TestEnrichNextCards:
 
         assert len(scraped_order) == 2
         assert two_coll_card.recipe_url == scraped_order[0]
+
+    def test_homechef_card_gains_image_time_and_ingredient_keys(self, db_session):
+        """A Home Chef card with no image, time, or keys gains all three from enrichment."""
+        card = SourceRecipeCard(
+            source_type="homechef_web",
+            external_id="hcenrich" + "0" * 22,
+            name="Teriyaki Salmon",
+            recipe_url="https://www.homechef.com/meals/teriyaki-ginger-glazed-salmon",
+            ingredient_keys=None,
+            image_url=None,
+            prep_time_minutes=None,
+        )
+        db_session.add(card)
+        db_session.commit()
+        db_session.refresh(card)
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        scraped = _scraped(
+            ["salmon fillet", "teriyaki sauce", "bok choy", "carrot",
+             "ginger", "sesame oil", "jasmine rice", "sesame seeds"],
+            image_url="https://asset.homechef.com/uploads/meal/plated/3429/image.jpg",
+            total_time_minutes=40,
+        )
+
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch("src.services.catalog_service.scrape_recipe", return_value=scraped),
+        ):
+            count = catalog_service.enrich_next_cards(db_session, limit=5)
+
+        assert count == 1
+        db_session.refresh(card)
+        assert card.image_url == "https://asset.homechef.com/uploads/meal/plated/3429/image.jpg"
+        assert card.prep_time_minutes == 40
+        assert card.ingredient_keys is not None
+        assert card.ingredient_keys == sorted(card.ingredient_keys)
+
+    def test_existing_image_and_time_not_overwritten(self, db_session):
+        """A HelloFresh card with an existing image and time keeps those values after enrichment."""
+        card = SourceRecipeCard(
+            source_type=HELLOFRESH_SOURCE,
+            external_id="hfexist" + "0" * 23,
+            name="Pasta Primavera",
+            recipe_url="https://www.hellofresh.com/recipes/pasta-primavera-aabbccdd1122334455667788",
+            ingredient_keys=None,
+            image_url="https://img.hellofresh.com/image/pasta.jpg",
+            prep_time_minutes=30,
+        )
+        db_session.add(card)
+        db_session.commit()
+        db_session.refresh(card)
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        # Scraped data returns different image and time — neither should overwrite the card.
+        scraped = _scraped(
+            ["pasta", "tomato"],
+            image_url="https://img.hellofresh.com/image/different.jpg",
+            total_time_minutes=45,
+        )
+
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch("src.services.catalog_service.scrape_recipe", return_value=scraped),
+        ):
+            count = catalog_service.enrich_next_cards(db_session, limit=5)
+
+        assert count == 1
+        db_session.refresh(card)
+        assert card.image_url == "https://img.hellofresh.com/image/pasta.jpg"
+        assert card.prep_time_minutes == 30
+        assert card.ingredient_keys is not None
+
+    def test_image_missing_cards_prioritized_over_key_missing_cards(self, db_session):
+        """Cards with no image are processed before cards that only lack ingredient keys."""
+        # Card with image set but no ingredient keys
+        has_image = _make_enrich_card(
+            db_session,
+            recipe_url="https://www.hellofresh.com/recipes/has-image-{n}-aabbccdd1122334455667788",
+            n=0,
+            image_url="https://img.hellofresh.com/image/recipe.jpg",
+        )
+        # Card missing image (and ingredient keys) — should be enriched first
+        no_image = _make_enrich_card(
+            db_session,
+            recipe_url="https://www.hellofresh.com/recipes/no-image-{n}-aabbccdd1122334455667788",
+            n=1,
+        )
+
+        scraped_order = []
+
+        def tracking_scrape(url):
+            scraped_order.append(url)
+            return _scraped([])
+
+        mock_rp, mock_rl = _mock_robots_rate()
+        with (
+            patch("src.services.catalog_service.RobotsTxtParser", return_value=mock_rp),
+            patch("src.services.catalog_service.RateLimiter", return_value=mock_rl),
+            patch("src.services.catalog_service.scrape_recipe", side_effect=tracking_scrape),
+        ):
+            catalog_service.enrich_next_cards(db_session, limit=1)
+
+        assert len(scraped_order) == 1
+        assert scraped_order[0] == no_image.recipe_url
 
 
 # ---------------------------------------------------------------------------
