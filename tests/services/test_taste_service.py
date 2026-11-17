@@ -799,6 +799,19 @@ class TestIsCardBlocked:
         keys = card_keys(card, set())
         assert is_card_blocked(card, keys, user)
 
+    def test_allergy_blocks_a_card_with_an_empty_key_list(self):
+        """Enrichment stores [] when the recipe page could not be read: still unknown."""
+        user = _make_user(allergies=["peanut"])
+        card = _make_card(ingredient_keys=[])
+        keys = card_keys(card, set())
+        assert is_card_blocked(card, keys, user)
+
+    def test_no_allergy_not_blocked_by_an_empty_key_list(self):
+        user = _make_user(allergies=[])
+        card = _make_card(ingredient_keys=[])
+        keys = card_keys(card, set())
+        assert not is_card_blocked(card, keys, user)
+
     def test_no_allergy_not_blocked_by_unknown_ingredients(self):
         user = _make_user(allergies=[])
         card = _make_card(ingredient_keys=None)

@@ -287,9 +287,11 @@ def is_card_blocked(card, keys: set[str], user) -> bool:
     Return True when the card should be blocked for this user.
 
     Blocked when any key appears in taste_preferences with level "never", or when the
-    user has any allergy and the card's ingredient_keys is None (ingredients unknown),
-    or when an allergy entry covers one of the card's known ingredients. An entry
-    outside the vocabulary can only be checked against the card's name and headline.
+    user has any allergy and the card has no ingredient keys (None: never fetched;
+    empty: the fetch failed or matched nothing, so the ingredients are just as
+    unknown), or when an allergy entry covers one of the card's known ingredients.
+    An entry outside the vocabulary can only be checked against the card's name and
+    headline.
     """
     prefs = user.taste_preferences or {}
     for key in keys:
@@ -303,8 +305,10 @@ def is_card_blocked(card, keys: set[str], user) -> bool:
     if not allergies:
         return False
 
-    # Unknown ingredients are not safe for allergic users
-    if card.ingredient_keys is None:
+    # Unknown ingredients are not safe for allergic users. Enrichment stores an
+    # empty list when the recipe page could not be fetched or parsed, so empty
+    # says as little about the card as None does.
+    if not card.ingredient_keys:
         return True
 
     ingredient_key_set = {k[len("ingredient:"):] for k in keys if k.startswith("ingredient:")}
