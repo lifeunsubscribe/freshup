@@ -16,6 +16,7 @@ Both structures are handled by parse_homechef_listing.
 
 import logging
 import re
+from html import unescape as _unescape_html
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 
@@ -73,16 +74,6 @@ def _split_title(full_title: str) -> tuple[str, Optional[str]]:
         return name.strip(), ("with " + rest.strip())
     return full_title.strip(), None
 
-
-def _unescape_html(text: str) -> str:
-    """Minimal HTML entity decode for text extracted from attributes."""
-    return (
-        text.replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", '"')
-        .replace("&#39;", "'")
-    )
 
 
 def parse_homechef_listing(html: str, url: str) -> CollectionPage:
@@ -272,7 +263,7 @@ class HomeChefCrawler:
                 break
 
             # Find next page link in the HTML.
-            next_url = self._find_next_page(response.text, slug)
+            next_url = self._find_next_page(response.text, slug, page_num)
             if not next_url or page_num >= MAX_CATEGORY_PAGES:
                 break
             fetch_url = next_url
@@ -285,11 +276,11 @@ class HomeChefCrawler:
             children=[],
         )
 
-    def _find_next_page(self, html: str, slug: str) -> Optional[str]:
+    def _find_next_page(self, html: str, slug: str, current_page: int) -> Optional[str]:
         """Return the absolute URL of the next page, or None if there is none."""
+        expected_path = f"/recipes/{slug}?page={current_page + 1}"
         for m in _PAGINATION_NEXT_RE.finditer(html):
             path = m.group(1)
-            # Only follow pagination for the slug we're crawling.
-            if f"/recipes/{slug}" in path:
+            if path == expected_path:
                 return urljoin(self.base_url, path)
         return None

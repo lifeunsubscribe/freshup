@@ -126,6 +126,7 @@ def list_collections(
             except IntegrityError:
                 db.rollback()
             except Exception as exc:
+                db.rollback()
                 logger.warning("Background seed failed for %r: %s", other_source, exc)
 
     # Query top-level collections with their card counts.
