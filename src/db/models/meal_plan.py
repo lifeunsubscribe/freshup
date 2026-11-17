@@ -64,10 +64,19 @@ class MealPlanEntry(Base):
     )
     notes: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
+    # Nullable FK to a catalog card; set when the draft entry points at an
+    # unimported card.  Cleared (not removed) after confirm imports the card.
+    catalog_card_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("source_recipe_cards.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Relationships
     recipe_rel: Mapped[Optional["Recipe"]] = relationship(foreign_keys=[recipe_id])
     prepared_food_rel: Mapped[Optional["PreparedFood"]] = relationship(foreign_keys=[prepared_food_id])
     leftovers_rel: Mapped[Optional["PreparedFood"]] = relationship(foreign_keys=[leftovers_generated])
+    catalog_card_rel: Mapped[Optional["SourceRecipeCard"]] = relationship(  # type: ignore[name-defined]
+        "SourceRecipeCard", foreign_keys=[catalog_card_id], passive_deletes=True
+    )
     user_opt_ins: Mapped[list["User"]] = relationship(secondary=meal_plan_user_association)
 
 

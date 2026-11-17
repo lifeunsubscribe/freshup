@@ -691,16 +691,24 @@ Each user's homepage is personalized based on their behavioral data. The feed is
 
 **Recipes are added to the database for everyone** (the Recipe table is shared), but **each user's home feed is specific to their own saves, schedule, dietary preferences, and behavioral signals.**
 
-### 5.15 Auto-Draft Weekly Meal Plan (added v1.1)
+### 5.15 Auto-Draft Weekly Meal Plan (updated Phase 2.5J)
 
 Each week (configurable day/time, default Sunday 8am), the system generates a draft weekly meal plan for inspiration.
 
-**Draft behavior:**
-- Fills dinner slots (7 days). Optionally lunch slots if user has opted into lunch planning.
-- Sources from Suggestion Engine priority queue (Section 5.2): expiring items first, then familiar recipes, then new suggestions.
-- Weights by: variety (no cuisine repeats on consecutive days), dietary balance, ingredient overlap (batch-friendly grouping).
-- Includes 1–2 "stretch" recipes from browse cache to introduce variety.
-- **Draft recipes are never committed.** They appear as faded/greyed-out cards on the Plan page. No impact on grocery list or inventory reservations until the user explicitly confirms a recipe.
+**Draft behavior (Phase 2.5J — ranking-based selection):**
+- Fills up to 7 dinner slots from `rank_candidates(limit=40)` (see Section 5.16). Fewer than 7 eligible candidates fills what it can; a warning is logged.
+- Candidates include both imported recipes and catalog cards (cards of every source). A draft entry pointing at a catalog card is imported on-demand when the user confirms it (`open_card`), setting `recipe_id` and `planned_servings` from the imported recipe's `base_servings`.
+- `catalog_card_id` on `MealPlanEntry`: nullable FK to `source_recipe_cards`. Cleared (SET NULL) if the card is deleted. Set when drafting; cleared after successful confirm-import.
+- Rules applied in rank order (a candidate breaking a rule is skipped):
+  1. Allergies of every household member block (the plan is shared); `never` keys of the requesting user block.
+  2. No cuisine key shared between two consecutive days.
+  3. At most 2 dinners per ingredient key across the week.
+  4. Mon–Thu (day offsets 0–3): prefer candidates with prep_time ≤ 40 min when any remain.
+  5. At most 1 `explore`-reason item (skipped when none qualify).
+  6. When 2+ sources have candidates, at least 2 dinners from a second source.
+- Card draft entries use `planned_servings=2`; recipe entries use `recipe.base_servings`.
+- An import failure at confirm time leaves the entry in draft and returns HTTP 400 "Could not bring this recipe in. Try again."
+- **Draft entries are never committed to the grocery list or inventory.** They appear as faded/greyed-out cards on the Plan page.
 
 **Household vs. Personal plan toggle:** The Plan page shows two views:
 - **Household plan:** Meals confirmed by the coordinator (or via Phase 3C voting). All members see the same schedule. Confirmed household meals show as full-color cards.

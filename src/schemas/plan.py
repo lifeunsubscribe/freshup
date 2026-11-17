@@ -10,9 +10,20 @@ from __future__ import annotations
 from uuid import UUID
 from datetime import date as date_type
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.db.models.meal_plan import MealType
+
+
+class EntryDisplay(BaseModel):
+    """Display-only fields built from either the linked recipe or catalog card."""
+
+    name: Optional[str] = None
+    image_url: Optional[str] = None
+    prep_time_minutes: Optional[int] = None
+    source_type: Optional[str] = None
+
+    model_config = {"from_attributes": True}
 
 
 class MealPlanEntrySchema(BaseModel):
@@ -22,12 +33,54 @@ class MealPlanEntrySchema(BaseModel):
     date: date_type = Field(..., description="Meal date")
     meal_type: str = Field(..., description="Meal type (breakfast, lunch, dinner, snack)")
     recipe_id: Optional[UUID] = Field(None, description="Recipe ID if using a recipe")
+    catalog_card_id: Optional[UUID] = Field(None, description="Catalog card ID if not yet imported")
     prepared_food_id: Optional[UUID] = Field(None, description="Prepared food ID if using leftovers")
     planned_servings: int = Field(..., description="Number of servings planned")
     status: str = Field(..., description="Entry status (draft, approved, etc.)")
     notes: Optional[str] = Field(None, description="Optional notes")
+    display: Optional[EntryDisplay] = Field(None, description="Display fields from recipe or card")
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _extract_display(cls, data):
+        """Build display dict from ORM relationships when validating an ORM object."""
+        if isinstance(data, dict):
+            return data
+        # ORM object: build display from recipe_rel or catalog_card_rel
+        display = None
+        recipe_rel = getattr(data, "recipe_rel", None)
+        card_rel = getattr(data, "catalog_card_rel", None)
+        if recipe_rel is not None:
+            prep = (getattr(recipe_rel, "prep_time_minutes", None) or 0)
+            cook = (getattr(recipe_rel, "cook_time_minutes", None) or 0)
+            total = prep + cook
+            display = {
+                "name": getattr(recipe_rel, "name", None),
+                "image_url": getattr(recipe_rel, "source_image", None),
+                "prep_time_minutes": total if total else None,
+                "source_type": getattr(recipe_rel, "source_type", None),
+            }
+        elif card_rel is not None:
+            display = {
+                "name": getattr(card_rel, "name", None),
+                "image_url": getattr(card_rel, "image_url", None),
+                "prep_time_minutes": getattr(card_rel, "prep_time_minutes", None),
+                "source_type": getattr(card_rel, "source_type", None),
+            }
+        return {
+            "id": data.id,
+            "date": data.date,
+            "meal_type": data.meal_type,
+            "recipe_id": data.recipe_id,
+            "catalog_card_id": getattr(data, "catalog_card_id", None),
+            "prepared_food_id": data.prepared_food_id,
+            "planned_servings": data.planned_servings,
+            "status": data.status,
+            "notes": data.notes,
+            "display": display,
+        }
 
 
 class DraftGenerateRequest(BaseModel):
