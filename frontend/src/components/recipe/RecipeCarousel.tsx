@@ -22,6 +22,13 @@ interface RecipeCarouselProps {
    * and then shows whole, never trimmed. Used by theme filters.
    */
   showIf?: (recipes: RecipeListResponse[]) => boolean
+  /** Hide the row until it has at least this many recipes. */
+  minCount?: number
+  /**
+   * Hide the row when every recipe in it is already in the list with these
+   * filters: the row above it, so this one never repeats what was just shown.
+   */
+  hideIfWithin?: RecipeListFilters
 }
 
 /**
@@ -35,16 +42,23 @@ interface RecipeCarouselProps {
  * - Last visible card has opacity 0.7 to hint scrollability
  * - Loading and error states
  * - Renders nothing once loaded with no recipes — empty rows are hidden, not shown as placeholders
+ * - Also renders nothing when it has fewer than minCount recipes, or none that the hideIfWithin list lacks
  * - ARIA attributes for screen reader accessibility (role="region", aria-roledescription="carousel")
  */
-export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, enabled = true, subtitle, footer, onCountChange, showIf }: RecipeCarouselProps) {
-  const { data: recipes, isLoading, isError, error } = useRecipeList(filters, { enabled })
+export default function RecipeCarousel({ title, filters, onSeeAll, sectionId, enabled = true, subtitle, footer, onCountChange, showIf, minCount = 0, hideIfWithin }: RecipeCarouselProps) {
+  const { data: recipes, isLoading: isLoadingOwn, isError, error } = useRecipeList(filters, { enabled })
+  // The same request the row above makes, so the query cache answers it. A
+  // failed or absent list hides nothing.
+  const above = useRecipeList(hideIfWithin ?? filters, { enabled: enabled && hideIfWithin !== undefined })
+  const aboveIds = hideIfWithin && above.data ? new Set(above.data.map((r) => r.id)) : null
+  // Wait for the row above before showing cards that may turn out to repeat it.
+  const isLoading = isLoadingOwn || (hideIfWithin !== undefined && above.isLoading)
+  const hidden = (loaded: RecipeListResponse[]) =>
+    loaded.length < minCount ||
+    (showIf !== undefined && !showIf(loaded)) ||
+    (aboveIds !== null && loaded.every((r) => aboveIds.has(r.id)))
   const loadedCount =
-    !isLoading && !isError && recipes
-      ? showIf && !showIf(recipes)
-        ? 0
-        : recipes.length
-      : undefined
+    !isLoading && !isError && recipes ? (hidden(recipes) ? 0 : recipes.length) : undefined
   const computedSubtitle = subtitle ? subtitle(recipes?.length) : undefined
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)

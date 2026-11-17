@@ -627,4 +627,86 @@ describe('RecipeCarousel', () => {
       expect(section).toHaveAttribute('aria-label', 'Quick meals')
     })
   })
+
+  describe('minCount and hideIfWithin', () => {
+    const loaded = (data: unknown) => ({ data, isLoading: false, isError: false, error: null }) as any
+    const many = (n: number, prefix = 'quick') =>
+      Array.from({ length: n }, (_, i) => ({ ...mockRecipes[0], id: `${prefix}-${i}`, name: `Recipe ${prefix}-${i}` }))
+    const aboveFilters = { limit: 20, viewed: true }
+    /** The row's own list and the list of the row above it. */
+    const mockLists = (own: unknown, above: unknown) =>
+      vi.mocked(useRecipeList).mockImplementation((filters) => ((filters as any)?.viewed ? above : own) as any)
+    const renderRow = (props: Partial<React.ComponentProps<typeof RecipeCarousel>> = {}) => {
+      const onCountChange = vi.fn()
+      renderWithRouter(
+        <RecipeCarousel title="Quick meals" filters={mockFilters} onSeeAll={mockOnSeeAll} onCountChange={onCountChange} {...props} />
+      )
+      return onCountChange
+    }
+    const row = () => screen.queryByRole('region', { name: 'Quick meals' })
+
+    it('hides a row with fewer recipes than minCount and reports it as empty', () => {
+      vi.mocked(useRecipeList).mockReturnValue(loaded(many(9)))
+      const onCountChange = renderRow({ minCount: 10 })
+      expect(row()).not.toBeInTheDocument()
+      expect(onCountChange).toHaveBeenCalledWith(0)
+    })
+
+    it('shows a row that has exactly minCount recipes', () => {
+      vi.mocked(useRecipeList).mockReturnValue(loaded(many(10)))
+      const onCountChange = renderRow({ minCount: 10 })
+      expect(row()).toBeInTheDocument()
+      expect(onCountChange).toHaveBeenCalledWith(10)
+    })
+
+    it('hides a row whose every recipe is already in the row above', () => {
+      const quick = many(10)
+      mockLists(loaded(quick), loaded([...quick, ...many(3, 'other')]))
+      const onCountChange = renderRow({ minCount: 10, hideIfWithin: aboveFilters })
+      expect(row()).not.toBeInTheDocument()
+      expect(onCountChange).toHaveBeenCalledWith(0)
+    })
+
+    it('shows the whole row when one recipe is not in the row above', () => {
+      const quick = many(10)
+      mockLists(loaded(quick), loaded(quick.slice(0, 9)))
+      renderRow({ minCount: 10, hideIfWithin: aboveFilters })
+      expect(row()).toBeInTheDocument()
+      expect(screen.getAllByText(/^Recipe quick-/)).toHaveLength(10)
+    })
+
+    it('shows the row when the row above is empty', () => {
+      mockLists(loaded(many(10)), loaded([]))
+      renderRow({ hideIfWithin: aboveFilters })
+      expect(row()).toBeInTheDocument()
+    })
+
+    it('asks for the row above with that row’s own filters, so the cache answers', () => {
+      mockLists(loaded(many(10)), loaded([]))
+      renderRow({ hideIfWithin: aboveFilters })
+      expect(useRecipeList).toHaveBeenCalledWith(aboveFilters, { enabled: true })
+    })
+
+    it('shows no cards until the row above has loaded', () => {
+      mockLists(loaded(many(10)), { data: undefined, isLoading: true, isError: false, error: null })
+      const onCountChange = renderRow({ hideIfWithin: aboveFilters })
+      expect(screen.getByText('Loading recipes...')).toBeInTheDocument()
+      expect(screen.queryAllByText(/^Recipe quick-/)).toHaveLength(0)
+      expect(onCountChange).not.toHaveBeenCalled()
+    })
+
+    it('shows the row when the row above failed to load', () => {
+      mockLists(loaded(many(10)), { data: undefined, isLoading: false, isError: true, error: new Error('x') })
+      renderRow({ hideIfWithin: aboveFilters })
+      expect(row()).toBeInTheDocument()
+    })
+
+    it('without hideIfWithin, makes no second request and ignores other lists', () => {
+      vi.mocked(useRecipeList).mockReturnValue(loaded(many(3)))
+      renderRow()
+      expect(row()).toBeInTheDocument()
+      const enabledCalls = vi.mocked(useRecipeList).mock.calls.filter(([, opts]) => (opts as any)?.enabled)
+      expect(new Set(enabledCalls.map(([f]) => JSON.stringify(f))).size).toBe(1)
+    })
+  })
 })

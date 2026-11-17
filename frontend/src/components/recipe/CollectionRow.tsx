@@ -14,16 +14,18 @@ interface CollectionRowProps {
   collection: CollectionSummary
   /** Called with the card count once loaded, so the page can drop nav entries for hidden rows. */
   onCountChange?: (count: number) => void
+  /** Hide the row once it has loaded with fewer cards than this. */
+  minCount?: number
 }
 
 /**
  * One HelloFresh collection as a lazily-loaded carousel.
  *
  * The row fetches when it scrolls near the viewport and renders nothing once
- * loaded with no cards (including a failed fetch with nothing stored), so the
- * page never shows an empty row.
+ * loaded with no cards (including a failed fetch with nothing stored) or with
+ * fewer than minCount, so the page never shows an empty or too-short row.
  */
-export default function CollectionRow({ collection, onCountChange }: CollectionRowProps) {
+export default function CollectionRow({ collection, onCountChange, minCount = 0 }: CollectionRowProps) {
   // inView flips true once the row is within 200px of the viewport and never resets.
   const [inView, setInView] = useState(false)
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -89,7 +91,9 @@ export default function CollectionRow({ collection, onCountChange }: CollectionR
     }
   }, [data, inView])
 
-  const loadedCount = inView && !isLoading && !isFetching && data ? data.cards.length : undefined
+  const cardCount = inView && !isLoading && !isFetching && data ? data.cards.length : undefined
+  // A hidden row counts as empty, so the page treats both the same way.
+  const loadedCount = cardCount !== undefined && cardCount < minCount ? 0 : cardCount
   useEffect(() => {
     if (loadedCount !== undefined) onCountChange?.(loadedCount)
   }, [loadedCount, onCountChange])

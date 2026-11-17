@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildPageRows, matchesValue, valueRows, YOUR_ROWS } from './themeRows'
+import { buildPageRows, matchesValue, valueRows, MIN_ROW_SIZE, YOUR_ROWS } from './themeRows'
 import type { RecipeListResponse, Theme, ThemeValue } from '../../api'
 
 const value = (extra: Partial<ThemeValue>): ThemeValue => ({
@@ -127,5 +127,67 @@ describe('buildPageRows', () => {
       expect(ids).not.toContain('hellofresh_web-thai-recipes')
       expect(ids).not.toContain('hellofresh_web-vegetarian-recipes') // not a cuisine list
     })
+  })
+})
+
+describe('rows worth showing on the main page', () => {
+  const coll = (slug: string, card_count: number, fetched = card_count > 0) => ({
+    source_type: 'hellofresh_web', slug, name: slug, card_count, last_fetched_at: fetched ? '2026-11-01T00:00:00Z' : null, contains: [],
+  })
+  const themes: Theme[] = [
+    {
+      key: 'cuisine',
+      label: 'Cuisine',
+      values: [
+        value({ value: 'italian', library_tag: 'italian', library_count: 12, collections: [coll('italian-recipes', 30)] }),
+        value({ value: 'thai', label: 'Thai', library_tag: 'thai', library_count: 3, collections: [coll('thai-recipes', 9)] }),
+        value({ value: 'korean', label: 'Korean', collections: [coll('korean-recipes', 0)] }),
+      ],
+    },
+  ]
+  const sampled = () => buildPageRows(themes, null, []).rows.filter((r) => !YOUR_ROWS.some((y) => y.id === r.id))
+
+  it('Quick meals needs ten recipes and something Recently viewed does not already show', () => {
+    const recent = YOUR_ROWS.find((r) => r.id === 'recently-viewed')!
+    const quick = YOUR_ROWS.find((r) => r.id === 'quick-meals')!
+    expect(MIN_ROW_SIZE).toBe(10)
+    expect(quick.minCount).toBe(MIN_ROW_SIZE)
+    expect(quick.hideIfWithin).toEqual(recent.filters)
+  })
+
+  it('favorites and recently viewed show however short they are', () => {
+    for (const id of ['favorites', 'recently-viewed']) {
+      const row = YOUR_ROWS.find((r) => r.id === id)!
+      expect(row.minCount).toBeUndefined()
+      expect(row.hideIfWithin).toBeUndefined()
+    }
+  })
+
+  it('leaves lists known to have fewer than ten out of the sampler', () => {
+    // Thai (3 of the user's, 9 from HelloFresh) is dropped; the next fullest take its place
+    expect(sampled().map((r) => r.id)).toEqual(['hellofresh_web-italian-recipes', 'lib-cuisine-italian'])
+  })
+
+  it('keeps a list that has not loaded yet, and has its row check once it has', () => {
+    const onlyKorean: Theme[] = [{ ...themes[0], values: [themes[0].values[2]] }]
+    const rows = buildPageRows(onlyKorean, null, []).rows.filter((r) => r.id === 'hellofresh_web-korean-recipes')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].minCount).toBe(MIN_ROW_SIZE)
+  })
+
+  it('sampled rows carry the minimum so a short loaded list hides itself', () => {
+    expect(sampled().every((r) => r.minCount === MIN_ROW_SIZE)).toBe(true)
+  })
+
+  it('a theme page and a filter still show short lists: the user asked for them', () => {
+    const themePage = buildPageRows(themes, 'cuisine', []).rows
+    expect(themePage.map((r) => r.id)).toContain('hellofresh_web-thai-recipes')
+    expect(themePage.map((r) => r.id)).toContain('lib-cuisine-thai')
+    expect(themePage.every((r) => r.minCount === undefined)).toBe(true)
+
+    const filtered = buildPageRows(themes, null, [{ theme: 'cuisine', value: 'thai' }]).rows
+    const thai = filtered.filter((r) => r.id.includes('thai'))
+    expect(thai).toHaveLength(2)
+    expect(thai.every((r) => r.minCount === undefined)).toBe(true)
   })
 })

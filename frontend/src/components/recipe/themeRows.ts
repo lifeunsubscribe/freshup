@@ -4,6 +4,13 @@ import type { ThemeFilter } from './ThemeBar'
 /** Cards per carousel row. Desktop shows ~7 at a time, so 20 gives a few pages of scroll. */
 export const CAROUSEL_LIMIT = 20
 
+/**
+ * Fewer recipes than this is not worth a row on the main page. The user's
+ * favorites and recently viewed are exempt: those rows are the only way in to
+ * lists the user made, however short.
+ */
+export const MIN_ROW_SIZE = 10
+
 /** How many of each theme's fullest lists the main page samples. */
 const SAMPLER_PER_THEME = 2
 
@@ -20,6 +27,13 @@ export interface LibraryRowSpec {
   subtitle?: (count: number | undefined) => string
   /** Show the row (whole) only if its loaded recipes pass. Set while theme filters are active. */
   showIf?: (recipes: RecipeListResponse[]) => boolean
+  /** Hide the row until it has at least this many recipes. */
+  minCount?: number
+  /**
+   * Hide the row when every recipe in it is already in the row with these
+   * filters (the row above it), so it never repeats what was just shown.
+   */
+  hideIfWithin?: RecipeListFilters
 }
 
 export interface CollectionRowSpec {
@@ -27,15 +41,26 @@ export interface CollectionRowSpec {
   id: string
   collection: ThemeCollection
   size: number
+  /** Hide the row once it has loaded with fewer cards than this. */
+  minCount?: number
 }
 
 export type RowSpec = LibraryRowSpec | CollectionRowSpec
 
+const RECENTLY_VIEWED: RecipeListFilters = { limit: CAROUSEL_LIMIT, viewed: true }
+
 /** The user's own rows: always first on the main page. */
 export const YOUR_ROWS: LibraryRowSpec[] = [
   { kind: 'library', id: 'favorites', title: 'Your favorites', filters: { limit: CAROUSEL_LIMIT, liked: true } },
-  { kind: 'library', id: 'recently-viewed', title: 'Recently viewed', filters: { limit: CAROUSEL_LIMIT, viewed: true } },
-  { kind: 'library', id: 'quick-meals', title: 'Quick meals', filters: { limit: CAROUSEL_LIMIT, max_cook_time: 30 } },
+  { kind: 'library', id: 'recently-viewed', title: 'Recently viewed', filters: RECENTLY_VIEWED },
+  {
+    kind: 'library',
+    id: 'quick-meals',
+    title: 'Quick meals',
+    filters: { limit: CAROUSEL_LIMIT, max_cook_time: 30 },
+    minCount: MIN_ROW_SIZE,
+    hideIfWithin: RECENTLY_VIEWED,
+  },
 ]
 
 const plural = (n: number) => `${n} recipe${n === 1 ? '' : 's'}`
@@ -80,6 +105,16 @@ function dedupe(rows: RowSpec[]): RowSpec[] {
   return rows.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
 }
 
+/**
+ * A list already known to be too short for the main page. A size of 0 means
+ * not loaded yet, not empty: that list keeps its place, and its row hides
+ * itself if it then loads short.
+ */
+function knownSmall(row: RowSpec): boolean {
+  const size = row.size ?? 0
+  return size > 0 && size < MIN_ROW_SIZE
+}
+
 export interface PageRows {
   rows: RowSpec[]
   heading: { title: string; subtitle?: string } | null
@@ -121,7 +156,8 @@ function applyFilters(rows: RowSpec[], filters: ResolvedFilter[]): RowSpec[] {
 /**
  * Decide which rows the Recipes page shows.
  *
- * - Main page: the user's rows, then the fullest few lists from each theme.
+ * - Main page: the user's rows, then the fullest few lists from each theme,
+ *   leaving out lists with fewer than MIN_ROW_SIZE recipes.
  * - Theme page ("See all cuisines"): every list from every value of the theme.
  * - Filters (Cuisine → Italian, Diet → Vegetarian) apply together: the
  *   candidates are the theme page's lists, or else the user's rows plus every
@@ -165,8 +201,10 @@ export function buildPageRows(
     .flatMap((theme) =>
       theme.values
         .flatMap((v) => valueRows(theme.key, v))
+        .filter((row) => !knownSmall(row))
         .sort((a, b) => (b.size ?? 0) - (a.size ?? 0))
         .slice(0, SAMPLER_PER_THEME)
+        .map((row) => ({ ...row, minCount: MIN_ROW_SIZE }))
     )
   return { rows: dedupe([...YOUR_ROWS, ...sampler]), heading: null }
 }

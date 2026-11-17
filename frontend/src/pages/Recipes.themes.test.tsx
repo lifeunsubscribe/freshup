@@ -214,16 +214,19 @@ afterEach(() => {
 
 describe('Recipes page — themes', () => {
   describe('main page sampler', () => {
-    it("shows each theme's two fullest lists, not every list", () => {
+    it("shows each theme's fullest lists, leaving out any known to have fewer than ten", () => {
       renderPage()
 
       expect(region('Italian Recipes')).toBeInTheDocument()
-      expect(region('Thai Recipes')).toBeInTheDocument()
       expect(region('Chicken Recipes')).toBeInTheDocument()
-      expect(region('Beef Recipes')).toBeInTheDocument()
+      // Not loaded yet, so its size is unknown: it keeps its place until it loads
+      expect(region('Korean Recipes')).toBeInTheDocument()
 
-      expect(region('Korean Recipes')).not.toBeInTheDocument()
+      // 8, 5 and 2 recipes; and the user's single Italian recipe
+      expect(region('Thai Recipes')).not.toBeInTheDocument()
+      expect(region('Beef Recipes')).not.toBeInTheDocument()
       expect(region('Pork Recipes')).not.toBeInTheDocument()
+      expect(region('Italian')).not.toBeInTheDocument()
     })
 
     it('does not sample the source theme (its lists repeat the other themes)', () => {

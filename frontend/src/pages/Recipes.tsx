@@ -192,10 +192,12 @@ export default function Recipes() {
                     filters={row.filters}
                     subtitle={row.subtitle}
                     showIf={row.showIf}
+                    minCount={row.minCount}
+                    hideIfWithin={row.hideIfWithin}
                     onSeeAll={() => handleSeeAll(row.filters)}
                   />
                 ) : (
-                  <CollectionRow key={row.id} collection={row.collection} />
+                  <CollectionRow key={row.id} collection={row.collection} minCount={row.minCount} />
                 )
               )}
 

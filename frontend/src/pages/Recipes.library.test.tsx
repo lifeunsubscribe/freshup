@@ -88,15 +88,23 @@ describe('Recipes Page', () => {
     },
   ]
 
+  // Quick meals shows only with ten or more recipes that Recently viewed does not already show
+  const quickRecipes = Array.from({ length: 10 }, (_, i) => ({
+    ...mockRecipes[0],
+    id: `quick-${i}`,
+    name: `Quick Recipe ${i}`,
+  }))
+  const loaded = (data: unknown) => ({ data, isLoading: false, isError: false, error: null }) as any
+  /** Each row gets its own list: Quick meals by its time filter, the rest the default two. */
+  const mockRowLists = (quick: unknown[] = quickRecipes, others: unknown[] = mockRecipes) =>
+    vi.mocked(useRecipeList).mockImplementation((filters) =>
+      loaded((filters as { max_cook_time?: number } | undefined)?.max_cook_time !== undefined ? quick : others)
+    )
+
   beforeEach(() => {
     vi.clearAllMocks()
     // Default mock: successful recipe load
-    vi.mocked(useRecipeList).mockReturnValue({
-      data: mockRecipes,
-      isLoading: false,
-      isError: false,
-      error: null,
-    } as any)
+    mockRowLists()
   })
 
   describe('page structure', () => {
@@ -149,6 +157,27 @@ describe('Recipes Page', () => {
       expect(sectionHeading('Your favorites')).toBeInTheDocument()
       expect(sectionHeading('Recently viewed')).toBeInTheDocument()
       expect(sectionHeading('Quick meals')).toBeInTheDocument()
+    })
+
+    it('hides Quick meals while it has fewer than ten recipes', () => {
+      mockRowLists(quickRecipes.slice(0, 9))
+      renderWithRouter(<Recipes />)
+      expect(sectionHeading('Recently viewed')).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Quick meals.' })).not.toBeInTheDocument()
+    })
+
+    it('hides Quick meals when Recently viewed already shows all of it', () => {
+      mockRowLists(quickRecipes, [...quickRecipes, ...mockRecipes])
+      renderWithRouter(<Recipes />)
+      expect(sectionHeading('Recently viewed')).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Quick meals.' })).not.toBeInTheDocument()
+    })
+
+    it('shows favorites and recently viewed however short they are', () => {
+      mockRowLists(quickRecipes, mockRecipes.slice(0, 1))
+      renderWithRouter(<Recipes />)
+      expect(sectionHeading('Your favorites')).toBeInTheDocument()
+      expect(sectionHeading('Recently viewed')).toBeInTheDocument()
     })
 
     it('has no hard-coded cuisine rows; theme lists come from /themes', () => {

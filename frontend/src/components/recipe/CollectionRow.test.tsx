@@ -86,10 +86,10 @@ function triggerInView() {
   })
 }
 
-const renderRow = (collection: CollectionSummary = baseCollection, onCountChange?: (n: number) => void) =>
+const renderRow = (collection: CollectionSummary = baseCollection, onCountChange?: (n: number) => void, minCount?: number) =>
   render(
     <BrowserRouter>
-      <CollectionRow collection={collection} onCountChange={onCountChange} />
+      <CollectionRow collection={collection} onCountChange={onCountChange} minCount={minCount} />
     </BrowserRouter>
   )
 
@@ -213,6 +213,48 @@ describe('CollectionRow', () => {
       triggerInView()
       expect(screen.queryByRole('region')).not.toBeInTheDocument()
       expect(onCountChange).toHaveBeenCalledWith(0)
+    })
+
+    const detailWith = (n: number): CollectionDetail => ({
+      slug: 'quick-dinners',
+      name: 'Quick Dinners',
+      source_type: 'hellofresh_web',
+      last_fetched_at: '2026-11-01T00:00:00Z',
+      children: [],
+      cards: Array.from({ length: n }, (_, i) => makeCard(`c${i}`)),
+      tag_options: [],
+      fetch_error: null,
+    })
+
+    it('hides a row that loads with fewer cards than minCount and reports it as empty', () => {
+      setCollectionState({ data: detailWith(9) })
+      const onCountChange = vi.fn()
+      renderRow(baseCollection, onCountChange, 10)
+      triggerInView()
+      expect(screen.queryByRole('region')).not.toBeInTheDocument()
+      expect(onCountChange).toHaveBeenCalledWith(0)
+    })
+
+    it('shows a row that loads with minCount cards', () => {
+      setCollectionState({ data: detailWith(10) })
+      const onCountChange = vi.fn()
+      renderRow(baseCollection, onCountChange, 10)
+      triggerInView()
+      expect(screen.getByRole('region', { name: 'Quick Dinners' })).toBeInTheDocument()
+      expect(onCountChange).toHaveBeenCalledWith(10)
+    })
+
+    it('keeps a minCount row in place until it has loaded', () => {
+      setCollectionState({ data: undefined })
+      renderRow(baseCollection, undefined, 10)
+      expect(screen.getByRole('region', { name: 'Quick Dinners' })).toBeInTheDocument()
+    })
+
+    it('shows a short row when no minCount is set', () => {
+      setCollectionState({ data: detailWith(2) })
+      renderRow()
+      triggerInView()
+      expect(screen.getByRole('region', { name: 'Quick Dinners' })).toBeInTheDocument()
     })
 
     it('shows the error note with stored cards on fetch_error', () => {
