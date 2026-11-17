@@ -6,6 +6,8 @@ retrieval, and entry confirmation with grocery list propagation.
 """
 
 import logging
+from dataclasses import dataclass
+from typing import Optional
 from uuid import UUID
 from datetime import date, timedelta
 from sqlalchemy.orm import Session, selectinload
@@ -14,13 +16,223 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.db.models.user import User
 from src.db.models.meal_plan import MealPlanEntry, MealPlanStatus, MealType
 from src.db.models.recipe import Recipe
-from src.db.models.recipe_ingredient import RecipeIngredient
-from src.services import feed_service
 from src.services import grocery_service
 from src.services import recipe_service
 from src.exceptions import NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Week selection
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class WeekChoice:
+    """A single day's recommended dinner entry, chosen by select_week."""
+
+    item: "RankedItem"  # type: ignore[name-defined]  # from recommendation_service
+
+
+def _item_keys(item, card_overlap: dict) -> frozenset:
+    from src.services.taste_service import card_keys, recipe_keys
+    if item.kind == "card":
+        return frozenset(card_keys(item.card, card_overlap.get(item.card.id, set())))
+    return frozenset(recipe_keys(item.recipe))
+
+
+def _cuisine_keys(item, card_overlap: dict) -> frozenset:
+    return frozenset(k for k in _item_keys(item, card_overlap) if k.startswith("cuisine:"))
+
+
+def _ingredient_keys(item, card_overlap: dict) -> frozenset:
+    return frozenset(k for k in _item_keys(item, card_overlap) if k.startswith("ingredient:"))
+
+
+def _item_total_time(item) -> Optional[int]:
+    if item.kind == "card":
+        return item.card.prep_time_minutes  # stored as total time by enrich
+    recipe = item.recipe
+    p = getattr(recipe, 'prep_time_minutes', 0) or 0
+    c = getattr(recipe, 'cook_time_minutes', 0) or 0
+    total = p + c
+    return total if total > 0 else None
+
+
+def _item_source(item) -> str:
+    if item.kind == "card":
+        return item.card.source_type
+    return getattr(item.recipe, 'source_type', 'manual') or 'manual'
+
+
+def _pick_for_slot(
+    unplaced: list,
+    card_overlap: dict,
+    prev_cuisine: frozenset,
+    ing_counts: dict,
+    explore_placed: int,
+    is_weeknight: bool,
+    source_counts: dict,
+    multi_source: bool,
+    slots_left: int,
+) -> Optional[object]:
+    """
+    Return the first candidate from `unplaced` that satisfies the selection rules.
+
+    Rules applied in five relaxation passes:
+    1. All five rules (strict).
+    2. Same but relax the second-source enforcement.
+    3. Same but also relax the weeknight time constraint.
+    4. Skip only the explore limit (allow at most 1 explore item).
+    5. Take anything, but still refuse a second explore item when one is placed.
+    Returns None only when unplaced is empty or all remaining are blocked explores.
+    """
+    dominant = max(source_counts, key=lambda s: source_counts[s]) if source_counts else None
+    second_count = sum(v for s, v in source_counts.items() if s != dominant) if dominant else 0
+    # Enforce second-source when we're running out of slots to meet the minimum.
+    need_second = multi_source and second_count < 2 and slots_left <= (2 - second_count)
+
+    has_fast = any(
+        _item_total_time(c) is None or _item_total_time(c) <= 40
+        for c in unplaced
+    ) if is_weeknight else False
+
+    def _reject(c, enforce_weeknight: bool, enforce_second: bool) -> bool:
+        if c.reason == "explore" and explore_placed >= 1:
+            return True
+        if _cuisine_keys(c, card_overlap) & prev_cuisine:
+            return True
+        c_ing = _ingredient_keys(c, card_overlap)
+        if any(ing_counts.get(k, 0) >= 2 for k in c_ing):
+            return True
+        if enforce_weeknight and has_fast:
+            t = _item_total_time(c)
+            if t is not None and t > 40:
+                return True
+        if enforce_second and dominant and _item_source(c) == dominant:
+            return True
+        return False
+
+    # Pass 1: all constraints
+    for c in unplaced:
+        if not _reject(c, enforce_weeknight=is_weeknight, enforce_second=need_second):
+            return c
+
+    # Pass 2: relax second-source
+    if need_second:
+        for c in unplaced:
+            if not _reject(c, enforce_weeknight=is_weeknight, enforce_second=False):
+                return c
+
+    # Pass 3: relax weeknight time constraint too
+    for c in unplaced:
+        if not _reject(c, enforce_weeknight=False, enforce_second=False):
+            return c
+
+    # Pass 4: relax all except explore (never place more than one explore item)
+    for c in unplaced:
+        if c.reason == "explore" and explore_placed >= 1:
+            continue
+        return c
+
+    # Pass 5: take anything except a second explore item
+    for c in unplaced:
+        if c.reason == "explore" and explore_placed >= 1:
+            continue
+        return c
+    return None
+
+
+def select_week(user, db: Session, week_start: date) -> list[WeekChoice]:
+    """
+    Pure selection: returns up to 7 WeekChoice objects for the given week.
+
+    Calls rank_candidates(limit=40), filters for all household members'
+    allergies, then fills seven slots applying the variety and weeknight
+    rules.  Never raises; logs a warning when fewer than 7 slots can be
+    filled.
+
+    Rules applied (in priority order, skipping candidates that break a rule):
+    - No cuisine key on two consecutive days; at most 2 dinners per
+      ingredient key across the week.
+    - Mon–Thu (day offset 0–3) take candidates ≤40 min total when any remain.
+    - Exactly one explore item when one exists.
+    - When ≥2 sources have candidates, at least 2 dinners from a second source.
+    - Allergies of every household member block; `never` keys of the requesting
+      user block (rank_candidates handles the requesting user; this function
+      additionally filters for every other member).
+    """
+    from src.services.recommendation_service import rank_candidates
+    from src.services.taste_service import card_keys, is_blocked, is_card_blocked
+    from src.services.card_tags import overlap_tags
+
+    candidates = rank_candidates(user, db, limit=40)
+    if not candidates:
+        logger.warning("select_week: no candidates from rank_candidates for week %s", week_start)
+        return []
+
+    # Compute overlap keys for all card candidates (needed for allergy check).
+    card_ids = [c.card.id for c in candidates if c.kind == "card" and c.card is not None]
+    card_overlap: dict = overlap_tags(db, card_ids) if card_ids else {}
+
+    # Filter for every other household member's allergies.
+    # rank_candidates already filtered for the requesting user (allergies + never).
+    # Other members: check both allergies and never-preferences (conservative,
+    # prevents recommending something the household collectively dislikes).
+    other_members = db.query(User).filter(User.id != user.id).all()
+
+    def _blocked_by_household(c) -> bool:
+        for member in other_members:
+            if c.kind == "card":
+                keys = card_keys(c.card, card_overlap.get(c.card.id, set()))
+                if is_card_blocked(c.card, keys, member):
+                    return True
+            else:
+                if is_blocked(c.recipe, member):
+                    return True
+        return False
+
+    eligible = [c for c in candidates if not _blocked_by_household(c)]
+    multi_source = len({_item_source(c) for c in eligible}) >= 2
+
+    week: list[WeekChoice] = []
+    unplaced = list(eligible)
+    prev_cuisine: frozenset = frozenset()
+    ing_counts: dict = {}
+    explore_placed = 0
+    source_counts: dict = {}
+
+    for day_offset in range(7):
+        if not unplaced:
+            break
+        is_weeknight = day_offset <= 3  # Mon=0, Tue=1, Wed=2, Thu=3
+
+        pick = _pick_for_slot(
+            unplaced, card_overlap, prev_cuisine, ing_counts, explore_placed,
+            is_weeknight, source_counts, multi_source, slots_left=7 - day_offset,
+        )
+        if pick is None:
+            break
+
+        week.append(WeekChoice(item=pick))
+        unplaced.remove(pick)
+
+        prev_cuisine = _cuisine_keys(pick, card_overlap)
+        for k in _ingredient_keys(pick, card_overlap):
+            ing_counts[k] = ing_counts.get(k, 0) + 1
+        if pick.reason == "explore":
+            explore_placed += 1
+        src = _item_source(pick)
+        source_counts[src] = source_counts.get(src, 0) + 1
+
+    if len(week) < 7:
+        logger.warning(
+            "select_week: only %d/%d eligible candidates for week starting %s",
+            len(week), 7, week_start,
+        )
+
+    return week
 
 
 def generate_draft_meal_plan(
@@ -29,37 +241,30 @@ def generate_draft_meal_plan(
     db: Session
 ) -> list[MealPlanEntry]:
     """
-    Generate a draft meal plan for 7 dinner slots starting from week_start.
+    Generate a draft meal plan for up to 7 dinner slots starting from week_start.
 
-    Uses feed service query patterns for recipe selection:
-    1. Expiring inventory first (get_make_now_recipes)
-    2. Familiar recipes next (get_on_repeat_recipes)
-    3. Popular/new recipes as fallback
+    Delegates candidate selection to select_week(), which applies ranking-based
+    selection with variety, weeknight, and two-source rules.  Fewer than 7
+    eligible candidates fills what it can and logs a warning.
 
     Args:
         week_start: Start date of the week (should be Monday)
-        user_id: User ID generating the plan (used for recipe personalization)
+        user_id: User ID generating the plan (used for personalization)
         db: Database session
 
     Returns:
-        List of created MealPlanEntry objects
+        List of created MealPlanEntry objects (may be fewer than 7)
 
     Raises:
-        ValidationError: If draft generation fails or user not found
+        ValidationError: If user not found or draft entries already exist
 
     Note:
-        This system currently operates in single-household mode where all meal plan
-        entries are shared across all household members. The created entries are not
-        associated with a specific user - they belong to the household collectively.
-        Future multi-household support will require adding household_id to both User
-        and MealPlanEntry models.
+        Single-household mode: entries belong to the household collectively.
     """
-    # Verify user exists and is authenticated
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise ValidationError(f"User {user_id} not found")
 
-    # Check for existing draft entries in this week to prevent duplicates
     week_end = week_start + timedelta(days=6)
     existing_drafts = (
         db.query(MealPlanEntry)
@@ -74,66 +279,45 @@ def generate_draft_meal_plan(
             f"Delete or confirm existing drafts before generating new ones."
         )
 
-    # Get recipe recommendations using feed service patterns
-    # Priority 1: Recipes user can make now (expiring inventory)
-    make_now_recipes = feed_service.get_make_now_recipes(user_id, db, limit=3)
+    choices = select_week(user, db, week_start)
 
-    # Priority 2: Recipes user repeatedly engages with (familiar)
-    on_repeat_recipes = feed_service.get_on_repeat_recipes(user_id, db, limit=4)
-
-    # Priority 3: Popular recipes as fallback
-    popular_recipes = feed_service.get_popular_recipes(db, limit=10)
-
-    # Combine recipe pools, avoiding duplicates
-    # Order matters: make_now → on_repeat → popular preserves priority
-    # A recipe that appears in multiple pools will use its first (highest priority) position
-    recipe_pool = []
-    seen_ids = set()
-
-    for recipe in make_now_recipes + on_repeat_recipes + popular_recipes:
-        if recipe.id not in seen_ids:
-            recipe_pool.append(recipe)
-            seen_ids.add(recipe.id)
-
-    if len(recipe_pool) < 7:
-        logger.warning(
-            f"Only {len(recipe_pool)} recipes available for draft generation. "
-            f"Need 7 for full week."
-        )
-        raise ValidationError(
-            f"Insufficient recipes to generate full week plan. "
-            f"Found {len(recipe_pool)}, need 7."
-        )
-
-    # Create 7 dinner entries for the week
     entries = []
-    for day_offset in range(7):
+    for day_offset, choice in enumerate(choices):
         entry_date = week_start + timedelta(days=day_offset)
-        recipe = recipe_pool[day_offset]
+        item = choice.item
 
-        entry = MealPlanEntry(
-            date=entry_date,
-            meal_type=MealType.dinner.value,
-            recipe_id=recipe.id,
-            planned_servings=recipe.base_servings,
-            status=MealPlanStatus.draft.value,
-        )
+        if item.kind == "recipe":
+            entry = MealPlanEntry(
+                date=entry_date,
+                meal_type=MealType.dinner.value,
+                recipe_id=item.recipe.id,
+                planned_servings=item.recipe.base_servings,
+                status=MealPlanStatus.draft.value,
+            )
+        else:
+            # Card entry: recipe is not yet imported; planned_servings=2 until confirmed.
+            entry = MealPlanEntry(
+                date=entry_date,
+                meal_type=MealType.dinner.value,
+                catalog_card_id=item.card.id,
+                planned_servings=2,
+                status=MealPlanStatus.draft.value,
+            )
         db.add(entry)
         entries.append(entry)
 
     try:
         db.commit()
-        # Refresh to load relationships
         for entry in entries:
             db.refresh(entry)
         logger.info(
-            f"Generated draft meal plan for week starting {week_start}: "
-            f"{len(entries)} entries created"
+            "Generated draft meal plan for week starting %s: %d entries created",
+            week_start, len(entries),
         )
         return entries
     except SQLAlchemyError as e:
         db.rollback()
-        logger.error(f"Database error during draft generation: {e}")
+        logger.error("Database error during draft generation: %s", e)
         raise ValidationError("Failed to generate draft meal plan")
 
 
@@ -174,7 +358,11 @@ def get_week_plan(
     # Query all entries for the week with user opt-ins loaded
     all_entries = (
         db.query(MealPlanEntry)
-        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .options(
+            selectinload(MealPlanEntry.user_opt_ins),
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+        )
         .filter(MealPlanEntry.date >= week_start)
         .filter(MealPlanEntry.date <= week_end)
         .order_by(MealPlanEntry.date, MealPlanEntry.meal_type)
@@ -239,7 +427,7 @@ def confirm_entry(
     # 2. Raise NotFoundError (not 403) if household mismatch to prevent info leakage
     # This prevents users from confirming meal plan entries belonging to other households.
 
-    # Load entry with recipe and ingredients
+    # Load entry with recipe, ingredients, and catalog card relationship.
     entry = (
         db.query(MealPlanEntry)
         .options(
@@ -259,6 +447,21 @@ def confirm_entry(
             f"Only draft entries can be confirmed."
         )
 
+    # Card entry: import the recipe on demand before confirming.
+    if entry.recipe_id is None and entry.catalog_card_id is not None:
+        from src.services.catalog_service import open_card
+        try:
+            result = open_card(db, entry.catalog_card_id)
+        except (ValueError, Exception) as exc:
+            logger.warning("open_card failed for card %s: %s", entry.catalog_card_id, exc)
+            raise ValidationError("Could not bring this recipe in. Try again.")
+        if result is None:
+            raise ValidationError("Could not bring this recipe in. Try again.")
+        # Link the imported recipe to the entry.
+        entry.recipe_id = result.recipe.id
+        entry.recipe_rel = result.recipe
+        entry.planned_servings = result.recipe.base_servings
+
     if not entry.recipe_id or not entry.recipe_rel:
         raise ValidationError(
             "Cannot confirm entry without a recipe. "
@@ -268,10 +471,14 @@ def confirm_entry(
     # Update status to approved
     entry.status = MealPlanStatus.approved.value
 
-    # Propagate recipe ingredients to grocery list
-    # Each required (non-optional) ingredient becomes a grocery item with source="meal_plan"
+    # Propagate recipe ingredients to grocery list.
+    # Each required (non-optional) ingredient becomes a grocery item with source="meal_plan".
     grocery_items_added = 0
     recipe = entry.recipe_rel
+
+    # Reload ingredients if not yet loaded (card entries import the recipe in-flight).
+    if not recipe.ingredients:
+        db.refresh(recipe)
 
     for ingredient in recipe.ingredients:
         # Skip optional ingredients - they don't automatically go to grocery list
@@ -353,7 +560,11 @@ def opt_out_entry(
     # Load the entry with its current opt-in list
     entry = (
         db.query(MealPlanEntry)
-        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .options(
+            selectinload(MealPlanEntry.user_opt_ins),
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+        )
         .filter(MealPlanEntry.id == entry_id)
         .first()
     )
@@ -386,7 +597,11 @@ def opt_out_entry(
     # Reload with fresh opt-ins so the response serialiser can access the list
     entry_with_opts = (
         db.query(MealPlanEntry)
-        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .options(
+            selectinload(MealPlanEntry.user_opt_ins),
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+        )
         .filter(MealPlanEntry.id == entry.id)
         .one()
     )
@@ -482,7 +697,11 @@ def create_entry(
     db.refresh(entry)
     entry_with_opts = (
         db.query(MealPlanEntry)
-        .options(selectinload(MealPlanEntry.user_opt_ins))
+        .options(
+            selectinload(MealPlanEntry.user_opt_ins),
+            selectinload(MealPlanEntry.recipe_rel),
+            selectinload(MealPlanEntry.catalog_card_rel),
+        )
         .filter(MealPlanEntry.id == entry.id)
         .one()
     )

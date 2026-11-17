@@ -10,9 +10,18 @@ from __future__ import annotations
 from uuid import UUID
 from datetime import date as date_type
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.db.models.meal_plan import MealType
+
+
+class DisplayInfo(BaseModel):
+    """Display-ready summary built from either the linked recipe or catalog card."""
+
+    name: str
+    image_url: Optional[str] = None
+    prep_time_minutes: Optional[int] = None
+    source_type: str
 
 
 class MealPlanEntrySchema(BaseModel):
@@ -22,12 +31,54 @@ class MealPlanEntrySchema(BaseModel):
     date: date_type = Field(..., description="Meal date")
     meal_type: str = Field(..., description="Meal type (breakfast, lunch, dinner, snack)")
     recipe_id: Optional[UUID] = Field(None, description="Recipe ID if using a recipe")
+    catalog_card_id: Optional[UUID] = Field(None, description="Catalog card ID for unconfirmed card entries")
     prepared_food_id: Optional[UUID] = Field(None, description="Prepared food ID if using leftovers")
     planned_servings: int = Field(..., description="Number of servings planned")
     status: str = Field(..., description="Entry status (draft, approved, etc.)")
     notes: Optional[str] = Field(None, description="Optional notes")
+    display: Optional[DisplayInfo] = Field(None, description="Display info from the linked recipe or card")
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode='before')
+    @classmethod
+    def _populate_display(cls, obj):
+        """Build display from ORM relationships; pass dicts through unchanged."""
+        if isinstance(obj, dict):
+            return obj
+
+        recipe_rel = getattr(obj, 'recipe_rel', None)
+        card_rel = getattr(obj, 'catalog_card_rel', None)
+
+        if recipe_rel is not None:
+            display = {
+                'name': recipe_rel.name,
+                'image_url': getattr(recipe_rel, 'image_url', None),
+                'prep_time_minutes': getattr(recipe_rel, 'prep_time_minutes', None),
+                'source_type': getattr(recipe_rel, 'source_type', 'manual') or 'manual',
+            }
+        elif card_rel is not None:
+            display = {
+                'name': card_rel.name,
+                'image_url': card_rel.image_url,
+                'prep_time_minutes': card_rel.prep_time_minutes,
+                'source_type': card_rel.source_type,
+            }
+        else:
+            display = None
+
+        return {
+            'id': obj.id,
+            'date': obj.date,
+            'meal_type': obj.meal_type,
+            'recipe_id': obj.recipe_id,
+            'catalog_card_id': getattr(obj, 'catalog_card_id', None),
+            'prepared_food_id': getattr(obj, 'prepared_food_id', None),
+            'planned_servings': obj.planned_servings,
+            'status': obj.status,
+            'notes': getattr(obj, 'notes', None),
+            'display': display,
+        }
 
 
 class DraftGenerateRequest(BaseModel):
