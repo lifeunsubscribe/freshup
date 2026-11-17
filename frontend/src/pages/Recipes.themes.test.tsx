@@ -25,6 +25,12 @@ import { useCollections, useCollection } from '../api/hooks/useCatalog'
 import { useThemes } from '../api/hooks/useThemes'
 import type { CollectionSummary, Theme, ThemeCollection, ThemeValue } from '../api/types'
 
+// useRecommendations is called by Recipes.tsx; return empty on all theme tests
+// so they stay focused on theme/catalog behaviour.
+vi.mock('../api/hooks/useRecipes', () => ({
+  useRecommendations: vi.fn(() => ({ data: [] })),
+}))
+
 // ── API mocks ──────────────────────────────────────────────────────────────────
 
 vi.mock('../api', () => ({
@@ -284,6 +290,18 @@ describe('Recipes page — themes', () => {
       await user.click(screen.getByRole('button', { name: /Cuisine/ }))
       await user.keyboard('{Escape}')
       expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('"For you" row visibility', () => {
+    it('is absent on a theme page (?theme=cuisine)', () => {
+      renderPage('/recipes?theme=cuisine')
+      expect(screen.queryByRole('region', { name: 'For you' })).not.toBeInTheDocument()
+    })
+
+    it('is absent under a theme filter (?filter=cuisine:italian)', () => {
+      renderPage('/recipes?filter=cuisine:italian')
+      expect(screen.queryByRole('region', { name: 'For you' })).not.toBeInTheDocument()
     })
   })
 

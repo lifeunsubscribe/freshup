@@ -21,6 +21,7 @@ import { BrowserRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import Recipes from './Recipes'
 import { useRecipeList } from '../api'
+import { useRecommendations } from '../api/hooks/useRecipes'
 
 // Mock the API hook
 vi.mock('../api', () => ({
@@ -46,6 +47,11 @@ vi.mock('../api/hooks/useCatalog', () => ({
   useCollections: () => ({ data: [], isLoading: false, isError: false }),
   useCollection: () => ({ data: undefined, isLoading: false, isError: false }),
   useOpenCard: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null, reset: vi.fn() }),
+}))
+// useRecommendations is called by Recipes.tsx directly; return empty by default
+// so library-view tests are unaffected. Override in tests that check the row.
+vi.mock('../api/hooks/useRecipes', () => ({
+  useRecommendations: vi.fn(() => ({ data: [] })),
 }))
 
 
@@ -157,6 +163,36 @@ describe('Recipes Page', () => {
       expect(sectionHeading('Your favorites')).toBeInTheDocument()
       expect(sectionHeading('Recently viewed')).toBeInTheDocument()
       expect(sectionHeading('Quick meals')).toBeInTheDocument()
+    })
+
+    it('"For you" is the first row on the main page when recommendations are present', () => {
+      vi.mocked(useRecommendations).mockReturnValue({
+        data: [
+          {
+            kind: 'recipe',
+            recipe: {
+              id: 'rec-1',
+              name: 'Recommended Recipe',
+              source_type: 'manual',
+              created_at: '2026-01-01',
+              tags: [],
+              cook_time_minutes: 20,
+              prep_time_minutes: 5,
+              base_servings: 2,
+            },
+          },
+        ],
+      } as any)
+      renderWithRouter(<Recipes />)
+      const forYou = screen.getByRole('region', { name: 'For you' })
+      expect(forYou).toBeInTheDocument()
+
+      // "For you" must precede "Your favorites" in the DOM
+      const all = document.querySelectorAll('[role="region"]')
+      const forYouIdx = Array.from(all).findIndex((el) => el.getAttribute('aria-label') === 'For you')
+      const favIdx = Array.from(all).findIndex((el) => el.getAttribute('aria-label') === 'Your favorites')
+      expect(forYouIdx).toBeGreaterThanOrEqual(0)
+      expect(forYouIdx).toBeLessThan(favIdx)
     })
 
     it('hides Quick meals while it has fewer than ten recipes', () => {

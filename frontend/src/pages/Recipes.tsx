@@ -9,11 +9,13 @@ import ThemeBar, { type ThemeFilter } from '../components/recipe/ThemeBar'
 import RecipeCarousel from '../components/recipe/RecipeCarousel'
 import RecipeGrid from '../components/recipe/RecipeGrid'
 import CollectionRow from '../components/recipe/CollectionRow'
+import MixedRow from '../components/recipe/MixedRow'
 import MoreCollectionsSheet from '../components/recipe/MoreCollectionsSheet'
 import Pill from '../components/ui/Pill'
 import { buildPageRows } from '../components/recipe/themeRows'
 import { useCollections } from '../api/hooks/useCatalog'
 import { useThemes } from '../api/hooks/useThemes'
+import { useRecommendations } from '../api/hooks/useRecipes'
 import type { RecipeListFilters } from '../api'
 import type { RecipeFilters } from '../components/recipe/FilterChips'
 
@@ -78,6 +80,8 @@ export default function Recipes() {
   const { data: themes } = useThemes({ enabled: !collectionsLoading })
   const { rows, heading } = buildPageRows(themes, themeKey, themeFilters)
   const onMainPage = !themeKey && themeFilters.length === 0
+
+  const { data: recommendations } = useRecommendations(20)
 
   // Handle search input - transition to grid view when typing
   const handleSearchChange = useCallback((value: string) => {
@@ -183,6 +187,10 @@ export default function Recipes() {
             {heading && <SectionHeader subtitle={heading.subtitle}>{heading.title}</SectionHeader>}
 
             <div className="space-y-6">
+              {onMainPage && (
+                <MixedRow title="For you" items={recommendations ?? []} />
+              )}
+
               {rows.map((row) =>
                 row.kind === 'library' ? (
                   <RecipeCarousel

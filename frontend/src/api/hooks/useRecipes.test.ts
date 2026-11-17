@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { createElement } from 'react'
-import { useRateRecipe, useRecipeList, recipeKeys } from './useRecipes'
+import { useRateRecipe, useRecipeList, useRecommendations, recipeKeys } from './useRecipes'
 import { useCookRecipe } from './useRecipeEngagement'
 import { apiClient } from '../client'
 
@@ -226,6 +226,37 @@ describe('useRateRecipe', () => {
         (k) => JSON.stringify(k) === JSON.stringify(recipeKeys.outcomes(RECIPE_ID))
       )
     ).toBe(true)
+  })
+})
+
+describe('useRecommendations', () => {
+  it('requests /recommendations?limit=20', async () => {
+    mockApiClient.mockResolvedValueOnce([])
+
+    const { result } = renderHook(() => useRecommendations(20), { wrapper })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiClient).toHaveBeenCalledWith(
+      '/recommendations?limit=20',
+      expect.objectContaining({ method: 'GET' })
+    )
+  })
+
+  it('is keyed under recipeKeys.lists() so list invalidations refresh it', async () => {
+    mockApiClient.mockResolvedValue([])
+
+    renderHook(() => useRecommendations(20), { wrapper })
+    await waitFor(() => expect(mockApiClient).toHaveBeenCalled())
+
+    const queries = queryClient.getQueryCache().getAll()
+    const recoQuery = queries.find((q) =>
+      JSON.stringify(q.queryKey).includes('recommendations')
+    )
+    expect(recoQuery).toBeDefined()
+    const listsKey = [...recipeKeys.lists()]
+    const key = recoQuery!.queryKey as unknown[]
+    expect(key.slice(0, listsKey.length)).toEqual(listsKey)
   })
 })
 

@@ -32,6 +32,7 @@ import type {
   UserRecipeRelationResponse,
   RecipeAggregateRatingsResponse,
   RecipeOutcome,
+  RecommendedItem,
 } from '../types';
 
 // Query keys for cache management
@@ -427,5 +428,20 @@ export function useRecipeOutcomes(
       }),
     staleTime: 2 * 60 * 1000,
     ...options,
+  });
+}
+
+/**
+ * Personalised recommendations from GET /recommendations.
+ *
+ * Keyed under recipeKeys.lists() so bookmark and view invalidations also
+ * refresh the "For you" row.
+ */
+export function useRecommendations(limit: number = 20) {
+  return useQuery({
+    queryKey: [...recipeKeys.lists(), 'recommendations', limit] as const,
+    queryFn: async () =>
+      apiClient<RecommendedItem[]>(`/recommendations?limit=${limit}`, { method: 'GET' }),
+    staleTime: 5 * 60 * 1000,
   });
 }
