@@ -607,6 +607,11 @@ export interface CollectionDetail {
   fetch_error: string | null;
 }
 
+/** One item returned by GET /recommendations — either a catalog card or a user recipe. */
+export type RecommendedItem =
+  | { kind: 'card'; card: CardResponse }
+  | { kind: 'recipe'; recipe: RecipeListResponse }
+
 // ============================================================================
 // Source Health Types
 // ============================================================================
