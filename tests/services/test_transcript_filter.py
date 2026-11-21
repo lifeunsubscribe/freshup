@@ -243,71 +243,54 @@ class TestCookingSignal:
 class TestCondenseTranscriptKeeps:
     """Tests that condense_transcript keeps the cooking content — run with -k condense_keeps."""
 
+    def _kept(self, result: CondensedTranscript) -> str:
+        # Passages within a chunk are \n-separated; normalize to spaces so
+        # substring matches work across passage boundaries.
+        return " ".join(" ".join(c.text.split()) for c in result.chunks)
+
     def test_condense_keeps_dish_name(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "chicken curry with coconut milk and spinach" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "chicken curry with coconut milk and spinach" in self._kept(result)
 
     def test_condense_keeps_oil(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "two tablespoons of oil" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "two tablespoons of oil" in self._kept(result)
 
     def test_condense_keeps_onion(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "one large onion" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "one large onion" in self._kept(result)
 
     def test_condense_keeps_garlic(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "three cloves of garlic" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "three cloves of garlic" in self._kept(result)
 
     def test_condense_keeps_curry_powder(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "two tablespoons of curry powder" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "two tablespoons of curry powder" in self._kept(result)
 
     def test_condense_keeps_chicken_thighs(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "one and a half pounds of chicken thighs" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "one and a half pounds of chicken thighs" in self._kept(result)
 
     def test_condense_keeps_coconut_milk(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "one can of coconut milk" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "one can of coconut milk" in self._kept(result)
 
     def test_condense_keeps_chicken_stock(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "one cup of chicken stock" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "one cup of chicken stock" in self._kept(result)
 
     def test_condense_keeps_simmer_duration(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "simmer for fifteen minutes" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "simmer for fifteen minutes" in self._kept(result)
 
     def test_condense_keeps_spinach(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "handfuls of spinach" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "handfuls of spinach" in self._kept(result)
 
     def test_condense_keeps_lime(self):
-        raw = FIXTURE_PATH.read_text()
-        result = condense_transcript(raw)
-        kept = " ".join(c.text for c in result.chunks)
-        assert "half a lime" in kept
+        result = condense_transcript(FIXTURE_PATH.read_text())
+        assert "half a lime" in self._kept(result)
 
 
 class TestCondenseTranscriptDrops:
@@ -431,11 +414,20 @@ class TestSponsor:
         assert "two tablespoons of butter" in kept
 
     def test_sponsor_passages_do_not_span_cut(self):
-        # Text before a cut and text after it must be in separate passages
-        result = condense_transcript(self._CROSS_SEG)
+        # Text before a cut and text after it must land in separate passages, never merged.
+        # Use a fixture with surviving cooking content on BOTH sides of the sponsor cut.
+        raw = (
+            "0:01\nadd two tablespoons of olive oil to a hot pan\n"
+            "0:03\nhere is a recipe for you today and use\n"
+            "0:05\ncode freshup to get fifty percent off your first order\n"
+            "0:07\nstir the onion in the pan for two minutes\n"
+        )
+        result = condense_transcript(raw)
         for chunk in result.chunks:
             for passage_text in chunk.text.split("\n"):
-                assert "and use" not in passage_text or "stir" not in passage_text
+                # "olive oil" (pre-cut) and "stir the onion" (post-cut) must never
+                # appear in the same passage entry.
+                assert not ("olive oil" in passage_text and "stir the onion" in passage_text)
 
 
 class TestBypass:
@@ -455,11 +447,24 @@ class TestBypass:
         assert "stir the onion" in kept
 
     def test_bypass_enough_cooking_passages_not_bypassed(self):
-        # Enough cooking passages: safety valve must NOT fire
+        # Each cooking caption exceeds PASSAGE_CHARS so they produce multiple
+        # passages, well above MIN_KEPT_PASSAGES — safety valve must NOT fire.
         raw = (
-            "0:01\nstir the onion in the pan for two minutes\n"
-            "0:10\nadd three cloves of garlic and a teaspoon of salt\n"
-            "0:20\nsimmer for fifteen minutes then stir in the spinach\n"
+            "0:01\n"
+            "heat two tablespoons of oil in a large pan over medium heat then add one large onion "
+            "diced and stir for about five minutes until softened and lightly golden then add three "
+            "cloves of minced garlic and a teaspoon of grated ginger cooking for another sixty "
+            "seconds while stirring constantly to prevent the garlic from burning on the hot pan\n"
+            "0:10\n"
+            "add two tablespoons of curry powder one teaspoon of cumin and a pinch of chili flakes "
+            "to the pan stirring everything together so the spices coat the onion and garlic evenly "
+            "then pour in one can of coconut milk and one cup of chicken stock and bring the whole "
+            "mixture to a gentle simmer over medium low heat stirring occasionally to combine\n"
+            "0:20\n"
+            "add one and a half pounds of chicken thighs cut into bite sized pieces to the simmering "
+            "sauce and cook for fifteen minutes until the chicken is cooked through then stir in two "
+            "large handfuls of spinach and let it wilt for two minutes before squeezing in half a lime "
+            "and tasting for salt adjusting seasoning as needed before serving over rice\n"
             "0:30\nsome random chatter that has nothing to do with cooking\n"
         )
         result = condense_transcript(raw)
