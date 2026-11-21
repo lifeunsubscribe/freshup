@@ -290,11 +290,12 @@ def _build_user_stats(label: str, user, db: Session) -> UserRecommendationStats:
     # --- Warnings ---
     warnings: list[str] = []
 
-    # Source skew: one source above 80% while another has 20+ candidates
+    # Source skew: one source above 70% while another has 20+ candidates.
+    # The ranker's diversity cap is 75%, so 80% is unreachable; use 70%.
     if total:
         all_sources_in_db = _all_source_candidate_counts(user, db)
         for src, share in source_shares.items():
-            if share > 0.80:
+            if share > 0.70:
                 other_has_20plus = any(
                     count >= 20 for s, count in all_sources_in_db.items() if s != src
                 )

@@ -199,7 +199,11 @@ class _MockDB:
 
         model = models[0]
         if model is SourceRecipeCard:
-            return _CardSlugQuery(self._collection_cards)
+            # Multi-model query (e.g. SourceRecipeCard, SourceCollection.slug) → join path
+            if len(models) > 1:
+                return _CardSlugQuery(self._collection_cards)
+            # Single-model query → plain card objects
+            return _MockQuery(self._cards)
         if model is RecipeIngredient:
             return _MockQuery(self._ingredients)
         if model is SourceCollection:
