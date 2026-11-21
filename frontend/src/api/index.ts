@@ -143,6 +143,16 @@ export {
   type OpenCardVariables,
 } from './hooks/useCatalog';
 
+// Plan hooks
+export {
+  useWeekPlan,
+  useGenerateDraft,
+  useConfirmEntry,
+  useSwapEntry,
+  useCreatePlanEntry,
+  planKeys,
+} from './hooks/usePlan';
+
 // Source health hooks
 export {
   useSourceHealth,
