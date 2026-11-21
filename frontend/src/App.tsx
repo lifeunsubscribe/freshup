@@ -6,6 +6,7 @@ import BottomNav from './components/layout/BottomNav'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Plan from './pages/Plan'
+import PlanWeek from './pages/PlanWeek'
 import Recipes from './pages/Recipes'
 import AddRecipe from './pages/AddRecipe'
 import RecipeDetail from './pages/RecipeDetail'
@@ -65,6 +66,14 @@ function AppContent() {
           element={
             <ProtectedRoute>
               <Plan />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/plan/:weekStart"
+          element={
+            <ProtectedRoute>
+              <PlanWeek />
             </ProtectedRoute>
           }
         />

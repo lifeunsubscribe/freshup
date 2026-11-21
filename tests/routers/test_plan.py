@@ -1769,3 +1769,53 @@ def test_accepted_card_entry_prefers_the_imported_recipes_picture(
     )
 
     assert entry["display"]["image_url"] == "https://img.example.com/imported.jpg"
+
+
+# ---------------------------------------------------------------------------
+# Variety across weeks: a draft does not repeat the weeks around it
+# ---------------------------------------------------------------------------
+
+
+def _draft_items(client, auth_headers, week_start):
+    """Generate a draft week and return the set of (recipe_id, card_id) it holds."""
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": week_start.isoformat()},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    return {(e["recipe_id"], e["catalog_card_id"]) for e in response.json()["entries"]}
+
+
+def test_next_weeks_draft_does_not_repeat_this_weeks(
+    client, auth_headers, two_source_draft_pool
+):
+    """With 23 candidates, two consecutive weeks share no dinner."""
+    this_week = _draft_items(client, auth_headers, date(2025, 6, 2))
+    next_week = _draft_items(client, auth_headers, date(2025, 6, 9))
+
+    assert len(this_week) == 7
+    assert len(next_week) == 7
+    assert this_week.isdisjoint(next_week)
+
+
+def test_a_small_pool_fills_the_week_with_repeats_after_the_fresh_ones(
+    client, auth_headers, recipes_pool, one_top_level_collection
+):
+    """Ten candidates: week two uses the three unused ones and repeats four."""
+    this_week = _draft_items(client, auth_headers, date(2025, 6, 2))
+    next_week = _draft_items(client, auth_headers, date(2025, 6, 9))
+
+    assert len(this_week) == 7
+    assert len(next_week) == 7
+    assert len(next_week - this_week) == 3
+
+
+def test_a_week_far_from_any_plan_may_use_the_same_dinners(
+    client, auth_headers, two_source_draft_pool
+):
+    """The variety window is a few weeks, not forever."""
+    first = _draft_items(client, auth_headers, date(2025, 6, 2))
+    much_later = _draft_items(client, auth_headers, date(2025, 9, 1))
+
+    assert first == much_later

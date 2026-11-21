@@ -1,15 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, fireEvent, within } from '@testing-library/react'
+import { screen, fireEvent, within, act } from '@testing-library/react'
 import Plan from './Plan'
 import { renderWithProviders } from '../test/renderWithProviders'
-import {
-  useWeekPlan,
-  useGenerateDraft,
-  useConfirmEntry,
-  useSwapEntry,
-  useOpenCard,
-} from '../api'
-import type { MealPlanEntryDisplay, WeekViewResponse } from '../api/types'
+import { planEntry as entry, planMocks, resetPlanMocks, setupPlanMocks as setup } from '../test/planWeekMocks'
+import { useWeekPlan } from '../api'
 
 vi.mock('../api', () => ({
   useWeekPlan: vi.fn(),
@@ -19,86 +13,21 @@ vi.mock('../api', () => ({
   useOpenCard: vi.fn(),
 }))
 
-const mockNavigate = vi.fn()
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom')
-  return { ...actual, useNavigate: () => mockNavigate }
-})
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: () => ({ currentUser: { name: 'Sarah' } }),
+}))
 
 // Wednesday 2026-11-18; its week starts Monday 2026-11-16.
 const NOW = new Date('2026-11-18T10:00:00')
 const THIS_WEEK = '2026-11-16'
+const WEEK_DAYS = ['2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-11-22']
 
-function entry(date: string, overrides: Partial<MealPlanEntryDisplay> = {}): MealPlanEntryDisplay {
-  return {
-    id: `entry-${date}`,
-    date,
-    meal_type: 'dinner',
-    recipe_id: null,
-    catalog_card_id: `card-${date}`,
-    prepared_food_id: null,
-    planned_servings: 2,
-    status: 'draft',
-    notes: null,
-    display: {
-      name: `Dinner ${date}`,
-      image_url: `https://img.test/${date}.jpg`,
-      prep_time_minutes: 35,
-      source_type: 'hellofresh_web',
-    },
-    ...overrides,
-  }
+function card(title: string) {
+  return within(screen.getByRole('region', { name: title }))
 }
 
-const generateMutate = vi.fn()
-const generateReset = vi.fn()
-const confirmMutate = vi.fn()
-const swapMutate = vi.fn()
-const openCardMutate = vi.fn()
-
-/** Weeks the mocked GET /plan/week knows about; any other week is empty. */
-let weeks: Record<string, Partial<WeekViewResponse>> = {}
-
-function setup({
-  generate = {},
-  weekQuery = {},
-}: {
-  generate?: { isPending?: boolean; isError?: boolean }
-  weekQuery?: { isLoading?: boolean; isError?: boolean }
-} = {}) {
-  vi.mocked(useWeekPlan).mockImplementation(((weekStart: string) => ({
-    data:
-      weekQuery.isLoading || weekQuery.isError
-        ? undefined
-        : { week_start: weekStart, confirmed_entries: [], draft_entries: [], ...weeks[weekStart] },
-    isLoading: weekQuery.isLoading ?? false,
-    isError: weekQuery.isError ?? false,
-    refetch: vi.fn(),
-  })) as unknown as typeof useWeekPlan)
-
-  vi.mocked(useGenerateDraft).mockReturnValue({
-    mutate: generateMutate,
-    reset: generateReset,
-    isPending: generate.isPending ?? false,
-    isError: generate.isError ?? false,
-  } as unknown as ReturnType<typeof useGenerateDraft>)
-  vi.mocked(useConfirmEntry).mockReturnValue({
-    mutate: confirmMutate,
-    isPending: false,
-  } as unknown as ReturnType<typeof useConfirmEntry>)
-  vi.mocked(useSwapEntry).mockReturnValue({
-    mutate: swapMutate,
-    isPending: false,
-  } as unknown as ReturnType<typeof useSwapEntry>)
-  vi.mocked(useOpenCard).mockReturnValue({
-    mutate: openCardMutate,
-  } as unknown as ReturnType<typeof useOpenCard>)
-}
-
-function rowFor(day: string) {
-  const row = screen.getByText(new RegExp(`${day}$`)).closest('li')
-  if (!row) throw new Error(`no row for ${day}`)
-  return within(row)
+function weeksAsked(): string[] {
+  return [...new Set(vi.mocked(useWeekPlan).mock.calls.map(([weekStart]) => weekStart))]
 }
 
 describe('Plan page', () => {
@@ -106,236 +35,114 @@ describe('Plan page', () => {
     vi.clearAllMocks()
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
-    weeks = {}
+    resetPlanMocks()
   })
 
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  describe('the week', () => {
-    it('shows this week, a row per day, with today marked', () => {
-      weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
-      setup()
+  it('shows this week as a plan card, then two sample weeks', () => {
+    planMocks.weeks[THIS_WEEK] = { draft_entries: WEEK_DAYS.map((d) => entry(d)) }
+    setup()
 
-      renderWithProviders(<Plan />)
+    renderWithProviders(<Plan />)
 
-      expect(screen.getByText('This week')).toBeInTheDocument()
-      expect(screen.getByText('Nov 16 – 22')).toBeInTheDocument()
-      expect(screen.getAllByRole('listitem')).toHaveLength(7)
-      expect(screen.getByText('Today · Wednesday')).toBeInTheDocument()
-      expect(vi.mocked(useWeekPlan)).toHaveBeenLastCalledWith(THIS_WEEK)
-    })
-
-    it('shows a planned dinner with its source and time, and "Nothing planned" on empty days', () => {
-      weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
-      setup()
-
-      renderWithProviders(<Plan />)
-
-      const monday = rowFor('Monday')
-      expect(monday.getByText('Dinner 2026-11-16')).toBeInTheDocument()
-      expect(monday.getByText('HelloFresh · 35 min')).toBeInTheDocument()
-      expect(rowFor('Tuesday').getByText('Nothing planned')).toBeInTheDocument()
-    })
-
-    it('lets an accepted dinner win over a suggestion on the same day', () => {
-      weeks[THIS_WEEK] = {
-        draft_entries: [entry('2026-11-16')],
-        confirmed_entries: [
-          entry('2026-11-16', {
-            id: 'accepted',
-            status: 'approved',
-            recipe_id: 'recipe-1',
-            display: {
-              name: 'Roast chicken',
-              image_url: null,
-              prep_time_minutes: null,
-              source_type: 'manual',
-            },
-          }),
-        ],
-      }
-      setup()
-
-      renderWithProviders(<Plan />)
-
-      const monday = rowFor('Monday')
-      expect(monday.getByText('Roast chicken')).toBeInTheDocument()
-      expect(monday.getByText('Your recipes')).toBeInTheDocument()
-      expect(monday.getByText('Planned')).toBeInTheDocument()
-      expect(monday.queryByRole('button', { name: 'Accept Monday dinner' })).not.toBeInTheDocument()
-    })
-
-    it('moves to next week and back', () => {
-      weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
-      weeks['2026-11-23'] = { draft_entries: [entry('2026-11-23')] }
-      setup()
-
-      renderWithProviders(<Plan />)
-      fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
-
-      expect(screen.getByText('Next week')).toBeInTheDocument()
-      expect(screen.getByText('Nov 23 – 29')).toBeInTheDocument()
-      expect(screen.getByText('Dinner 2026-11-23')).toBeInTheDocument()
-
-      fireEvent.click(screen.getByRole('button', { name: 'Previous week' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Previous week' }))
-
-      expect(screen.getByText('Last week')).toBeInTheDocument()
-      expect(vi.mocked(useWeekPlan)).toHaveBeenLastCalledWith('2026-11-09')
-    })
+    expect(screen.getByRole('region', { name: 'This week' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Next week' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Week of Nov 30' })).toBeInTheDocument()
+    expect(weeksAsked()).toEqual([THIS_WEEK, '2026-11-23', '2026-11-30'])
   })
 
-  describe('an empty week', () => {
-    it('asks for suggestions once when the current week is empty', () => {
-      setup()
+  it('heads each card with its dates, its people and where the week stands', () => {
+    planMocks.weeks[THIS_WEEK] = {
+      draft_entries: WEEK_DAYS.slice(2).map((d) => entry(d)),
+      confirmed_entries: WEEK_DAYS.slice(0, 2).map((d) =>
+        entry(d, { status: 'approved', recipe_id: `recipe-${d}` })
+      ),
+    }
+    setup()
 
-      const { rerender } = renderWithProviders(<Plan />)
-      rerender(<Plan />)
+    renderWithProviders(<Plan />)
 
-      expect(generateMutate).toHaveBeenCalledTimes(1)
-      expect(generateMutate).toHaveBeenCalledWith(THIS_WEEK)
-    })
-
-    it('asks for suggestions for an empty future week', () => {
-      weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
-      setup()
-
-      renderWithProviders(<Plan />)
-      expect(generateMutate).not.toHaveBeenCalled()
-
-      fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
-
-      expect(generateMutate).toHaveBeenCalledWith('2026-11-23')
-    })
-
-    it('does not fill a past week, and says nothing was planned', () => {
-      weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
-      setup()
-
-      renderWithProviders(<Plan />)
-      fireEvent.click(screen.getByRole('button', { name: 'Previous week' }))
-
-      expect(generateMutate).not.toHaveBeenCalled()
-      expect(screen.getByText('Nothing was planned this week.')).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'Suggest dinners' })).not.toBeInTheDocument()
-    })
-
-    it('offers a button when the automatic attempt produced nothing', () => {
-      setup()
-
-      renderWithProviders(<Plan />)
-      fireEvent.click(screen.getByRole('button', { name: 'Suggest dinners' }))
-
-      expect(generateMutate).toHaveBeenCalledTimes(2)
-      expect(generateMutate).toHaveBeenLastCalledWith(THIS_WEEK)
-    })
-
-    it('says so while choosing, and offers a retry when it fails', () => {
-      setup({ generate: { isPending: true } })
-      const { unmount } = renderWithProviders(<Plan />)
-      expect(screen.getByText('Choosing dinners for this week...')).toBeInTheDocument()
-      unmount()
-
-      setup({ generate: { isError: true } })
-      renderWithProviders(<Plan />)
-      generateMutate.mockClear()
-      fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-
-      expect(generateMutate).toHaveBeenCalledWith(THIS_WEEK)
-    })
+    const thisWeek = card('This week')
+    expect(thisWeek.getByText('Nov 16 – 22')).toBeInTheDocument()
+    expect(thisWeek.getByLabelText('People on this plan: just you')).toBeInTheDocument()
+    expect(thisWeek.getByText('2 planned · 5 suggested · about 4 h 5 min of cooking')).toBeInTheDocument()
+    expect(thisWeek.getByLabelText('Monday: planned')).toBeInTheDocument()
+    expect(thisWeek.getByLabelText('Sunday: suggested')).toBeInTheDocument()
   })
 
-  describe('acting on a suggestion', () => {
-    beforeEach(() => {
-      weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16'), entry('2026-11-17')] }
-    })
+  it('lays the week out as a carousel of dinners, one per day', () => {
+    planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
+    setup()
 
-    it('accepts it and reports what went on the grocery list', () => {
-      confirmMutate.mockImplementation((_id, options) =>
-        options.onSuccess({ entry: entry('2026-11-16'), grocery_items_added: 8 })
-      )
-      setup()
+    renderWithProviders(<Plan />)
 
-      renderWithProviders(<Plan />)
-      fireEvent.click(screen.getByRole('button', { name: 'Accept Monday dinner' }))
-
-      expect(confirmMutate).toHaveBeenCalledWith('entry-2026-11-16', expect.anything())
-      expect(screen.getByRole('status')).toHaveTextContent('Added 8 items to your grocery list.')
-    })
-
-    it('shows why an accept failed, on that day only', () => {
-      confirmMutate.mockImplementation((_id, options) =>
-        options.onError(new Error('Could not bring this recipe in. Try again.'))
-      )
-      setup()
-
-      renderWithProviders(<Plan />)
-      fireEvent.click(screen.getByRole('button', { name: 'Accept Tuesday dinner' }))
-
-      expect(rowFor('Tuesday').getByRole('alert')).toHaveTextContent(
-        'Could not bring this recipe in. Try again.'
-      )
-      expect(rowFor('Monday').queryByRole('alert')).not.toBeInTheDocument()
-    })
-
-    it('swaps it', () => {
-      setup()
-
-      renderWithProviders(<Plan />)
-      fireEvent.click(screen.getByRole('button', { name: 'Swap Monday dinner' }))
-
-      expect(swapMutate).toHaveBeenCalledWith('entry-2026-11-16', expect.anything())
-    })
-
-    it('opens a catalog suggestion by importing it first', () => {
-      openCardMutate.mockImplementation((_vars, options) => options.onSuccess({ id: 'recipe-9' }))
-      setup()
-
-      renderWithProviders(<Plan />)
-      fireEvent.click(screen.getByRole('button', { name: 'Open Dinner 2026-11-16' }))
-
-      expect(openCardMutate).toHaveBeenCalledWith(
-        { cardId: 'card-2026-11-16', source: 'hellofresh_web', collectionSlug: '' },
-        expect.anything()
-      )
-      expect(mockNavigate).toHaveBeenCalledWith('/recipes/recipe-9')
-    })
-
-    it('opens a recipe-backed dinner directly', () => {
-      weeks[THIS_WEEK] = {
-        confirmed_entries: [
-          entry('2026-11-16', { status: 'approved', recipe_id: 'recipe-1', catalog_card_id: null }),
-        ],
-      }
-      setup()
-
-      renderWithProviders(<Plan />)
-      fireEvent.click(screen.getByRole('button', { name: 'Open Dinner 2026-11-16' }))
-
-      expect(mockNavigate).toHaveBeenCalledWith('/recipes/recipe-1')
-      expect(openCardMutate).not.toHaveBeenCalled()
-    })
+    const dinners = within(card('This week').getByRole('list', { name: 'This week dinners' }))
+    expect(dinners.getAllByRole('listitem')).toHaveLength(7)
+    expect(dinners.getByLabelText('Monday: Dinner 2026-11-16')).toBeInTheDocument()
+    expect(dinners.getByLabelText('Tuesday: nothing planned')).toBeInTheDocument()
+    expect(dinners.getByText('Today · Wed')).toBeInTheDocument()
   })
 
-  describe('loading and failure', () => {
-    it('shows loading', () => {
-      setup({ weekQuery: { isLoading: true } })
+  it('fills each empty week with suggestions', () => {
+    setup()
 
-      renderWithProviders(<Plan />)
+    renderWithProviders(<Plan />)
 
-      expect(screen.getByText('Loading...')).toBeInTheDocument()
-      expect(generateMutate).not.toHaveBeenCalled()
+    expect(planMocks.generateMutate.mock.calls.map(([weekStart]) => weekStart)).toEqual([
+      THIS_WEEK,
+      '2026-11-23',
+      '2026-11-30',
+    ])
+  })
+
+  it('adds a further week on request', () => {
+    setup()
+
+    renderWithProviders(<Plan />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show another week' }))
+
+    expect(screen.getByRole('region', { name: 'Week of Dec 7' })).toBeInTheDocument()
+  })
+
+  it('links each card to its week editor, and to last week', () => {
+    setup()
+
+    renderWithProviders(<Plan />)
+
+    expect(screen.getByRole('link', { name: 'Edit this week' })).toHaveAttribute('href', '/plan/2026-11-16')
+    expect(screen.getByRole('link', { name: 'Edit next week' })).toHaveAttribute('href', '/plan/2026-11-23')
+    expect(screen.getByRole('link', { name: 'Last week' })).toHaveAttribute('href', '/plan/2026-11-09')
+  })
+
+  it('accepts and swaps a dinner from its card', () => {
+    planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
+    planMocks.weeks['2026-11-23'] = { draft_entries: [entry('2026-11-23')] }
+    setup()
+
+    renderWithProviders(<Plan />)
+    fireEvent.click(card('This week').getByRole('button', { name: 'Accept Monday dinner' }))
+    fireEvent.click(card('Next week').getByRole('button', { name: 'Swap Monday dinner' }))
+
+    expect(planMocks.confirmMutate).toHaveBeenCalledWith('entry-2026-11-16', expect.anything())
+    expect(planMocks.swapMutate).toHaveBeenCalledWith('entry-2026-11-23', expect.anything())
+  })
+
+  it('accepts a whole week from its card', async () => {
+    planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16'), entry('2026-11-17')] }
+    planMocks.confirmMutateAsync.mockResolvedValue({ grocery_items_added: 4 })
+    setup()
+
+    renderWithProviders(<Plan />)
+    await act(async () => {
+      fireEvent.click(card('This week').getByRole('button', { name: 'Accept all 2' }))
     })
 
-    it('offers a retry when the week cannot be loaded', () => {
-      setup({ weekQuery: { isError: true } })
-
-      renderWithProviders(<Plan />)
-
-      expect(screen.getByText(/Could not load this week/)).toBeInTheDocument()
-      expect(generateMutate).not.toHaveBeenCalled()
-    })
+    expect(planMocks.confirmMutateAsync).toHaveBeenCalledTimes(2)
+    expect(card('This week').getByRole('status')).toHaveTextContent(
+      'Accepted 2 dinners. Added 8 items to your grocery list.'
+    )
   })
 })

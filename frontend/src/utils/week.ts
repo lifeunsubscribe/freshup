@@ -62,3 +62,26 @@ export function formatWeekRange(weekStart: string): string {
       : `${MONTHS[last.getMonth()]} ${last.getDate()}`
   return `${MONTHS[first.getMonth()]} ${first.getDate()} – ${end}`
 }
+
+/** The Monday of the week holding the day written as YYYY-MM-DD, or null if it is not a date. */
+export function mondayOfDateStr(dateStr: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
+  const date = fromDateStr(dateStr)
+  return Number.isNaN(date.getTime()) ? null : mondayOf(date)
+}
+
+/** "This week", "Next week", "Last week", otherwise "Week of Dec 7". */
+export function weekTitle(weekStart: string, thisWeek: string): string {
+  if (weekStart === thisWeek) return 'This week'
+  if (weekStart === addDays(thisWeek, 7)) return 'Next week'
+  if (weekStart === addDays(thisWeek, -7)) return 'Last week'
+  return `Week of ${formatMonthDay(weekStart)}`
+}
+
+/** "45 min", "3 h", "3 h 5 min" */
+export function formatDuration(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  if (h === 0) return `${m} min`
+  return m === 0 ? `${h} h` : `${h} h ${m} min`
+}

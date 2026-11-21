@@ -144,6 +144,28 @@ def _pick_for_slot(
     return None
 
 
+# A dinner planned or suggested within this many weeks either side of the week
+# being drafted is not suggested again, so consecutive weeks differ.
+_VARIETY_WEEKS = 3
+
+
+def _planned_nearby(db: Session, week_start: date) -> tuple[set[UUID], set[UUID]]:
+    """Card ids and recipe ids on plan entries in the weeks around `week_start`."""
+    rows = (
+        db.query(MealPlanEntry.catalog_card_id, MealPlanEntry.recipe_id)
+        .filter(MealPlanEntry.date >= week_start - timedelta(weeks=_VARIETY_WEEKS))
+        .filter(MealPlanEntry.date < week_start + timedelta(weeks=_VARIETY_WEEKS + 1))
+        .all()
+    )
+    card_ids = {card_id for card_id, _ in rows if card_id is not None}
+    recipe_ids = {recipe_id for _, recipe_id in rows if recipe_id is not None}
+    return card_ids, recipe_ids
+
+
+def _ranked_key(item) -> tuple[str, UUID]:
+    return (item.kind, item.card.id if item.kind == "card" else item.recipe.id)
+
+
 def select_week(user, db: Session, week_start: date) -> list[WeekChoice]:
     """
     Pure selection: returns up to 7 WeekChoice objects for the given week.
@@ -162,12 +184,25 @@ def select_week(user, db: Session, week_start: date) -> list[WeekChoice]:
     - Allergies of every household member block; `never` keys of the requesting
       user block (rank_candidates handles the requesting user; this function
       additionally filters for every other member).
+    - Nothing already on the plan within `_VARIETY_WEEKS` weeks either side is
+      suggested again, unless too few other candidates remain to fill the week.
     """
     from src.services.recommendation_service import rank_candidates
     from src.services.taste_service import card_keys, is_blocked, is_card_blocked
     from src.services.card_tags import overlap_tags
 
-    candidates = rank_candidates(user, db, limit=40)
+    nearby_cards, nearby_recipes = _planned_nearby(db, week_start)
+    candidates = rank_candidates(
+        user, db, limit=40,
+        exclude_card_ids=nearby_cards, exclude_recipe_ids=nearby_recipes,
+    )
+    if len(candidates) < 7 and (nearby_cards or nearby_recipes):
+        # A small pool: repeats are better than empty days. They go last, so
+        # they are used only for the slots nothing fresh can fill.
+        fresh = {_ranked_key(c) for c in candidates}
+        candidates += [
+            c for c in rank_candidates(user, db, limit=40) if _ranked_key(c) not in fresh
+        ]
     if not candidates:
         logger.warning("select_week: no candidates from rank_candidates for week %s", week_start)
         return []
