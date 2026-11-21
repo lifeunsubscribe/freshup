@@ -69,6 +69,20 @@ Three things to know when writing frontend tests:
   there must be added to the mock in both.
 - Run `npm run typecheck` before pushing to catch type errors in test files that neither the build nor vitest check.
 
+### Quality report
+
+A developer-only script checks two things: how completely cards were extracted
+per source (image, prep time, ingredient key coverage) and how balanced the
+recommendations and suggested week are (source distribution, cuisine variety,
+ingredient dominance).  It makes no writes.
+
+```bash
+cp data/freshup.db /tmp/qr.db
+DATABASE_URL=sqlite:////tmp/qr.db .venv/bin/python scripts/quality_report.py
+# Optional: show one user only
+DATABASE_URL=sqlite:////tmp/qr.db .venv/bin/python scripts/quality_report.py --user sarah@freshup.dev
+```
+
 The API applies any pending Alembic migrations on startup and seeds local test
 users (`sarah@freshup.dev` / `alex@freshup.dev`, password `FreshUp2024!`) when
 `ENVIRONMENT=local`.
