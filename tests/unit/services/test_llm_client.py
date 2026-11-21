@@ -458,8 +458,13 @@ async def test_validation_error_sanitizes_pii(mock_httpx_client):
 
 
 @pytest.mark.asyncio
-async def test_complete_sends_default_num_ctx(mock_httpx_client):
+async def test_complete_sends_default_num_ctx(mock_httpx_client, monkeypatch):
     """Test that the payload includes options.num_ctx with the default value 8192."""
+    from src.config import get_settings
+    get_settings.cache_clear()
+    monkeypatch.delenv("OLLAMA_NUM_CTX", raising=False)
+    get_settings.cache_clear()
+
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = {
@@ -515,8 +520,13 @@ async def test_complete_sends_configured_num_ctx(mock_httpx_client, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_retry_carries_num_ctx(mock_httpx_client):
+async def test_retry_carries_num_ctx(mock_httpx_client, monkeypatch):
     """Test that the retry request (after a validation failure) also carries num_ctx."""
+    from src.config import get_settings
+    get_settings.cache_clear()
+    monkeypatch.delenv("OLLAMA_NUM_CTX", raising=False)
+    get_settings.cache_clear()
+
     # First call returns invalid schema; second returns valid
     invalid_response = MagicMock()
     invalid_response.status_code = 200
