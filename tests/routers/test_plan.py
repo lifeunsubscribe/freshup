@@ -1686,3 +1686,86 @@ def test_migration_chain_has_one_head_after_catalog_card_id_migration():
         "The catalog_card_id migration introduced a second head."
     )
 
+
+
+# ---------------------------------------------------------------------------
+# Display picture: a recipe keeps its picture in source_image
+# ---------------------------------------------------------------------------
+
+
+def _confirm_with_import(client, auth_headers, monkeypatch, entry, recipe):
+    """Confirm a card entry with open_card replaced by an import that returns `recipe`."""
+    from src.services import catalog_service
+    from src.services.catalog_service import OpenCardResult
+
+    monkeypatch.setattr(
+        catalog_service,
+        "open_card",
+        lambda db, card_id: OpenCardResult(recipe=recipe, imported=True),
+    )
+    response = client.put(f"/plan/entries/{entry.id}/confirm", headers=auth_headers)
+    assert response.status_code == 200
+    return response.json()["entry"]
+
+
+def test_recipe_entry_display_shows_the_recipes_picture(
+    client, db_session, auth_headers, test_user
+):
+    """An entry for a recipe carries that recipe's source_image as its picture."""
+    week_start = date(2025, 7, 7)
+    recipe = Recipe(
+        id=uuid4(),
+        name="Pictured Recipe",
+        source_type="hellofresh",
+        base_servings=2,
+        is_persisted=True,
+        created_by=test_user.id,
+        source_image="https://img.example.com/pictured.jpg",
+    )
+    db_session.add(recipe)
+    db_session.add(MealPlanEntry(
+        id=uuid4(),
+        date=week_start,
+        meal_type=MealType.dinner.value,
+        recipe_id=recipe.id,
+        planned_servings=2,
+        status=MealPlanStatus.approved.value,
+    ))
+    db_session.commit()
+
+    response = client.get(
+        f"/plan/week?week_start={week_start.isoformat()}", headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    [entry] = response.json()["confirmed_entries"]
+    assert entry["display"]["image_url"] == "https://img.example.com/pictured.jpg"
+
+
+def test_accepted_card_entry_keeps_the_cards_picture_when_the_recipe_has_none(
+    client, auth_headers, card_draft_entry, imported_recipe_for_card, monkeypatch
+):
+    """Accepting a suggestion must not make its picture disappear."""
+    assert imported_recipe_for_card.source_image is None
+
+    entry = _confirm_with_import(
+        client, auth_headers, monkeypatch, card_draft_entry["entry"], imported_recipe_for_card
+    )
+    assert entry["display"]["image_url"] == card_draft_entry["card"].image_url
+
+    week = client.get("/plan/week?week_start=2025-06-02", headers=auth_headers).json()
+    [confirmed] = week["confirmed_entries"]
+    assert confirmed["display"]["image_url"] == card_draft_entry["card"].image_url
+
+
+def test_accepted_card_entry_prefers_the_imported_recipes_picture(
+    client, db_session, auth_headers, card_draft_entry, imported_recipe_for_card, monkeypatch
+):
+    imported_recipe_for_card.source_image = "https://img.example.com/imported.jpg"
+    db_session.commit()
+
+    entry = _confirm_with_import(
+        client, auth_headers, monkeypatch, card_draft_entry["entry"], imported_recipe_for_card
+    )
+
+    assert entry["display"]["image_url"] == "https://img.example.com/imported.jpg"

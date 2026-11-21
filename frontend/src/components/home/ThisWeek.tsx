@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Check, RefreshCw } from 'lucide-react'
 import SectionHeader from '../ui/SectionHeader'
-import Pill from '../ui/Pill'
 import {
   useWeekPlan,
   useGenerateDraft,
@@ -12,17 +11,14 @@ import {
   useOpenCard,
 } from '../../api'
 import type { MealPlanEntryDisplay } from '../../api/types'
+import { sourceName } from '../../utils/sourceNames'
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-const SOURCE_LABELS: Record<string, string> = {
-  hellofresh_card: 'HelloFresh',
-  manual: 'Your recipes',
-  ad_hoc: 'Your recipes',
-}
+const OWN_RECIPE_SOURCES = new Set(['manual', 'ad_hoc'])
 
 function sourceLabel(sourceType: string): string {
-  return SOURCE_LABELS[sourceType] ?? sourceType
+  return OWN_RECIPE_SOURCES.has(sourceType) ? 'Your recipes' : sourceName(sourceType)
 }
 
 function getCurrentMondayStr(): string {
@@ -170,7 +166,7 @@ function DayTile({ dayLabel, entry, onTap, onConfirm, onSwap }: DayTileProps) {
   return (
     <div
       role="listitem"
-      className={`flex-shrink-0 w-[150px] bg-white rounded-[12px] border border-warm-border overflow-hidden${
+      className={`flex-shrink-0 w-[168px] bg-white rounded-[12px] border border-warm-border overflow-hidden${
         isDraft ? ' opacity-70' : ''
       }${entry ? ' cursor-pointer' : ''}`}
       onClick={() => entry && onTap(entry)}
@@ -182,8 +178,8 @@ function DayTile({ dayLabel, entry, onTap, onConfirm, onSwap }: DayTileProps) {
         </p>
       </div>
 
-      {/* Photo */}
-      <div className="w-full h-[72px] bg-warm-gray overflow-hidden">
+      {/* Photo: 4:3, the recipe card's shape */}
+      <div className="w-full aspect-[4/3] bg-warm-gray overflow-hidden">
         {entry?.display?.image_url && !imageError ? (
           <img
             src={entry.display.image_url}
@@ -208,7 +204,6 @@ function DayTile({ dayLabel, entry, onTap, onConfirm, onSwap }: DayTileProps) {
             <p className="text-[11px] text-text-secondary">
               {sourceLabel(entry.display.source_type)}
             </p>
-            {isDraft && <Pill variant="default">Suggested</Pill>}
           </>
         ) : (
           <p className="text-[12px] text-text-tertiary">Not planned</p>

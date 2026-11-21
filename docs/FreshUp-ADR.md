@@ -719,7 +719,7 @@ Each week (configurable day/time, default Sunday 8am), the system generates a dr
 
 **Visual treatment:**
 - Confirmed meals: full-color recipe cards.
-- Draft/suggested meals: faded/greyed-out recipe cards with accept/dismiss/swap actions, labeled "Suggested."
+- Draft/suggested meals: faded/greyed-out recipe cards with accept/dismiss/swap actions. The fade and the actions are what mark a suggestion; there is no "Suggested" label (removed 2026-11-21).
 - Opted-out slots: "You opted out" with "Plan something" browse link.
 
 ### 5.16 Taste Scoring (added Phase 2.5J)

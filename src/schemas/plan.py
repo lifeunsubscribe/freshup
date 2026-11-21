@@ -51,9 +51,13 @@ class MealPlanEntrySchema(BaseModel):
         card_rel = getattr(obj, 'catalog_card_rel', None)
 
         if recipe_rel is not None:
+            # A recipe keeps its picture in source_image. An entry accepted from
+            # a catalog card still points at the card, so the card's picture
+            # stands in when the imported recipe came without one.
+            image_url = getattr(recipe_rel, 'source_image', None) or getattr(card_rel, 'image_url', None)
             display = {
                 'name': recipe_rel.name,
-                'image_url': getattr(recipe_rel, 'image_url', None),
+                'image_url': image_url,
                 'prep_time_minutes': getattr(recipe_rel, 'prep_time_minutes', None),
                 'source_type': getattr(recipe_rel, 'source_type', 'manual') or 'manual',
             }

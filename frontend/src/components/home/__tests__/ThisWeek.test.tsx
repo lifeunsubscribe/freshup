@@ -46,9 +46,9 @@ function makeDraftEntry(i: number) {
     notes: null,
     display: {
       name: `Recipe ${i}`,
-      image_url: null,
+      image_url: null as string | null,
       prep_time_minutes: 30,
-      source_type: 'hellofresh_card',
+      source_type: 'hellofresh_web',
     },
   }
 }
@@ -126,12 +126,39 @@ describe('ThisWeek', () => {
       }
     })
 
-    it('shows "Suggested" pill on each draft tile', () => {
+    it('puts no "Suggested" label on draft tiles', () => {
       setupMocks({ draftEntries: DATES.map((_, i) => makeDraftEntry(i)) })
 
       renderWithProviders(<ThisWeek />)
 
-      expect(screen.getAllByText('Suggested')).toHaveLength(7)
+      expect(screen.queryByText('Suggested')).not.toBeInTheDocument()
+    })
+
+    it('shows the picture the entry carries, before and after it is accepted', () => {
+      const suggested = makeDraftEntry(0)
+      suggested.display.image_url = 'https://img.test/suggested.jpg'
+      const accepted = makeConfirmedEntry(1)
+      accepted.display.image_url = 'https://img.test/accepted.jpg'
+      setupMocks({ draftEntries: [suggested], confirmedEntries: [accepted] })
+
+      renderWithProviders(<ThisWeek />)
+
+      expect(screen.getByAltText('Recipe 0')).toHaveAttribute('src', 'https://img.test/suggested.jpg')
+      expect(screen.getByAltText('Recipe 1')).toHaveAttribute('src', 'https://img.test/accepted.jpg')
+    })
+
+    it('names the source, not its internal type', () => {
+      const own = makeDraftEntry(1)
+      own.display.source_type = 'manual'
+      const homeChef = makeDraftEntry(2)
+      homeChef.display.source_type = 'homechef_web'
+      setupMocks({ draftEntries: [makeDraftEntry(0), own, homeChef] })
+
+      renderWithProviders(<ThisWeek />)
+
+      expect(screen.getByText('HelloFresh')).toBeInTheDocument()
+      expect(screen.getByText('Your recipes')).toBeInTheDocument()
+      expect(screen.getByText('Home Chef')).toBeInTheDocument()
     })
 
     it('shows source byline on each draft tile', () => {
