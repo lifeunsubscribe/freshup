@@ -705,6 +705,7 @@ Each week (configurable day/time, default Sunday 8am), the system generates a dr
   3. Exactly one `explore` item is placed when one exists.
   4. When two or more sources have candidates, at least 2 dinners come from a second source.
   5. Allergies of every household member block a candidate; `never` keys of the requesting user block.
+  6. A dinner already planned or suggested within three weeks either side of the week being drafted is not suggested again, so consecutive weeks differ; with too small a pool, repeats fill the remaining days (`_VARIETY_WEEKS` in `meal_plan_service.py`).
 - **Draft entries are never committed to grocery or inventory** until the user explicitly confirms.
 - Confirming a card entry triggers `open_card`, which imports the recipe on demand and sets `recipe_id`. An import failure leaves the entry unchanged and returns HTTP 400 "Could not bring this recipe in. Try again."
 - The response schema includes a `display` field on every entry with `name`, `image_url`, `prep_time_minutes`, and `source_type` drawn from whichever of the recipe or card is linked.
@@ -1028,7 +1029,7 @@ Each phase produces a usable increment of the system. Phases are broken into cle
 - Menu title and description editing
 
 #### 2.5I: Frontend — Plan Page
-- **Built so far (2026-11-21, first working version):** `/plan` shows one week of dinners, a day per row, with previous/next week; an empty week that is not in the past fills itself with suggestions (`POST /plan/draft/generate`); a suggestion can be accepted (which adds its ingredients to the grocery list) or swapped; a row opens the recipe, importing a catalog card first. Not built: choosing a recipe for a day, removing or moving a meal, other meal types, servings, and everything household below.
+- **Built so far (2026-11-21):** `/plan` shows each week as one plan card: the week's dates, the people on the plan (today only its owner), a seven-day strip (planned, suggested, nothing) and a count with total cooking time, then the week's dinners as a carousel inside the card. The current week comes first and opens at today; sample weeks for planning ahead follow, each filled with suggestions (`POST /plan/draft/generate`). A suggestion can be accepted (its ingredients go to the grocery list), swapped, or all accepted at once. `/plan/:weekStart` is the week editor: the same plan opened up, a day per row. Not built: choosing a recipe for a day, removing or moving a meal, other meal types, servings, adding people, and everything household below. People on a plan (collaborators, who plan the week together) are shown on the plan; who eats a given dinner belongs on that dinner and is shown only when it differs.
 - Weekly calendar view (replace Phase 3 stub)
 - Household vs. personal plan toggle
 - Auto-draft recipe cards (faded/greyed-out treatment)
