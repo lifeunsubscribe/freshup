@@ -1,10 +1,70 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../client'
-import type { CreateEntryRequest, MealPlanEntry } from '../types'
+import type {
+  CreateEntryRequest,
+  MealPlanEntry,
+  WeekViewResponse,
+  DraftGenerateResponse,
+  ConfirmEntryResponse,
+  SwapEntryResponse,
+} from '../types'
 
 export const planKeys = {
   all: ['plan'] as const,
   entries: () => [...planKeys.all, 'entries'] as const,
+  week: (weekStart: string) => [...planKeys.all, 'week', weekStart] as const,
+}
+
+export function useWeekPlan(weekStart: string) {
+  return useQuery({
+    queryKey: planKeys.week(weekStart),
+    queryFn: () =>
+      apiClient<WeekViewResponse>(`/plan/week?week_start=${encodeURIComponent(weekStart)}`, {
+        method: 'GET',
+      }),
+  })
+}
+
+export function useGenerateDraft() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (weekStart: string) =>
+      apiClient<DraftGenerateResponse>('/plan/draft/generate', {
+        method: 'POST',
+        body: JSON.stringify({ week_start: weekStart }),
+      }),
+    onSuccess: (_, weekStart) => {
+      queryClient.invalidateQueries({ queryKey: planKeys.week(weekStart) })
+    },
+  })
+}
+
+export function useConfirmEntry() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (entryId: string) =>
+      apiClient<ConfirmEntryResponse>(
+        `/plan/entries/${encodeURIComponent(entryId)}/confirm`,
+        { method: 'PUT' }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: planKeys.all })
+    },
+  })
+}
+
+export function useSwapEntry() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (entryId: string) =>
+      apiClient<SwapEntryResponse>(
+        `/plan/entries/${encodeURIComponent(entryId)}/swap`,
+        { method: 'POST' }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: planKeys.all })
+    },
+  })
 }
 
 /**

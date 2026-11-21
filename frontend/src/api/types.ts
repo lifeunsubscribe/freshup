@@ -739,3 +739,44 @@ export interface MealPlanEntry {
   status: string;
   notes: string | null;
 }
+
+export interface DisplayInfo {
+  name: string;
+  image_url: string | null;
+  prep_time_minutes: number | null;
+  source_type: string;
+}
+
+export interface MealPlanEntryDisplay {
+  id: string;
+  date: string;
+  meal_type: string;
+  recipe_id: string | null;
+  catalog_card_id: string | null;
+  prepared_food_id: string | null;
+  planned_servings: number;
+  status: string;
+  notes: string | null;
+  display: DisplayInfo | null;
+}
+
+export interface WeekViewResponse {
+  week_start: string;
+  confirmed_entries: MealPlanEntryDisplay[];
+  draft_entries: MealPlanEntryDisplay[];
+}
+
+export interface DraftGenerateResponse {
+  entries_created: number;
+  week_start: string;
+  entries: MealPlanEntryDisplay[];
+}
+
+export interface ConfirmEntryResponse {
+  entry: MealPlanEntryDisplay;
+  grocery_items_added: number;
+}
+
+export interface SwapEntryResponse {
+  entry: MealPlanEntryDisplay;
+}
