@@ -9,13 +9,17 @@
  * - logout: Function to clear authentication and redirect to login
  * - switchUser: Function to switch to another household member (shared device)
  *
+ * In development, when a dev login is configured (see api/devLogin.ts), the
+ * provider signs in by itself whenever there is no valid session.
+ *
  * Wrapped with ErrorBoundary to catch and handle errors gracefully.
  */
 
-import { createContext, useContext, ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useCurrentUser, useLogin, useLogout, useSwitchUser } from '../api/hooks/useAuth';
 import { isAuthenticated as checkIsAuthenticated } from '../api/client';
+import { devLoginCredentials } from '../api/devLogin';
 import type { LoginRequest, UserResponse, SwitchUserRequest } from '../api/types';
 
 interface AuthContextType {
@@ -27,6 +31,11 @@ interface AuthContextType {
   switchUser: (request: SwitchUserRequest) => Promise<void>;
 }
 
+// idle: will sign in when there is no session. pending: signing in now.
+// failed: the attempt did not work, so the login page shows as usual.
+// off: the user logged out on purpose; stays off until the page reloads.
+type DevLoginState = 'idle' | 'pending' | 'failed' | 'off';
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
@@ -35,6 +44,7 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const navigate = useNavigate();
+  const location = useLocation();
 
   // React Query hooks for auth operations
   const { data: currentUser, isLoading: isLoadingUser, isError: isUserError, refetch } = useCurrentUser();
@@ -50,7 +60,53 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Loading state: only show loading on initial auth check
   // Don't show loading for mutations (login/logout/switch)
   // If there's an error loading user data, stop showing loading state
-  const isLoading = isLoadingUser && !isUserError;
+  const isLoadingSession = isLoadingUser && !isUserError;
+
+  // Development-only automatic login. wantsDevLogin is computed during render,
+  // not only inside the effect, so the first render already reports "loading"
+  // and ProtectedRoute does not redirect to /login before the attempt starts.
+  const [devLogin, setDevLogin] = useState<DevLoginState>('idle');
+  const devLoginStarted = useRef(false);
+  const devCredentials = devLoginCredentials();
+  const wantsDevLogin =
+    devCredentials !== null && devLogin === 'idle' && !isAuthenticated && !isLoadingSession;
+  const isLoading = isLoadingSession || wantsDevLogin || devLogin === 'pending';
+
+  // Latest values for the effect below, which must run once per attempt and
+  // not again each time one of these changes identity.
+  const devLoginDeps = useRef({ devCredentials, loginMutation, refetch, navigate, location });
+  devLoginDeps.current = { devCredentials, loginMutation, refetch, navigate, location };
+
+  useEffect(() => {
+    // The ref guard keeps StrictMode's double effect from logging in twice.
+    if (!wantsDevLogin || devLoginStarted.current) {
+      return;
+    }
+    const deps = devLoginDeps.current;
+    if (deps.devCredentials === null) {
+      return;
+    }
+    const credentials = deps.devCredentials;
+    devLoginStarted.current = true;
+    setDevLogin('pending');
+    void (async () => {
+      let next: DevLoginState = 'failed';
+      try {
+        await deps.loginMutation.mutateAsync(credentials);
+        const result = await deps.refetch();
+        if (!result.isError) {
+          next = 'idle';
+          if (devLoginDeps.current.location.pathname === '/login') {
+            deps.navigate('/', { replace: true });
+          }
+        }
+      } catch {
+        // Wrong credentials or the API is down: show the login page.
+      }
+      devLoginStarted.current = false;
+      setDevLogin(next);
+    })();
+  }, [wantsDevLogin]);
 
   /**
    * Login with email and password
@@ -72,6 +128,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
    * Redirects to login page
    */
   const logout = async (): Promise<void> => {
+    // A deliberate logout stays logged out; without this the dev login would
+    // sign straight back in.
+    setDevLogin('off');
     await logoutMutation.mutateAsync();
     // Redirect to login page
     navigate('/login');
