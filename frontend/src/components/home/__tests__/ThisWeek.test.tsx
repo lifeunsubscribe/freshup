@@ -24,12 +24,13 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => mockNavigate }
 })
 
-// Pin to a known Monday so getCurrentMondayStr() is deterministic
-const TEST_DATE = new Date('2026-11-17T10:00:00')
-const WEEK_START = '2026-11-17'
+// Pin to a known Monday so getCurrentMondayStr() is deterministic.
+// 2026-11-17 is a Tuesday; the Monday of that week is 2026-11-16.
+const TEST_DATE = new Date('2026-11-16T10:00:00')
+const WEEK_START = '2026-11-16'
 const DATES = [
-  '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20',
-  '2026-11-21', '2026-11-22', '2026-11-23',
+  '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19',
+  '2026-11-20', '2026-11-21', '2026-11-22',
 ]
 
 function makeDraftEntry(i: number) {
