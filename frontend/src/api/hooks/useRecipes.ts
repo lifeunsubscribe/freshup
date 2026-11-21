@@ -45,6 +45,7 @@ export const recipeKeys = {
   ratings: (id: string) => [...recipeKeys.all, 'ratings', id] as const,
   myRating: (id: string) => [...recipeKeys.all, 'my-rating', id] as const,
   outcomes: (id: string) => [...recipeKeys.all, 'outcomes', id] as const,
+  related: (id: string) => [...recipeKeys.all, 'related', id] as const,
 };
 
 export interface RecipeListFilters {
@@ -443,5 +444,21 @@ export function useRecommendations(limit: number = 20) {
     queryFn: async () =>
       apiClient<RecommendedItem[]>(`/recommendations?limit=${limit}`, { method: 'GET' }),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * "More like this" row items from GET /recipes/{id}/related.
+ */
+export function useRelatedItems(
+  id: string,
+  options?: Omit<UseQueryOptions<RecommendedItem[]>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery({
+    queryKey: recipeKeys.related(id),
+    queryFn: async () =>
+      apiClient<RecommendedItem[]>(`/recipes/${id}/related`, { method: 'GET' }),
+    staleTime: 5 * 60 * 1000,
+    ...options,
   });
 }

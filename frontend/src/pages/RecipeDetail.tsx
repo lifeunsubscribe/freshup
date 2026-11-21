@@ -16,7 +16,8 @@ import PantryReviewSheet from '../components/recipe/PantryReviewSheet'
 import NewTimerSheet from '../components/recipe/NewTimerSheet'
 import SourceLine from '../components/recipe/SourceLine'
 import OutcomesSection from '../components/recipe/OutcomesSection'
-import { useRecipe, useRateRecipe } from '../api/hooks/useRecipes'
+import MixedRow from '../components/recipe/MixedRow'
+import { useRecipe, useRateRecipe, useRelatedItems } from '../api/hooks/useRecipes'
 import {
   useMyRecipeRelation,
   useToggleBookmark,
@@ -81,6 +82,7 @@ export default function RecipeDetail() {
   const { data: inventoryItems = [], isLoading: isLoadingInventory, isError: isInventoryError } = useInventoryList({})
 
   const { data: cookHistory } = useCookHistory(id!, { enabled: !!id })
+  const { data: relatedItems = [] } = useRelatedItems(id!, { enabled: !!id })
 
   const toggleLike = useToggleLike()
   const toggleBookmark = useToggleBookmark()
@@ -367,6 +369,7 @@ export default function RecipeDetail() {
           </div>
 
           <OutcomesSection recipeId={id!} />
+          <MixedRow title="More like this" items={relatedItems} />
         </div>
       </PageContainer>
 

@@ -30,6 +30,7 @@ from src.services.taste_service import (
     is_card_blocked,
     popularity,
     recipe_keys,
+    score_recipe,
     user_affinities,
 )
 
@@ -284,4 +285,121 @@ def _build_list(
                 unplaced.remove(c)
                 break
 
+    return result
+
+
+def related_items(
+    recipe,
+    user,
+    db: Session,
+    limit: int,
+) -> list[RankedItem]:
+    """
+    Return up to `limit` candidates similar to `recipe` for `user`.
+
+    Similarity is the Jaccard coefficient of the viewed recipe's taste keys
+    against each candidate's taste keys.  Candidates with similarity == 0 are
+    excluded.  Results are sorted by similarity DESC; ties are broken by the
+    viewer's taste score DESC.
+
+    Excluded: the recipe itself, the catalog card linked to it
+    (card.recipe_id == recipe.id), and any item blocked for the viewer.
+    """
+    viewed_keys = recipe_keys(recipe)
+    if not viewed_keys:
+        return []
+
+    affinities = user_affinities(user.id, db)
+
+    # Top-level collections only (parent_slug IS NULL)
+    top_level = (
+        db.query(SourceCollection)
+        .filter(SourceCollection.parent_slug.is_(None))
+        .all()
+    )
+
+    collection_ids = [c.id for c in top_level]
+
+    # Cards in top-level collections with their collection slugs
+    rows: list = []
+    if collection_ids:
+        rows = (
+            db.query(SourceRecipeCard, SourceCollection.slug)
+            .join(SourceCollectionCard, SourceCollectionCard.card_id == SourceRecipeCard.id)
+            .join(SourceCollection, SourceCollection.id == SourceCollectionCard.collection_id)
+            .filter(SourceCollectionCard.collection_id.in_(collection_ids))
+            .all()
+        )
+
+    # Deduplicate: one entry per card, accumulate collection slugs
+    card_map: dict[UUID, tuple[SourceRecipeCard, set[str]]] = {}
+    for card, slug in rows:
+        if card.id not in card_map:
+            card_map[card.id] = (card, set())
+        card_map[card.id][1].add(slug)
+
+    # Overlap tags for similarity computation
+    all_card_ids = list(card_map.keys())
+    card_overlap = overlap_tags(db, all_card_ids) if all_card_ids else {}
+
+    # (similarity, taste_score, kind, card_or_None, recipe_or_None)
+    scored: list[tuple[float, float, str, Optional[SourceRecipeCard], Optional[Recipe]]] = []
+
+    # --- Card candidates ---
+    for card_id, (card, _slugs) in card_map.items():
+        # Skip the catalog card that wraps the viewed recipe
+        if card.recipe_id is not None and card.recipe_id == recipe.id:
+            continue
+        c_keys = card_keys(card, card_overlap.get(card_id, set()))
+        if is_card_blocked(card, c_keys, user):
+            continue
+        union_len = len(viewed_keys | c_keys)
+        if union_len == 0:
+            continue
+        sim = len(viewed_keys & c_keys) / union_len
+        if sim == 0:
+            continue
+        matched = [affinities[k] for k in c_keys if k in affinities]
+        taste = sum(matched) / len(matched) if matched else 0.0
+        scored.append((sim, taste, "card", card, None))
+
+    # --- Unlinked recipe candidates ---
+    linked_recipe_ids: set[UUID] = {
+        card.recipe_id
+        for card, _ in card_map.values()
+        if card.recipe_id is not None
+    }
+    recipe_query = (
+        db.query(Recipe)
+        .filter(Recipe.is_persisted.is_(True))
+        # Exclude the viewed recipe and all card-linked recipes
+        .filter(Recipe.id != recipe.id)
+    )
+    if linked_recipe_ids:
+        recipe_query = recipe_query.filter(Recipe.id.notin_(linked_recipe_ids))
+    for r in recipe_query.all():
+        if is_blocked(r, user):
+            continue
+        r_keys = recipe_keys(r)
+        union_len = len(viewed_keys | r_keys)
+        if union_len == 0:
+            continue
+        sim = len(viewed_keys & r_keys) / union_len
+        if sim == 0:
+            continue
+        taste = score_recipe(r, affinities)
+        scored.append((sim, taste, "recipe", None, r))
+
+    # Sort by similarity DESC, then taste DESC
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+    result: list[RankedItem] = []
+    for sim, _taste, kind, card, r in scored[:limit]:
+        result.append(RankedItem(
+            kind=kind,
+            card=card,
+            recipe=r,
+            score=sim,
+            reason="taste",
+        ))
     return result
