@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Literal, Optional
 from uuid import UUID
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from src.db.models.recipe import Recipe
 from src.db.models.source_catalog import (
@@ -371,6 +371,7 @@ def related_items(
     }
     recipe_query = (
         db.query(Recipe)
+        .options(selectinload(Recipe.ingredients))
         .filter(Recipe.is_persisted.is_(True))
         # Exclude the viewed recipe and all card-linked recipes
         .filter(Recipe.id != recipe.id)

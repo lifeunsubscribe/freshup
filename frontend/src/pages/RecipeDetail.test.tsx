@@ -71,6 +71,7 @@ vi.mock('../api/hooks/useRecipeEngagement', () => ({
     },
     isLoading: false,
   }),
+  useMyRecipeRelations: vi.fn(() => ({ data: new Map() })),
   useToggleBookmark: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useToggleLike: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useCookRecipe: () => ({ mutateAsync: mockCookMutateAsync }),
@@ -503,6 +504,11 @@ describe('RecipeDetail', () => {
   })
 
   describe('"More like this" row', () => {
+    afterEach(async () => {
+      const useRecipesModule = await import('../api/hooks/useRecipes')
+      vi.mocked(useRecipesModule.useRelatedItems).mockReturnValue({ data: [], isLoading: false, isError: false } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    })
+
     it('renders nothing when useRelatedItems returns empty array', () => {
       renderPage()
       expect(screen.queryByRole('region', { name: /more like this/i })).not.toBeInTheDocument()

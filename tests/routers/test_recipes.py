@@ -3524,6 +3524,7 @@ class TestRelatedEndpoint:
 
     @pytest.fixture
     def recipe(self, db_session):
+        from src.db.models.recipe_ingredient import RecipeIngredient
         r = Recipe(
             id=uuid4(),
             name="Pasta Primavera",
@@ -3534,6 +3535,8 @@ class TestRelatedEndpoint:
             tags=["pasta", "vegetarian"],
         )
         db_session.add(r)
+        db_session.flush()
+        db_session.add(RecipeIngredient(recipe_id=r.id, ingredient_name="pasta", quantity=1.0, unit="cup"))
         db_session.commit()
         db_session.refresh(r)
         return r
@@ -3603,6 +3606,9 @@ class TestRelatedEndpoint:
         assert str(linked_card.id) not in returned_ids, (
             "card linked to the viewed recipe must not appear in related results"
         )
+        assert str(other_card.id) in returned_ids, (
+            "card sharing keys with the viewed recipe must appear in related results"
+        )
 
     def test_response_shape(self, client, auth_headers, recipe, db_session):
         """Each item in the response has the expected RecommendedItem shape."""
@@ -3616,7 +3622,7 @@ class TestRelatedEndpoint:
         response = client.get(f"/recipes/{recipe.id}/related?limit=10", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        # If any item returned, verify shape
+        assert len(data) >= 1, "expected at least one related item (pasta-roni shares 'pasta' key)"
         for item in data:
             assert item["kind"] in ("card", "recipe")
             assert "score" in item

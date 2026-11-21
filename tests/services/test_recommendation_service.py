@@ -140,10 +140,12 @@ class _MockQuery:
                         val = right.value
                         op_name = getattr(getattr(cond, "operator", None), "__name__", "eq")
                         if isinstance(val, (list, tuple, set, frozenset)):
-                            # in_() — handled elsewhere or skip
-                            pass
+                            if "in" in op_name.lower():
+                                items = [i for i in items if getattr(i, col_key, None) in val]
                         elif op_name == "eq":
                             items = [i for i in items if getattr(i, col_key, None) == val]
+                        elif op_name == "ne":
+                            items = [i for i in items if getattr(i, col_key, None) != val]
                         elif op_name == "ge":
                             items = [
                                 i for i in items
@@ -158,7 +160,23 @@ class _MockQuery:
                             ]
             except Exception:
                 pass
+            # Handle ~col.in_([ids]) = notin_
+            try:
+                inner = getattr(cond, "element", None)
+                if inner is not None:
+                    inner_col_key = getattr(getattr(inner, "left", None), "key", None)
+                    inner_right = getattr(inner, "right", None)
+                    if inner_col_key and inner_right is not None and hasattr(inner_right, "value"):
+                        inner_val = inner_right.value
+                        inner_op = getattr(getattr(inner, "operator", None), "__name__", "")
+                        if isinstance(inner_val, (list, tuple, set, frozenset)) and "in" in inner_op.lower():
+                            items = [i for i in items if getattr(i, inner_col_key, None) not in inner_val]
+            except Exception:
+                pass
         self._items = items
+        return self
+
+    def options(self, *args):
         return self
 
     def join(self, *args, **kwargs):
