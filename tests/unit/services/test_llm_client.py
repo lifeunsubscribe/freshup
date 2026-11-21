@@ -458,6 +458,106 @@ async def test_validation_error_sanitizes_pii(mock_httpx_client):
 
 
 @pytest.mark.asyncio
+async def test_complete_sends_default_num_ctx(mock_httpx_client):
+    """Test that the payload includes options.num_ctx with the default value 8192."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "response": json.dumps({
+            "store_name": "Costco",
+            "total": 10.00,
+            "items": [],
+        })
+    }
+    mock_httpx_client.post = AsyncMock(return_value=mock_response)
+
+    with patch("src.services.llm.client.httpx.AsyncClient", return_value=mock_httpx_client):
+        client = OllamaClient()
+        await client.complete(
+            prompt="Parse this receipt",
+            system_prompt="You are a receipt parser",
+            response_schema=TestReceipt,
+        )
+
+    call_json = mock_httpx_client.post.call_args[1]["json"]
+    assert call_json["options"]["num_ctx"] == 8192
+
+
+@pytest.mark.asyncio
+async def test_complete_sends_configured_num_ctx(mock_httpx_client, monkeypatch):
+    """Test that a custom OLLAMA_NUM_CTX value is forwarded in the payload."""
+    from src.config import get_settings
+    get_settings.cache_clear()
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "4096")
+    get_settings.cache_clear()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "response": json.dumps({
+            "store_name": "Costco",
+            "total": 10.00,
+            "items": [],
+        })
+    }
+    mock_httpx_client.post = AsyncMock(return_value=mock_response)
+
+    with patch("src.services.llm.client.httpx.AsyncClient", return_value=mock_httpx_client):
+        client = OllamaClient()
+        await client.complete(
+            prompt="Parse this receipt",
+            system_prompt="You are a receipt parser",
+            response_schema=TestReceipt,
+        )
+
+    call_json = mock_httpx_client.post.call_args[1]["json"]
+    assert call_json["options"]["num_ctx"] == 4096
+
+
+@pytest.mark.asyncio
+async def test_retry_carries_num_ctx(mock_httpx_client):
+    """Test that the retry request (after a validation failure) also carries num_ctx."""
+    # First call returns invalid schema; second returns valid
+    invalid_response = MagicMock()
+    invalid_response.status_code = 200
+    invalid_response.json.return_value = {
+        "response": json.dumps({"store_name": "Costco"})  # Missing required 'total'
+    }
+    valid_response = MagicMock()
+    valid_response.status_code = 200
+    valid_response.json.return_value = {
+        "response": json.dumps({"store_name": "Costco", "total": 5.99, "items": []})
+    }
+    mock_httpx_client.post = AsyncMock(side_effect=[invalid_response, valid_response])
+
+    with patch("src.services.llm.client.httpx.AsyncClient", return_value=mock_httpx_client):
+        client = OllamaClient()
+        await client.complete(
+            prompt="Parse this receipt",
+            system_prompt="You are a receipt parser",
+            response_schema=TestReceipt,
+        )
+
+    assert mock_httpx_client.post.call_count == 2
+    for call in mock_httpx_client.post.call_args_list:
+        assert call[1]["json"]["options"]["num_ctx"] == 8192
+
+
+def test_num_ctx_below_minimum_rejected():
+    """Test that a num_ctx value below 2048 is rejected when settings are built."""
+    import os
+    import importlib
+    from pydantic import ValidationError as PydanticValidationError
+    from src.config import Settings
+
+    with pytest.raises(PydanticValidationError):
+        Settings(
+            jwt_secret_key="test-secret-key-for-testing-only-min-32-chars",
+            ollama_num_ctx=1024,
+        )
+
+
+@pytest.mark.asyncio
 async def test_validation_error_list_sanitizes_pii(mock_httpx_client):
     """
     Test that individual validation errors in the list are sanitized.

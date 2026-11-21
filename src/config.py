@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://host.docker.internal:11434"
     # Default model to use for LLM operations (format: model:version)
     ollama_model: str = "llama3.1:8b"
+    # Context window size in tokens sent with every Ollama request.
+    # Without this, Ollama may default to 2 048 tokens (version-dependent),
+    # which is less than the 16 000-character input cap and silently truncates long prompts.
+    ollama_num_ctx: int = Field(default=8192, ge=2048, le=32768)
     # Polling interval for checking task status updates (seconds)
     task_poll_interval_seconds: int = Field(default=10, gt=0)
     # Timeout for tasks stuck in "processing" status (seconds) - prevents race condition from worker crashes

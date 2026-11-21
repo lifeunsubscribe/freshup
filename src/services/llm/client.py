@@ -103,6 +103,7 @@ class OllamaClient(LLMClient):
         settings = get_settings()
         self.base_url = settings.ollama_base_url
         self.model = settings.ollama_model
+        self.num_ctx = settings.ollama_num_ctx
 
         # Configure httpx client with specified timeouts
         self.client = httpx.AsyncClient(
@@ -163,6 +164,7 @@ class OllamaClient(LLMClient):
                         "system": system_prompt,
                         "stream": False,
                         "format": "json",  # Instruct Ollama to return valid JSON
+                        "options": {"num_ctx": self.num_ctx},
                     },
                 )
 
