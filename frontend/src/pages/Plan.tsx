@@ -5,7 +5,7 @@ import PageTitle from '../components/ui/PageTitle'
 import SectionHeader from '../components/ui/SectionHeader'
 import PlanCard from '../components/plan/PlanCard'
 import { useAuth } from '../contexts/AuthContext'
-import { addDays, mondayOf, todayStr, weekTitle } from '../utils/week'
+import { addDays, todayStr, weekStartOf, weekTitle } from '../utils/week'
 
 /** How many sample weeks show under the current one before "Show another week". */
 const UPCOMING_WEEKS = 2
@@ -16,7 +16,7 @@ const UPCOMING_WEEKS = 2
  */
 export default function Plan() {
   const { currentUser } = useAuth()
-  const thisWeek = mondayOf(new Date())
+  const thisWeek = weekStartOf(new Date())
   const today = todayStr()
   const [upcomingCount, setUpcomingCount] = useState(UPCOMING_WEEKS)
   const upcoming = Array.from({ length: upcomingCount }, (_, i) => addDays(thisWeek, 7 * (i + 1)))

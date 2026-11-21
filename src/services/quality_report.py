@@ -23,6 +23,8 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from src.services.plan_week import week_start_of
+
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -184,9 +186,6 @@ def extraction_report(db: Session) -> ExtractionReport:
 # Recommendation report
 # ---------------------------------------------------------------------------
 
-_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
-
 def _item_top_ingredient(keys: set[str]) -> Optional[str]:
     """Return the first ingredient: key found, or None."""
     for k in sorted(keys):
@@ -195,12 +194,9 @@ def _item_top_ingredient(keys: set[str]) -> Optional[str]:
     return None
 
 
-def _next_monday() -> date:
-    today = date.today()
-    days_until_monday = (7 - today.weekday()) % 7
-    if days_until_monday == 0:
-        days_until_monday = 7
-    return today + timedelta(days=days_until_monday)
+def _next_week_start() -> date:
+    """The first day of the plan week after the current one."""
+    return week_start_of(date.today()) + timedelta(days=7)
 
 
 def _build_user_stats(label: str, user, db: Session) -> UserRecommendationStats:
@@ -257,7 +253,7 @@ def _build_user_stats(label: str, user, db: Session) -> UserRecommendationStats:
         max_ingredient_key = top_ing
 
     # --- Select week ---
-    week_start = _next_monday()
+    week_start = _next_week_start()
     week_choices = select_week(user, db, week_start)
 
     week: list[WeekDay] = []
@@ -268,7 +264,7 @@ def _build_user_stats(label: str, user, db: Session) -> UserRecommendationStats:
     ]
     week_card_overlap = overlap_tags(db, week_card_ids) if week_card_ids else {}
 
-    for day_offset, choice in enumerate(week_choices):
+    for choice in week_choices:
         item = choice.item
         if item.kind == "card" and item.card is not None:
             w_source = item.card.source_type
@@ -281,7 +277,7 @@ def _build_user_stats(label: str, user, db: Session) -> UserRecommendationStats:
 
         w_cuisines = [k[len("cuisine:"):] for k in w_keys if k.startswith("cuisine:")]
         week.append(WeekDay(
-            day_name=_DAY_NAMES[day_offset],
+            day_name=choice.day.strftime("%A"),
             name=w_name,
             source_type=w_source,
             cuisine_keys=w_cuisines,

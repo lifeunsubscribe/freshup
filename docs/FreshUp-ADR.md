@@ -425,7 +425,7 @@ FreshUp should feel like having a knowledgeable sous chef — one who knows what
 | Field | Type | Notes |
 |---|---|---|
 | id | UUID | Primary key |
-| week_start | Date | Monday of the plan week |
+| week_start | Date | Sunday of the plan week (a plan week runs Sunday to Saturday) |
 | status | Enum | `candidate_generation` / `ranking` / `draft_review` / `approved` / `active` |
 | candidate_recipes | FK[] | System-generated list of recipe candidates |
 | user_rankings | JSON | Per-user ranked selections with notes: `{"user_id": {"recipe_id": {"rank": 1, "notes": "make extra!", "hard_no": false}}}` |
@@ -696,12 +696,12 @@ Each user's homepage is personalized based on their behavioral data. The feed is
 Each week (configurable day/time, default Sunday 8am), the system generates a draft weekly meal plan for inspiration.
 
 **Draft behavior (ranking-based, as of Phase 2.5J):**
-- Fills up to 7 dinner slots. Fewer than 7 eligible candidates fills what it can and logs a warning.
+- The plan week runs Sunday to Saturday (`src/services/plan_week.py`; `week_start` must be a Sunday). Generation suggests a dinner for each day of the week that has none: up to 7 for an empty week, only the free days when the week already holds accepted or suggested dinners, and with `from_date` only free days on or after that date (the app sends today, so days already past are left alone). Fewer eligible candidates than free days fills what it can and logs a warning. When no day is free the request is refused with HTTP 400.
 - Candidates are sourced from `rank_candidates(limit=40)` (Section 5.14), which scores every catalog card and persisted recipe and applies explore-slot and source-diversity logic.
 - A draft entry may point at a **catalog card** (`catalog_card_id`) that has not yet been imported, or at an already-imported **recipe** (`recipe_id`). Card entries carry `planned_servings=2` until confirmed.
 - **Selection rules (applied in rank order, skipping candidates that break a rule):**
   1. No cuisine key on two consecutive days; at most 2 dinners per ingredient key across the week.
-  2. Monday–Thursday take candidates at 40 minutes or less (total prep + cook time) when any remain.
+  2. Monday–Thursday take candidates at 40 minutes or less (total prep + cook time) when any remain. The rule goes by the calendar day, not by position in the week.
   3. Exactly one `explore` item is placed when one exists.
   4. When two or more sources have candidates, at least 2 dinners come from a second source.
   5. Allergies of every household member block a candidate; `never` keys of the requesting user block.

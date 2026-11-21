@@ -54,7 +54,7 @@ export default function PlanCard({ weekStart, title, ownerName, today, size, aut
           today={today}
         />
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {plan.stats.suggested > 0 && (
             <button
               onClick={plan.acceptAll}
@@ -63,6 +63,15 @@ export default function PlanCard({ weekStart, title, ownerName, today, size, aut
             >
               <Check size={14} />
               {plan.acceptingAll ? 'Accepting...' : `Accept all ${plan.stats.suggested}`}
+            </button>
+          )}
+          {plan.openDays > 0 && (
+            <button
+              onClick={plan.fillOpenDays}
+              disabled={plan.suggesting}
+              className="px-3 h-9 rounded-button-sm border border-warm-btn-border text-text-secondary text-[13px] font-medium disabled:opacity-50"
+            >
+              Fill {plan.openDays === 1 ? 'empty day' : `${plan.openDays} empty days`}
             </button>
           )}
           <Link

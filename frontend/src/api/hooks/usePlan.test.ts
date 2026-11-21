@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { createElement } from 'react'
-import { useCreatePlanEntry, planKeys } from './usePlan'
+import { useCreatePlanEntry, useGenerateDraft, planKeys } from './usePlan'
 
 vi.mock('../client', () => ({
   apiClient: vi.fn().mockResolvedValue({
@@ -61,5 +61,47 @@ describe('useCreatePlanEntry', () => {
     ).rejects.toThrow()
 
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+describe('useGenerateDraft', () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+  })
+
+  function wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: queryClient }, children)
+  }
+
+  it('asks for a whole week by its first day', async () => {
+    const { apiClient } = await import('../client')
+    const { result } = renderHook(() => useGenerateDraft(), { wrapper })
+
+    await result.current.mutateAsync('2026-11-15')
+
+    expect(vi.mocked(apiClient)).toHaveBeenLastCalledWith('/plan/draft/generate', {
+      method: 'POST',
+      body: JSON.stringify({ week_start: '2026-11-15' }),
+    })
+  })
+
+  it('asks only for days from a date on, and refreshes that week', async () => {
+    const { apiClient } = await import('../client')
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+    const { result } = renderHook(() => useGenerateDraft(), { wrapper })
+
+    await result.current.mutateAsync({ weekStart: '2026-11-15', fromDate: '2026-11-18' })
+
+    expect(vi.mocked(apiClient)).toHaveBeenLastCalledWith('/plan/draft/generate', {
+      method: 'POST',
+      body: JSON.stringify({ week_start: '2026-11-15', from_date: '2026-11-18' }),
+    })
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: planKeys.week('2026-11-15') })
+    })
   })
 })

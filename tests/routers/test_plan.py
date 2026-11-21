@@ -186,8 +186,8 @@ def one_top_level_collection(db_session):
 
 def test_generate_draft_creates_seven_entries(client, db_session, auth_headers, recipes_pool, one_top_level_collection):
     """Test that draft generation creates 7 dinner entries."""
-    # Use fixed Monday date to avoid flakiness around week boundaries
-    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
+    # Use fixed Sunday date to avoid flakiness around week boundaries
+    week_start = date(2025, 6, 1)  # Sunday, June 1, 2025
 
     response = client.post(
         "/plan/draft/generate",
@@ -208,10 +208,9 @@ def test_generate_draft_creates_seven_entries(client, db_session, auth_headers, 
         assert entry["meal_type"] == MealType.dinner.value
 
 
-def test_generate_draft_requires_monday(client, auth_headers, recipes_pool):
-    """Test that draft generation requires week_start to be a Monday."""
-    # Use fixed Tuesday date to avoid flakiness
-    week_start = date(2025, 6, 3)  # Tuesday, June 3, 2025
+def test_generate_draft_requires_the_first_day_of_a_plan_week(client, auth_headers, recipes_pool):
+    """The plan week starts on Sunday; any other day as week_start is rejected."""
+    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
 
     response = client.post(
         "/plan/draft/generate",
@@ -250,7 +249,7 @@ def test_generate_draft_with_few_candidates_fills_what_it_can(client, db_session
         db_session.add(recipe)
     db_session.commit()
 
-    week_start = date(2025, 6, 2)
+    week_start = date(2025, 6, 1)
 
     response = client.post(
         "/plan/draft/generate",
@@ -265,9 +264,9 @@ def test_generate_draft_with_few_candidates_fills_what_it_can(client, db_session
 
 
 def test_generate_draft_prevents_duplicates(client, db_session, auth_headers, recipes_pool, one_top_level_collection):
-    """Test that draft generation fails if draft entries already exist for the week."""
-    # Use fixed Monday date to avoid flakiness
-    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
+    """A second generation for a week whose every day has a dinner is refused."""
+    # Use fixed Sunday date to avoid flakiness
+    week_start = date(2025, 6, 1)  # Sunday, June 1, 2025
 
     # Generate initial draft plan
     response = client.post(
@@ -287,14 +286,13 @@ def test_generate_draft_prevents_duplicates(client, db_session, auth_headers, re
 
     assert response.status_code == 400
     detail = response.json()["detail"]
-    assert "Draft entries already exist" in detail
-    assert "Delete or confirm existing drafts" in detail
+    assert "already has a dinner" in detail
 
 
 def test_get_week_returns_empty_for_new_week(client, auth_headers):
     """Test that getting a week with no entries returns empty lists."""
-    # Use fixed Monday date to avoid flakiness
-    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
+    # Use fixed Sunday date to avoid flakiness
+    week_start = date(2025, 6, 1)  # Sunday, June 1, 2025
 
     response = client.get(
         f"/plan/week?week_start={week_start.isoformat()}",
@@ -311,8 +309,8 @@ def test_get_week_returns_empty_for_new_week(client, auth_headers):
 
 def test_get_week_separates_by_status(client, db_session, auth_headers, recipes_pool):
     """Test that week view separates entries by status."""
-    # Use fixed Monday date to avoid flakiness
-    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
+    # Use fixed Sunday date to avoid flakiness
+    week_start = date(2025, 6, 1)  # Sunday, June 1, 2025
 
     # Create draft entry
     draft_entry = MealPlanEntry(
@@ -444,8 +442,8 @@ def test_confirm_entry_fails_for_already_confirmed(client, db_session, auth_head
 
 def test_endpoints_require_authentication(client):
     """Test that all endpoints require authentication."""
-    # Use fixed Monday date to avoid flakiness
-    week_start = date(2025, 6, 2)  # Monday, June 2, 2025
+    # Use fixed Sunday date to avoid flakiness
+    week_start = date(2025, 6, 1)  # Sunday, June 1, 2025
 
     # Test draft generation
     response = client.post(
@@ -543,8 +541,8 @@ def test_create_entry_appears_in_week_view(client, db_session, auth_headers, sin
         headers=auth_headers,
     )
 
-    # week_start must cover 2026-09-22; Monday of that week is 2026-09-21
-    week_start = date(2026, 9, 21)
+    # week_start must cover 2026-09-22; the Sunday of that week is 2026-09-20
+    week_start = date(2026, 9, 20)
     response = client.get(
         f"/plan/week?week_start={week_start.isoformat()}",
         headers=auth_headers,
@@ -1004,7 +1002,7 @@ def test_opt_out_entry_still_appears_in_week_view(
     )
 
     # opted_in_entry date is 2026-09-22, which falls in week starting 2026-09-21
-    week_start = date(2026, 9, 21)
+    week_start = date(2026, 9, 20)
     response = client.get(
         f"/plan/week?week_start={week_start.isoformat()}",
         headers=auth_headers,
@@ -1158,7 +1156,7 @@ def test_draft_generates_seven_from_recipes_and_cards(
     client, auth_headers, two_source_draft_pool
 ):
     """With 3 recipes and 20 cards from two sources, generation creates 7 draft dinners."""
-    week_start = date(2025, 6, 2)
+    week_start = date(2025, 6, 1)
 
     response = client.post(
         "/plan/draft/generate",
@@ -1184,7 +1182,7 @@ def test_draft_ingredient_limit_and_two_source_rules(
     pool = two_source_draft_pool
     hf_card_ids = {str(c.id) for c in pool["cards"][:10]}
 
-    week_start = date(2025, 6, 2)
+    week_start = date(2025, 6, 1)
     response = client.post(
         "/plan/draft/generate",
         json={"week_start": week_start.isoformat()},
@@ -1237,7 +1235,7 @@ def test_draft_weeknight_rule_excludes_slow_cards_when_fast_exist(
 
     db_session.commit()
 
-    week_start = date(2025, 6, 2)  # Monday
+    week_start = date(2025, 6, 1)  # Sunday
     response = client.post(
         "/plan/draft/generate",
         json={"week_start": week_start.isoformat()},
@@ -1248,13 +1246,14 @@ def test_draft_weeknight_rule_excludes_slow_cards_when_fast_exist(
     entries = response.json()["entries"]
     assert len(entries) == 7
 
-    # Mon=0, Tue=1, Wed=2, Thu=3 must not use slow cards (fast ones are available)
-    for day_offset in range(4):
-        entry = entries[day_offset]
+    # Monday to Thursday must not use slow cards (fast ones are available). The
+    # week starts on Sunday, so the rule goes by the calendar day, not position.
+    weeknights = [e for e in entries if date.fromisoformat(e["date"]).weekday() <= 3]
+    assert len(weeknights) == 4
+    for entry in weeknights:
         if entry["catalog_card_id"] in slow_ids:
             pytest.fail(
-                f"Day offset {day_offset} (weeknight) got a slow card; "
-                f"fast cards were available"
+                f"{entry['date']} (weeknight) got a slow card; fast cards were available"
             )
 
 
@@ -1290,7 +1289,7 @@ def test_draft_peanut_allergy_excludes_peanut_cards(
 
     db_session.commit()
 
-    week_start = date(2025, 6, 2)
+    week_start = date(2025, 6, 1)
     response = client.post(
         "/plan/draft/generate",
         json={"week_start": week_start.isoformat()},
@@ -1433,7 +1432,7 @@ def test_entries_have_display_field_for_recipe_and_card(
     client, db_session, auth_headers, recipes_pool
 ):
     """Both recipe entries and card entries carry a populated display field in the response."""
-    week_start = date(2025, 6, 2)
+    week_start = date(2025, 6, 1)
 
     coll = SourceCollection(
         id=uuid4(),
@@ -1580,14 +1579,16 @@ def test_swap_item_not_already_in_week(client, db_session, auth_headers, swap_ca
     cards = swap_candidate_pool["cards"]
     entry = swap_candidate_pool["entry"]
 
-    # Place cards[1] through cards[6] on other days of the same week
-    week_start = date(2025, 6, 2)
-    for day_offset in range(1, 7):
+    # Place cards[1] through cards[6] on the other six days of the same week.
+    # The entry being swapped is on Monday June 2; its week runs Sunday June 1
+    # to Saturday June 7.
+    sunday = date(2025, 6, 1)
+    for card, day_offset in zip(cards[1:7], [0, 2, 3, 4, 5, 6]):
         db_session.add(MealPlanEntry(
             id=uuid4(),
-            date=week_start + timedelta(days=day_offset),
+            date=sunday + timedelta(days=day_offset),
             meal_type=MealType.dinner.value,
-            catalog_card_id=cards[day_offset].id,
+            catalog_card_id=card.id,
             planned_servings=2,
             status=MealPlanStatus.draft.value,
         ))
@@ -1791,8 +1792,8 @@ def test_next_weeks_draft_does_not_repeat_this_weeks(
     client, auth_headers, two_source_draft_pool
 ):
     """With 23 candidates, two consecutive weeks share no dinner."""
-    this_week = _draft_items(client, auth_headers, date(2025, 6, 2))
-    next_week = _draft_items(client, auth_headers, date(2025, 6, 9))
+    this_week = _draft_items(client, auth_headers, date(2025, 6, 1))
+    next_week = _draft_items(client, auth_headers, date(2025, 6, 8))
 
     assert len(this_week) == 7
     assert len(next_week) == 7
@@ -1803,8 +1804,8 @@ def test_a_small_pool_fills_the_week_with_repeats_after_the_fresh_ones(
     client, auth_headers, recipes_pool, one_top_level_collection
 ):
     """Ten candidates: week two uses the three unused ones and repeats four."""
-    this_week = _draft_items(client, auth_headers, date(2025, 6, 2))
-    next_week = _draft_items(client, auth_headers, date(2025, 6, 9))
+    this_week = _draft_items(client, auth_headers, date(2025, 6, 1))
+    next_week = _draft_items(client, auth_headers, date(2025, 6, 8))
 
     assert len(this_week) == 7
     assert len(next_week) == 7
@@ -1815,7 +1816,86 @@ def test_a_week_far_from_any_plan_may_use_the_same_dinners(
     client, auth_headers, two_source_draft_pool
 ):
     """The variety window is a few weeks, not forever."""
-    first = _draft_items(client, auth_headers, date(2025, 6, 2))
-    much_later = _draft_items(client, auth_headers, date(2025, 9, 1))
+    first = _draft_items(client, auth_headers, date(2025, 6, 1))
+    much_later = _draft_items(client, auth_headers, date(2025, 8, 31))
 
     assert first == much_later
+
+
+# ---------------------------------------------------------------------------
+# The plan week runs Sunday to Saturday; drafting fills only the free days
+# ---------------------------------------------------------------------------
+
+
+def test_a_generated_week_runs_sunday_to_saturday(client, auth_headers, two_source_draft_pool):
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": "2025-06-01"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    days = sorted(e["date"] for e in response.json()["entries"])
+    assert days == [f"2025-06-0{n}" for n in range(1, 8)]
+    assert date.fromisoformat(days[0]).strftime("%A") == "Sunday"
+    assert date.fromisoformat(days[-1]).strftime("%A") == "Saturday"
+
+
+def test_generation_fills_only_the_days_with_no_dinner(
+    client, db_session, auth_headers, two_source_draft_pool, recipes_pool
+):
+    """Days that already hold a dinner, accepted or suggested, are left alone."""
+    week_start = date(2025, 6, 1)
+    accepted = MealPlanEntry(
+        id=uuid4(),
+        date=date(2025, 6, 2),
+        meal_type=MealType.dinner.value,
+        recipe_id=recipes_pool[0].id,
+        planned_servings=4,
+        status=MealPlanStatus.approved.value,
+    )
+    suggested = MealPlanEntry(
+        id=uuid4(),
+        date=date(2025, 6, 7),
+        meal_type=MealType.dinner.value,
+        recipe_id=recipes_pool[1].id,
+        planned_servings=4,
+        status=MealPlanStatus.draft.value,
+    )
+    db_session.add_all([accepted, suggested])
+    db_session.commit()
+
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": week_start.isoformat()},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    created = response.json()["entries"]
+    assert sorted(e["date"] for e in created) == [
+        "2025-06-01", "2025-06-03", "2025-06-04", "2025-06-05", "2025-06-06",
+    ]
+    # Nothing the week already holds is suggested a second time.
+    held = {str(recipes_pool[0].id), str(recipes_pool[1].id)}
+    assert held.isdisjoint({e["recipe_id"] for e in created})
+
+    week = client.get("/plan/week?week_start=2025-06-01", headers=auth_headers).json()
+    assert len(week["confirmed_entries"]) == 1
+    assert len(week["draft_entries"]) == 6
+
+
+def test_generation_from_a_date_leaves_earlier_days_alone(
+    client, auth_headers, two_source_draft_pool
+):
+    """Mid-week, only today and later get a suggestion."""
+    response = client.post(
+        "/plan/draft/generate",
+        json={"week_start": "2025-06-01", "from_date": "2025-06-05"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert sorted(e["date"] for e in response.json()["entries"]) == [
+        "2025-06-05", "2025-06-06", "2025-06-07",
+    ]

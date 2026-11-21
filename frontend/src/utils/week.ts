@@ -1,6 +1,7 @@
 /**
  * Week arithmetic for the meal plan. Dates are local calendar days written
- * as YYYY-MM-DD; a week starts on Monday, which is what GET /plan/week takes.
+ * as YYYY-MM-DD; a plan week runs Sunday to Saturday, and its Sunday is the
+ * week_start the plan endpoints take (src/services/plan_week.py).
  */
 
 function toDateStr(date: Date): string {
@@ -19,12 +20,11 @@ export function todayStr(): string {
   return toDateStr(new Date())
 }
 
-/** The Monday of the week that holds `date`. */
-export function mondayOf(date: Date): string {
-  const day = date.getDay() // 0=Sun, 1=Mon...6=Sat
-  const monday = new Date(date)
-  monday.setDate(date.getDate() + (day === 0 ? -6 : 1 - day))
-  return toDateStr(monday)
+/** The first day (Sunday) of the plan week that holds `date`. */
+export function weekStartOf(date: Date): string {
+  const sunday = new Date(date)
+  sunday.setDate(date.getDate() - date.getDay()) // getDay(): 0=Sun...6=Sat
+  return toDateStr(sunday)
 }
 
 export function addDays(dateStr: string, n: number): string {
@@ -63,11 +63,11 @@ export function formatWeekRange(weekStart: string): string {
   return `${MONTHS[first.getMonth()]} ${first.getDate()} – ${end}`
 }
 
-/** The Monday of the week holding the day written as YYYY-MM-DD, or null if it is not a date. */
-export function mondayOfDateStr(dateStr: string): string | null {
+/** The start of the plan week holding the day written as YYYY-MM-DD, or null if it is not a date. */
+export function weekStartOfDateStr(dateStr: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
   const date = fromDateStr(dateStr)
-  return Number.isNaN(date.getTime()) ? null : mondayOf(date)
+  return Number.isNaN(date.getTime()) ? null : weekStartOf(date)
 }
 
 /** "This week", "Next week", "Last week", otherwise "Week of Dec 7". */

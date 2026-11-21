@@ -25,15 +25,27 @@ export function useWeekPlan(weekStart: string) {
   })
 }
 
+/** A week to suggest dinners for: all its free days, or only those from `fromDate` on. */
+export type GenerateDraftRequest = string | { weekStart: string; fromDate: string }
+
+/**
+ * Suggest a dinner for each day of a week that has none. The week is named by
+ * its first day (a Sunday).
+ */
 export function useGenerateDraft() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (weekStart: string) =>
+    mutationFn: (request: GenerateDraftRequest) =>
       apiClient<DraftGenerateResponse>('/plan/draft/generate', {
         method: 'POST',
-        body: JSON.stringify({ week_start: weekStart }),
+        body: JSON.stringify(
+          typeof request === 'string'
+            ? { week_start: request }
+            : { week_start: request.weekStart, from_date: request.fromDate }
+        ),
       }),
-    onSuccess: (_, weekStart) => {
+    onSuccess: (_, request) => {
+      const weekStart = typeof request === 'string' ? request : request.weekStart
       queryClient.invalidateQueries({ queryKey: planKeys.week(weekStart) })
     },
   })

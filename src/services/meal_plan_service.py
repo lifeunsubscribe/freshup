@@ -18,6 +18,7 @@ from src.db.models.meal_plan import MealPlanEntry, MealPlanStatus, MealType
 from src.db.models.recipe import Recipe
 from src.services import grocery_service
 from src.services import recipe_service
+from src.services.plan_week import week_days, week_start_of
 from src.exceptions import NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class WeekChoice:
     """A single day's recommended dinner entry, chosen by select_week."""
 
     item: "RankedItem"  # type: ignore[name-defined]  # from recommendation_service
+    day: Optional[date] = None  # the day it was chosen for
 
 
 def _item_keys(item, card_overlap: dict) -> frozenset:
@@ -166,9 +168,12 @@ def _ranked_key(item) -> tuple[str, UUID]:
     return (item.kind, item.card.id if item.kind == "card" else item.recipe.id)
 
 
-def select_week(user, db: Session, week_start: date) -> list[WeekChoice]:
+def select_week(
+    user, db: Session, week_start: date, days: Optional[list[date]] = None
+) -> list[WeekChoice]:
     """
-    Pure selection: returns up to 7 WeekChoice objects for the given week.
+    Pure selection: returns one WeekChoice per day, for the seven days of the
+    week or for just the `days` given (the days of that week still to fill).
 
     Calls rank_candidates(limit=40), filters for all household members'
     allergies, then fills seven slots applying the variety and weeknight
@@ -178,7 +183,7 @@ def select_week(user, db: Session, week_start: date) -> list[WeekChoice]:
     Rules applied (in priority order, skipping candidates that break a rule):
     - No cuisine key on two consecutive days; at most 2 dinners per
       ingredient key across the week.
-    - Mon–Thu (day offset 0–3) take candidates ≤40 min total when any remain.
+    - Monday to Thursday take candidates ≤40 min total when any remain.
     - Exactly one explore item when one exists.
     - When ≥2 sources have candidates, at least 2 dinners from a second source.
     - Allergies of every household member block; `never` keys of the requesting
@@ -238,19 +243,23 @@ def select_week(user, db: Session, week_start: date) -> list[WeekChoice]:
     explore_placed = 0
     source_counts: dict = {}
 
-    for day_offset in range(7):
+    if days is None:
+        days = week_days(week_start)
+
+    for position, day in enumerate(days):
         if not unplaced:
             break
-        is_weeknight = day_offset <= 3  # Mon=0, Tue=1, Wed=2, Thu=3
+        # By the calendar, not by position: the week starts on Sunday.
+        is_weeknight = day.weekday() <= 3  # Mon=0 ... Thu=3
 
         pick = _pick_for_slot(
             unplaced, card_overlap, prev_cuisine, ing_counts, explore_placed,
-            is_weeknight, source_counts, multi_source, slots_left=7 - day_offset,
+            is_weeknight, source_counts, multi_source, slots_left=len(days) - position,
         )
         if pick is None:
             break
 
-        week.append(WeekChoice(item=pick))
+        week.append(WeekChoice(item=pick, day=day))
         unplaced.remove(pick)
 
         prev_cuisine = _cuisine_keys(pick, card_overlap)
@@ -273,17 +282,21 @@ def select_week(user, db: Session, week_start: date) -> list[WeekChoice]:
 def generate_draft_meal_plan(
     week_start: date,
     user_id: UUID,
-    db: Session
+    db: Session,
+    from_date: Optional[date] = None,
 ) -> list[MealPlanEntry]:
     """
-    Generate a draft meal plan for up to 7 dinner slots starting from week_start.
+    Suggest a dinner for every day of the week that has none.
 
-    Delegates candidate selection to select_week(), which applies ranking-based
-    selection with variety, weeknight, and two-source rules.  Fewer than 7
-    eligible candidates fills what it can and logs a warning.
+    An empty week gets up to seven; a week that already holds dinners, accepted
+    or suggested, gets suggestions only for its free days.  Delegates candidate
+    selection to select_week(), which applies ranking-based selection with
+    variety, weeknight, and two-source rules.  Fewer eligible candidates than
+    free days fills what it can and logs a warning.
 
     Args:
-        week_start: Start date of the week (should be Monday)
+        week_start: First day of the week (a Sunday)
+        from_date: When given, days before it are left alone
         user_id: User ID generating the plan (used for personalization)
         db: Database session
 
@@ -291,7 +304,7 @@ def generate_draft_meal_plan(
         List of created MealPlanEntry objects (may be fewer than 7)
 
     Raises:
-        ValidationError: If user not found or draft entries already exist
+        ValidationError: If user not found or every day already has a dinner
 
     Note:
         Single-household mode: entries belong to the household collectively.
@@ -301,24 +314,29 @@ def generate_draft_meal_plan(
         raise ValidationError(f"User {user_id} not found")
 
     week_end = week_start + timedelta(days=6)
-    existing_drafts = (
-        db.query(MealPlanEntry)
+    taken = {
+        entry_date
+        for (entry_date,) in db.query(MealPlanEntry.date)
         .filter(MealPlanEntry.date >= week_start)
         .filter(MealPlanEntry.date <= week_end)
-        .filter(MealPlanEntry.status == MealPlanStatus.draft.value)
-        .count()
-    )
-    if existing_drafts > 0:
+        .filter(MealPlanEntry.meal_type == MealType.dinner.value)
+        .all()
+    }
+    free_days = [
+        day for day in week_days(week_start)
+        if day not in taken and (from_date is None or day >= from_date)
+    ]
+    if not free_days:
         raise ValidationError(
-            f"Draft entries already exist for week starting {week_start}. "
-            f"Delete or confirm existing drafts before generating new ones."
+            f"Every day left in the week starting {week_start} already has a dinner. "
+            f"Swap a suggestion to change one."
         )
 
-    choices = select_week(user, db, week_start)
+    choices = select_week(user, db, week_start, days=free_days)
 
     entries = []
-    for day_offset, choice in enumerate(choices):
-        entry_date = week_start + timedelta(days=day_offset)
+    for choice in choices:
+        entry_date = choice.day
         item = choice.item
 
         if item.kind == "recipe":
@@ -701,8 +719,7 @@ def swap_entry(
         raise ValidationError(f"User {user_id} not found")
 
     # Determine week bounds from the entry's date
-    days_since_monday = entry.date.weekday()  # 0=Mon, 6=Sun
-    week_start = entry.date - timedelta(days=days_since_monday)
+    week_start = week_start_of(entry.date)
     week_end = week_start + timedelta(days=6)
 
     # Exclude every item already placed in this week (other entries)

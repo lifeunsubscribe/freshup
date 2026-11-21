@@ -24,9 +24,9 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => mockNavigate }
 })
 
-// Wednesday 2026-11-18; its week starts Monday 2026-11-16.
+// Wednesday 2026-11-18; its week starts Sunday 2026-11-15.
 const NOW = new Date('2026-11-18T10:00:00')
-const THIS_WEEK = '2026-11-16'
+const THIS_WEEK = '2026-11-15'
 
 function renderWeek(day: string = THIS_WEEK) {
   return renderWithProviders(
@@ -64,7 +64,7 @@ describe('Week editor', () => {
       renderWeek()
 
       expect(screen.getByText('This week')).toBeInTheDocument()
-      expect(screen.getByText('Nov 16 – 22')).toBeInTheDocument()
+      expect(screen.getByText('Nov 15 – 21')).toBeInTheDocument()
       const rows = within(screen.getByRole('list', { name: 'Dinners this week' }))
       expect(rows.getAllByRole('listitem')).toHaveLength(7)
       expect(screen.getByText('Today · Wednesday')).toBeInTheDocument()
@@ -152,8 +152,8 @@ describe('Week editor', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
       fireEvent.click(screen.getByRole('button', { name: 'Previous week' }))
 
-      expect(mockNavigate).toHaveBeenNthCalledWith(1, '/plan/2026-11-23')
-      expect(mockNavigate).toHaveBeenNthCalledWith(2, '/plan/2026-11-09')
+      expect(mockNavigate).toHaveBeenNthCalledWith(1, '/plan/2026-11-22')
+      expect(mockNavigate).toHaveBeenNthCalledWith(2, '/plan/2026-11-08')
     })
 
     it('names other weeks by where they are', () => {
@@ -161,7 +161,7 @@ describe('Week editor', () => {
 
       renderWeek('2026-11-23')
       expect(screen.getByText('Next week')).toBeInTheDocument()
-      expect(screen.getByText('Nov 23 – 29')).toBeInTheDocument()
+      expect(screen.getByText('Nov 22 – 28')).toBeInTheDocument()
     })
   })
 
@@ -185,7 +185,7 @@ describe('Week editor', () => {
 
       renderWeek('2026-11-23')
 
-      expect(planMocks.generateMutate).toHaveBeenCalledWith('2026-11-23')
+      expect(planMocks.generateMutate).toHaveBeenCalledWith('2026-11-22')
     })
 
     it('does not fill a past week, and says nothing was planned', () => {
@@ -221,6 +221,34 @@ describe('Week editor', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
 
       expect(planMocks.generateMutate).toHaveBeenCalledWith(THIS_WEEK)
+    })
+  })
+
+  describe('a week with empty days', () => {
+    it('offers suggestions for the empty days from today on', () => {
+      // Today is Wednesday the 18th. Sunday and Tuesday are empty but past.
+      planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16'), entry('2026-11-19')] }
+      setup()
+
+      renderWeek()
+      fireEvent.click(screen.getByRole('button', { name: 'Suggest for 3 empty days' }))
+
+      expect(planMocks.generateMutate).toHaveBeenCalledTimes(1)
+      expect(planMocks.generateMutate).toHaveBeenCalledWith({
+        weekStart: THIS_WEEK,
+        fromDate: '2026-11-18',
+      })
+    })
+
+    it('offers nothing when the only empty days are past, or the week is full', () => {
+      planMocks.weeks[THIS_WEEK] = {
+        draft_entries: ['2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21'].map((d) => entry(d)),
+      }
+      setup()
+
+      renderWeek()
+
+      expect(screen.queryByRole('button', { name: /Suggest for/ })).not.toBeInTheDocument()
     })
   })
 

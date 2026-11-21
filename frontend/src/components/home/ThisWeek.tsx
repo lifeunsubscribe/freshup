@@ -12,12 +12,10 @@ import {
 } from '../../api'
 import type { MealPlanEntryDisplay } from '../../api/types'
 import { ownOrSourceName } from '../../utils/sourceNames'
-import { mondayOf, weekDates } from '../../utils/week'
-
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+import { weekDates, weekStartOf, weekdayName } from '../../utils/week'
 
 export default function ThisWeek() {
-  const weekStart = mondayOf(new Date())
+  const weekStart = weekStartOf(new Date())
   const navigate = useNavigate()
 
   const { data: weekData, isLoading } = useWeekPlan(weekStart)
@@ -104,12 +102,12 @@ export default function ThisWeek() {
             role="list"
             aria-label="This week dinners"
           >
-            {dayDates.map((date, i) => {
+            {dayDates.map((date) => {
               const entry = entryByDate.get(date)
               return (
                 <DayTile
                   key={date}
-                  dayLabel={DAY_LABELS[i]}
+                  dayLabel={weekdayName(date).slice(0, 3)}
                   entry={entry}
                   onTap={handleTileTap}
                   onConfirm={handleConfirm}

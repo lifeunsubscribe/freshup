@@ -8,7 +8,7 @@ import {
   useOpenCard,
 } from '../../api'
 import type { MealPlanEntryDisplay } from '../../api/types'
-import { weekDates } from '../../utils/week'
+import { todayStr, weekDates } from '../../utils/week'
 
 export interface PlanDay {
   date: string
@@ -70,6 +70,10 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
   const days: PlanDay[] = weekDates(weekStart).map((date) => ({ date, entry: entryByDate.get(date) }))
   const shown = days.flatMap((day) => (day.entry ? [day.entry] : []))
   const suggestions = shown.filter((e) => e.status === 'draft')
+  // Days still to come (today included) that hold nothing, in a week that is
+  // otherwise under way. An entirely empty week is handled by the automatic fill.
+  const today = todayStr()
+  const openDays = isEmpty ? 0 : days.filter((day) => !day.entry && day.date >= today).length
   const stats: PlanStats = {
     planned: shown.length - suggestions.length,
     suggested: suggestions.length,
@@ -181,6 +185,9 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
     /** The automatic fill has started (or was never due), so "nothing planned" can be said. */
     autoFillStarted: !autoFill || attemptedWeeks.includes(weekStart),
     suggest: () => generate.mutate(weekStart),
+    openDays,
+    /** Suggest dinners for the empty days from today on; days already past stay as they are. */
+    fillOpenDays: () => generate.mutate({ weekStart, fromDate: today }),
   }
 }
 

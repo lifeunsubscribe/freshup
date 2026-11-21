@@ -41,9 +41,10 @@ def generate_draft(
     db: Annotated[Session, Depends(get_db)],
 ) -> DraftGenerateResponse:
     """
-    Generate a draft meal plan for 7 dinner slots.
+    Suggest a dinner for each day of the week (Sunday to Saturday) that has none.
 
-    Creates draft MealPlanEntries for 7 consecutive days starting from week_start.
+    Creates draft MealPlanEntries for the free days of the week starting at
+    week_start; with from_date, only for free days on or after it.
     Uses feed query patterns for recipe selection:
     - Expiring inventory first (make_now_recipes)
     - Familiar recipes next (on_repeat_recipes)
@@ -57,6 +58,7 @@ def generate_draft(
             week_start=request.week_start,
             user_id=current_user.id,
             db=db,
+            from_date=request.from_date,
         )
 
         return DraftGenerateResponse(

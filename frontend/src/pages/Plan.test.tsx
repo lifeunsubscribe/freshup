@@ -17,10 +17,10 @@ vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({ currentUser: { name: 'Sarah' } }),
 }))
 
-// Wednesday 2026-11-18; its week starts Monday 2026-11-16.
+// Wednesday 2026-11-18; its week starts Sunday 2026-11-15.
 const NOW = new Date('2026-11-18T10:00:00')
-const THIS_WEEK = '2026-11-16'
-const WEEK_DAYS = ['2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-11-22']
+const THIS_WEEK = '2026-11-15'
+const WEEK_DAYS = ['2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21']
 
 function card(title: string) {
   return within(screen.getByRole('region', { name: title }))
@@ -50,8 +50,8 @@ describe('Plan page', () => {
 
     expect(screen.getByRole('region', { name: 'This week' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Next week' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Week of Nov 30' })).toBeInTheDocument()
-    expect(weeksAsked()).toEqual([THIS_WEEK, '2026-11-23', '2026-11-30'])
+    expect(screen.getByRole('region', { name: 'Week of Nov 29' })).toBeInTheDocument()
+    expect(weeksAsked()).toEqual([THIS_WEEK, '2026-11-22', '2026-11-29'])
   })
 
   it('heads each card with its dates, its people and where the week stands', () => {
@@ -66,11 +66,12 @@ describe('Plan page', () => {
     renderWithProviders(<Plan />)
 
     const thisWeek = card('This week')
-    expect(thisWeek.getByText('Nov 16 – 22')).toBeInTheDocument()
+    expect(thisWeek.getByText('Nov 15 – 21')).toBeInTheDocument()
     expect(thisWeek.getByLabelText('People on this plan: just you')).toBeInTheDocument()
     expect(thisWeek.getByText('2 planned · 5 suggested · about 4 h 5 min of cooking')).toBeInTheDocument()
+    expect(thisWeek.getByLabelText('Sunday: planned')).toBeInTheDocument()
     expect(thisWeek.getByLabelText('Monday: planned')).toBeInTheDocument()
-    expect(thisWeek.getByLabelText('Sunday: suggested')).toBeInTheDocument()
+    expect(thisWeek.getByLabelText('Saturday: suggested')).toBeInTheDocument()
   })
 
   it('lays the week out as a carousel of dinners, one per day', () => {
@@ -93,8 +94,8 @@ describe('Plan page', () => {
 
     expect(planMocks.generateMutate.mock.calls.map(([weekStart]) => weekStart)).toEqual([
       THIS_WEEK,
-      '2026-11-23',
-      '2026-11-30',
+      '2026-11-22',
+      '2026-11-29',
     ])
   })
 
@@ -104,7 +105,7 @@ describe('Plan page', () => {
     renderWithProviders(<Plan />)
     fireEvent.click(screen.getByRole('button', { name: 'Show another week' }))
 
-    expect(screen.getByRole('region', { name: 'Week of Dec 7' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Week of Dec 6' })).toBeInTheDocument()
   })
 
   it('links each card to its week editor, and to last week', () => {
@@ -112,14 +113,14 @@ describe('Plan page', () => {
 
     renderWithProviders(<Plan />)
 
-    expect(screen.getByRole('link', { name: 'Edit this week' })).toHaveAttribute('href', '/plan/2026-11-16')
-    expect(screen.getByRole('link', { name: 'Edit next week' })).toHaveAttribute('href', '/plan/2026-11-23')
-    expect(screen.getByRole('link', { name: 'Last week' })).toHaveAttribute('href', '/plan/2026-11-09')
+    expect(screen.getByRole('link', { name: 'Edit this week' })).toHaveAttribute('href', '/plan/2026-11-15')
+    expect(screen.getByRole('link', { name: 'Edit next week' })).toHaveAttribute('href', '/plan/2026-11-22')
+    expect(screen.getByRole('link', { name: 'Last week' })).toHaveAttribute('href', '/plan/2026-11-08')
   })
 
   it('accepts and swaps a dinner from its card', () => {
     planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
-    planMocks.weeks['2026-11-23'] = { draft_entries: [entry('2026-11-23')] }
+    planMocks.weeks['2026-11-22'] = { draft_entries: [entry('2026-11-23')] }
     setup()
 
     renderWithProviders(<Plan />)
@@ -128,6 +129,22 @@ describe('Plan page', () => {
 
     expect(planMocks.confirmMutate).toHaveBeenCalledWith('entry-2026-11-16', expect.anything())
     expect(planMocks.swapMutate).toHaveBeenCalledWith('entry-2026-11-23', expect.anything())
+  })
+
+  it('offers to fill the empty days of a week that is under way', () => {
+    planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
+    planMocks.weeks['2026-11-22'] = { draft_entries: [entry('2026-11-22')] }
+    setup()
+
+    renderWithProviders(<Plan />)
+    // Today is Wednesday the 18th: Wednesday to Saturday are empty this week.
+    fireEvent.click(card('This week').getByRole('button', { name: 'Fill 4 empty days' }))
+    expect(card('Next week').getByRole('button', { name: 'Fill 6 empty days' })).toBeInTheDocument()
+
+    expect(planMocks.generateMutate).toHaveBeenCalledWith({
+      weekStart: THIS_WEEK,
+      fromDate: '2026-11-18',
+    })
   })
 
   it('accepts a whole week from its card', async () => {

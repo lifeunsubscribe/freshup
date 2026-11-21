@@ -12,6 +12,8 @@ from datetime import date as date_type
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.services.plan_week import WEEK_START_NAME, WEEK_START_WEEKDAY
+
 from src.db.models.meal_plan import MealType
 
 
@@ -88,14 +90,18 @@ class MealPlanEntrySchema(BaseModel):
 class DraftGenerateRequest(BaseModel):
     """Request schema for generating a draft meal plan."""
 
-    week_start: date_type = Field(..., description="Start date of the week (YYYY-MM-DD)")
+    week_start: date_type = Field(..., description="First day of the week, a Sunday (YYYY-MM-DD)")
+    from_date: Optional[date_type] = Field(
+        None,
+        description="Only suggest for days on or after this date (used to leave days already past alone)",
+    )
 
     @field_validator('week_start')
     @classmethod
-    def validate_week_start_is_monday(cls, v: date_type) -> date_type:
-        """Ensure week_start is a Monday."""
-        if v.weekday() != 0:  # Monday is 0
-            raise ValueError('week_start must be a Monday')
+    def validate_week_start(cls, v: date_type) -> date_type:
+        """Ensure week_start is the first day of a plan week (a Sunday)."""
+        if v.weekday() != WEEK_START_WEEKDAY:
+            raise ValueError(f'week_start must be a {WEEK_START_NAME}')
         return v
 
 

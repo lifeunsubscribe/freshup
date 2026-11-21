@@ -10,9 +10,9 @@ import { ownOrSourceName } from '../utils/sourceNames'
 import {
   addDays,
   formatMonthDay,
-  mondayOf,
-  mondayOfDateStr,
   todayStr,
+  weekStartOf,
+  weekStartOfDateStr,
   weekTitle,
   weekdayName,
 } from '../utils/week'
@@ -27,7 +27,7 @@ import {
  */
 export default function PlanWeek() {
   const { weekStart: param = '' } = useParams<{ weekStart: string }>()
-  const weekStart = mondayOfDateStr(param)
+  const weekStart = weekStartOfDateStr(param)
   if (weekStart === null) {
     return <Navigate to="/plan" replace />
   }
@@ -38,7 +38,7 @@ export default function PlanWeek() {
 function WeekEditor({ weekStart }: { weekStart: string }) {
   const navigate = useNavigate()
   const { currentUser } = useAuth()
-  const thisWeek = mondayOf(new Date())
+  const thisWeek = weekStartOf(new Date())
   const today = todayStr()
   const isPastWeek = weekStart < thisWeek
   const plan = usePlanWeek(weekStart, { autoFill: !isPastWeek })
@@ -79,16 +79,27 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
           prominent
         />
 
-        {plan.stats.suggested > 0 && (
-          <button
-            onClick={plan.acceptAll}
-            disabled={plan.acceptingAll}
-            className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm bg-olive text-white text-[13px] font-medium disabled:opacity-50"
-          >
-            <Check size={14} />
-            {plan.acceptingAll ? 'Accepting...' : `Accept all ${plan.stats.suggested}`}
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {plan.stats.suggested > 0 && (
+            <button
+              onClick={plan.acceptAll}
+              disabled={plan.acceptingAll}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm bg-olive text-white text-[13px] font-medium disabled:opacity-50"
+            >
+              <Check size={14} />
+              {plan.acceptingAll ? 'Accepting...' : `Accept all ${plan.stats.suggested}`}
+            </button>
+          )}
+          {plan.openDays > 0 && (
+            <button
+              onClick={plan.fillOpenDays}
+              disabled={plan.suggesting}
+              className="px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium disabled:opacity-50"
+            >
+              Suggest for {plan.openDays === 1 ? 'the empty day' : `${plan.openDays} empty days`}
+            </button>
+          )}
+        </div>
 
         {plan.notice && (
           <p role="status" className="text-sm text-olive-dark">
