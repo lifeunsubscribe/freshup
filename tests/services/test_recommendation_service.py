@@ -140,8 +140,10 @@ class _MockQuery:
                         val = right.value
                         op_name = getattr(getattr(cond, "operator", None), "__name__", "eq")
                         if isinstance(val, (list, tuple, set, frozenset)):
-                            if "in" in op_name.lower():
+                            if op_name == "in_op":
                                 items = [i for i in items if getattr(i, col_key, None) in val]
+                            elif op_name == "not_in_op":
+                                items = [i for i in items if getattr(i, col_key, None) not in val]
                         elif op_name == "eq":
                             items = [i for i in items if getattr(i, col_key, None) == val]
                         elif op_name == "ne":
@@ -158,19 +160,6 @@ class _MockQuery:
                                 if getattr(i, col_key, None) is not None
                                 and _aware(getattr(i, col_key)) <= _aware(val)
                             ]
-            except Exception:
-                pass
-            # Handle ~col.in_([ids]) = notin_
-            try:
-                inner = getattr(cond, "element", None)
-                if inner is not None:
-                    inner_col_key = getattr(getattr(inner, "left", None), "key", None)
-                    inner_right = getattr(inner, "right", None)
-                    if inner_col_key and inner_right is not None and hasattr(inner_right, "value"):
-                        inner_val = inner_right.value
-                        inner_op = getattr(getattr(inner, "operator", None), "__name__", "")
-                        if isinstance(inner_val, (list, tuple, set, frozenset)) and "in" in inner_op.lower():
-                            items = [i for i in items if getattr(i, inner_col_key, None) not in inner_val]
             except Exception:
                 pass
         self._items = items
