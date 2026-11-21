@@ -462,7 +462,8 @@ async def test_complete_sends_default_num_ctx(mock_httpx_client, monkeypatch):
     """Test that the payload includes options.num_ctx with the default value 8192."""
     from src.config import get_settings
     get_settings.cache_clear()
-    monkeypatch.delenv("OLLAMA_NUM_CTX", raising=False)
+    # setenv (not delenv) so env vars outrank any .env file value a developer may have set
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "8192")
     get_settings.cache_clear()
 
     mock_response = MagicMock()
@@ -524,7 +525,8 @@ async def test_retry_carries_num_ctx(mock_httpx_client, monkeypatch):
     """Test that the retry request (after a validation failure) also carries num_ctx."""
     from src.config import get_settings
     get_settings.cache_clear()
-    monkeypatch.delenv("OLLAMA_NUM_CTX", raising=False)
+    # setenv (not delenv) so env vars outrank any .env file value a developer may have set
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "8192")
     get_settings.cache_clear()
 
     # First call returns invalid schema; second returns valid
