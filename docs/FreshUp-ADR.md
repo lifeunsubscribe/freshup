@@ -1028,6 +1028,7 @@ Each phase produces a usable increment of the system. Phases are broken into cle
 - Menu title and description editing
 
 #### 2.5I: Frontend — Plan Page
+- **Built so far (2026-11-21, first working version):** `/plan` shows one week of dinners, a day per row, with previous/next week; an empty week that is not in the past fills itself with suggestions (`POST /plan/draft/generate`); a suggestion can be accepted (which adds its ingredients to the grocery list) or swapped; a row opens the recipe, importing a catalog card first. Not built: choosing a recipe for a day, removing or moving a meal, other meal types, servings, and everything household below.
 - Weekly calendar view (replace Phase 3 stub)
 - Household vs. personal plan toggle
 - Auto-draft recipe cards (faded/greyed-out treatment)

@@ -11,40 +11,13 @@ import {
   useOpenCard,
 } from '../../api'
 import type { MealPlanEntryDisplay } from '../../api/types'
-import { sourceName } from '../../utils/sourceNames'
+import { ownOrSourceName } from '../../utils/sourceNames'
+import { mondayOf, weekDates } from '../../utils/week'
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-const OWN_RECIPE_SOURCES = new Set(['manual', 'ad_hoc'])
-
-function sourceLabel(sourceType: string): string {
-  return OWN_RECIPE_SOURCES.has(sourceType) ? 'Your recipes' : sourceName(sourceType)
-}
-
-function getCurrentMondayStr(): string {
-  const today = new Date()
-  const day = today.getDay() // 0=Sun, 1=Mon...6=Sat
-  const diff = day === 0 ? -6 : 1 - day
-  const monday = new Date(today)
-  monday.setDate(today.getDate() + diff)
-  const y = monday.getFullYear()
-  const m = String(monday.getMonth() + 1).padStart(2, '0')
-  const d = String(monday.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-function addDays(dateStr: string, n: number): string {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  const date = new Date(y, m - 1, d)
-  date.setDate(date.getDate() + n)
-  const yr = date.getFullYear()
-  const mo = String(date.getMonth() + 1).padStart(2, '0')
-  const dy = String(date.getDate()).padStart(2, '0')
-  return `${yr}-${mo}-${dy}`
-}
-
 export default function ThisWeek() {
-  const weekStart = getCurrentMondayStr()
+  const weekStart = mondayOf(new Date())
   const navigate = useNavigate()
 
   const { data: weekData, isLoading } = useWeekPlan(weekStart)
@@ -78,7 +51,7 @@ export default function ThisWeek() {
     for (const e of weekData.confirmed_entries) entryByDate.set(e.date, e)
   }
 
-  const dayDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  const dayDates = weekDates(weekStart)
 
   function handleTileTap(entry: MealPlanEntryDisplay) {
     if (entry.recipe_id) {
@@ -109,7 +82,7 @@ export default function ThisWeek() {
 
   return (
     <section aria-label="This week">
-      <SectionHeader>This week</SectionHeader>
+      <SectionHeader linkTo="/plan" linkText="Open plan">This week</SectionHeader>
 
       {generateFailed && (
         <p className="mt-2 text-sm text-text-secondary">
@@ -202,7 +175,7 @@ function DayTile({ dayLabel, entry, onTap, onConfirm, onSwap }: DayTileProps) {
               {entry.display.name}
             </p>
             <p className="text-[11px] text-text-secondary">
-              {sourceLabel(entry.display.source_type)}
+              {ownOrSourceName(entry.display.source_type)}
             </p>
           </>
         ) : (

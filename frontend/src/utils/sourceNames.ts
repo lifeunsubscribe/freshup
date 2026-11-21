@@ -12,6 +12,13 @@ export function sourceName(sourceType: string): string {
   return SOURCE_NAMES[sourceType as SourceType] ?? sourceType
 }
 
+const OWN_RECIPE_SOURCES = new Set(['manual', 'ad_hoc'])
+
+/** Byline for a planned meal: the source's name, or "Your recipes" for one the user wrote. */
+export function ownOrSourceName(sourceType: string): string {
+  return OWN_RECIPE_SOURCES.has(sourceType) ? 'Your recipes' : sourceName(sourceType)
+}
+
 // Exact-hostname mapping from import domain to source_type string.
 // Mirrors SUPPORTED_IMPORT_DOMAINS in src/routers/scraper.py.
 const URL_SOURCE_TYPES: Partial<Record<string, SourceType>> = {
