@@ -192,6 +192,10 @@ Used in: recipe browse grid, carousels, search results, "ready to eat" horizonta
 - Optional per-step images (graceful absence — no placeholder when missing)
 - Ingredients without a `step_index` show in a "General" group at the top
 
+**Below all tabs (always visible):**
+- "How it turned out" section (`OutcomesSection`) — household member cook history
+- "More like this" row (`MixedRow`) — horizontally scrollable mix of catalog cards and recipes with Jaccard key similarity > 0, ordered by similarity then taste; renders nothing when the list is empty (`GET /recipes/{id}/related`)
+
 **Header elements:**
 - Top bar: back navigation (left), bookmark glyph + heart glyph (right; outline = off, filled olive = on)
 - Recipe title with olive period accent

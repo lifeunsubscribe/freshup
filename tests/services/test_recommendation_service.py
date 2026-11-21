@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from src.services.recommendation_service import rank_candidates
+from src.services.recommendation_service import rank_candidates, related_items
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +140,14 @@ class _MockQuery:
                         val = right.value
                         op_name = getattr(getattr(cond, "operator", None), "__name__", "eq")
                         if isinstance(val, (list, tuple, set, frozenset)):
-                            # in_() — handled elsewhere or skip
-                            pass
+                            if op_name == "in_op":
+                                items = [i for i in items if getattr(i, col_key, None) in val]
+                            elif op_name == "not_in_op":
+                                items = [i for i in items if getattr(i, col_key, None) not in val]
                         elif op_name == "eq":
                             items = [i for i in items if getattr(i, col_key, None) == val]
+                        elif op_name == "ne":
+                            items = [i for i in items if getattr(i, col_key, None) != val]
                         elif op_name == "ge":
                             items = [
                                 i for i in items
@@ -159,6 +163,9 @@ class _MockQuery:
             except Exception:
                 pass
         self._items = items
+        return self
+
+    def options(self, *args):
         return self
 
     def join(self, *args, **kwargs):
@@ -625,3 +632,210 @@ class TestExploreAndDiversity:
                     f"4-in-a-row {this_source} at position {i} but other source "
                     f"still appears later: {placed_sources}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# related_items: similarity ordering, exclusions, mixed kinds
+# ---------------------------------------------------------------------------
+
+class TestRelatedItems:
+    """
+    Acceptance criteria for related_items():
+    - A candidate sharing more keys ranks above one sharing fewer.
+    - A candidate sharing no keys is absent.
+    - Cards and recipes both appear in results.
+    - The viewed recipe itself is excluded.
+    - The catalog card linked to the viewed recipe is excluded.
+    - Blocked items are excluded.
+    """
+
+    def _make_viewed(self, ingredient_keys=None):
+        """Make a simple 'viewed' recipe with a fixed set of keys."""
+        r = _make_recipe("Viewed Pasta", tags=[], ingredients=[])
+        # Patch ingredient_keys onto it via the ingredients field
+        # so recipe_keys() returns ingredient: prefixed keys.
+        # Use SimpleNamespace ingredients with ingredient_name matching known keys.
+        ingredients = []
+        for key in (ingredient_keys or ["pasta", "tomato", "garlic"]):
+            ingredients.append(SimpleNamespace(ingredient_name=key))
+        r = SimpleNamespace(
+            id=r.id,
+            name=r.name,
+            source_type=r.source_type,
+            source_url=r.source_url,
+            source_image=r.source_image,
+            prep_time_minutes=r.prep_time_minutes,
+            cook_time_minutes=r.cook_time_minutes,
+            base_servings=r.base_servings,
+            tags=[],
+            times_cooked=0,
+            created_by=None,
+            is_persisted=True,
+            ingredients=ingredients,
+        )
+        return r
+
+    def test_higher_overlap_ranks_first(self):
+        """Card sharing 3 keys ranks above card sharing 1 key."""
+        viewed = self._make_viewed(["pasta", "tomato", "garlic"])
+
+        # 3 shared keys: pasta, tomato, garlic
+        card_high = _make_card(
+            "high-sim",
+            ingredient_keys=["pasta", "tomato", "garlic", "basil"],
+            source_type="hellofresh_web",
+        )
+        # 1 shared key: pasta only
+        card_low = _make_card(
+            "low-sim",
+            ingredient_keys=["pasta", "chicken", "lemon"],
+            source_type="hellofresh_web",
+        )
+
+        user = _make_user()
+        db = _db_with_cards(
+            [
+                (card_high, "all-recipes", "hellofresh_web", True),
+                (card_low, "all-recipes", "hellofresh_web", True),
+            ],
+            user=user,
+        )
+
+        result = related_items(viewed, user, db, limit=10)
+        assert len(result) >= 2
+        ids = [r.card.id for r in result if r.card is not None]
+        assert card_high.id in ids
+        assert card_low.id in ids
+        assert ids.index(card_high.id) < ids.index(card_low.id), (
+            "card with 3 shared keys should rank above card with 1 shared key"
+        )
+
+    def test_zero_overlap_absent(self):
+        """Candidate sharing no keys with the viewed recipe is not returned."""
+        viewed = self._make_viewed(["pasta", "tomato", "garlic"])
+
+        card_unrelated = _make_card(
+            "unrelated",
+            ingredient_keys=["chicken", "lemon", "rosemary"],
+            source_type="hellofresh_web",
+        )
+        card_related = _make_card(
+            "related",
+            ingredient_keys=["pasta", "basil"],
+            source_type="hellofresh_web",
+        )
+
+        user = _make_user()
+        db = _db_with_cards(
+            [
+                (card_unrelated, "all-recipes", "hellofresh_web", True),
+                (card_related, "all-recipes", "hellofresh_web", True),
+            ],
+            user=user,
+        )
+
+        result = related_items(viewed, user, db, limit=10)
+        result_ids = {r.card.id for r in result if r.card is not None}
+        assert card_unrelated.id not in result_ids
+        assert card_related.id in result_ids
+
+    def test_cards_and_recipes_both_appear(self):
+        """Cards and unlinked recipes both appear when both share keys."""
+        viewed = self._make_viewed(["pasta", "tomato"])
+
+        card = _make_card(
+            "pasta-card",
+            ingredient_keys=["pasta", "basil"],
+            source_type="hellofresh_web",
+        )
+        # Unlinked persisted recipe sharing 'pasta'
+        unlinked = SimpleNamespace(
+            id=uuid4(),
+            name="Pasta Salad",
+            source_type="manual",
+            source_url=None,
+            source_image=None,
+            prep_time_minutes=None,
+            cook_time_minutes=None,
+            base_servings=4,
+            tags=[],
+            times_cooked=0,
+            created_by=None,
+            is_persisted=True,
+            ingredients=[SimpleNamespace(ingredient_name="pasta")],
+        )
+
+        user = _make_user()
+        db = _db_with_cards(
+            [(card, "all-recipes", "hellofresh_web", True)],
+            user=user,
+            extra_recipes=[unlinked],
+        )
+
+        result = related_items(viewed, user, db, limit=10)
+        kinds = {r.kind for r in result}
+        assert "card" in kinds
+        assert "recipe" in kinds
+
+    def test_viewed_recipe_excluded(self):
+        """The viewed recipe itself must not appear in results."""
+        viewed = self._make_viewed(["pasta", "tomato"])
+
+        # Give viewed recipe a card entry too so it also tests card exclusion
+        card_for_viewed = _make_card(
+            "viewed-card",
+            ingredient_keys=["pasta", "tomato"],
+            recipe_id=viewed.id,
+            source_type="hellofresh_web",
+        )
+        other_card = _make_card(
+            "other-card",
+            ingredient_keys=["pasta", "basil"],
+            source_type="hellofresh_web",
+        )
+
+        user = _make_user()
+        db = _db_with_cards(
+            [
+                (card_for_viewed, "all-recipes", "hellofresh_web", True),
+                (other_card, "all-recipes", "hellofresh_web", True),
+            ],
+            user=user,
+            extra_recipes=[viewed],
+        )
+
+        result = related_items(viewed, user, db, limit=10)
+        result_recipe_ids = {r.recipe.id for r in result if r.recipe is not None}
+        result_card_ids = {r.card.id for r in result if r.card is not None}
+        assert viewed.id not in result_recipe_ids, "viewed recipe must not appear"
+        assert card_for_viewed.id not in result_card_ids, "card linked to viewed recipe must not appear"
+        assert other_card.id in result_card_ids
+
+    def test_blocked_items_excluded(self):
+        """Blocked cards and recipes are excluded from related results."""
+        viewed = self._make_viewed(["pasta", "tomato"])
+
+        blocked_card = _make_card(
+            "blocked",
+            ingredient_keys=["pasta", "garlic"],
+            source_type="hellofresh_web",
+        )
+        safe_card = _make_card(
+            "safe",
+            ingredient_keys=["pasta", "basil"],
+            source_type="hellofresh_web",
+        )
+        user = _make_user(allergies=["garlic"])
+
+        db = _db_with_cards(
+            [
+                (blocked_card, "all-recipes", "hellofresh_web", True),
+                (safe_card, "all-recipes", "hellofresh_web", True),
+            ],
+            user=user,
+        )
+
+        result = related_items(viewed, user, db, limit=10)
+        result_card_ids = {r.card.id for r in result if r.card is not None}
+        assert blocked_card.id not in result_card_ids
+        assert safe_card.id in result_card_ids

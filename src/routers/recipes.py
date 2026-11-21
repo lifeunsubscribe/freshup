@@ -54,6 +54,10 @@ from src.routers.recipe_helpers import (
 )
 from src.services.recipe_service import trigger_persistence, get_recipe_outcomes
 from src.services.feed_service import get_bookmarked_recipe_ids
+from src.schemas.recommendation import RecommendedItem
+from src.schemas.catalog import CardResponse
+from src.services.recommendation_service import related_items
+from src.services.card_tags import overlap_tags, tags_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -1542,3 +1546,105 @@ def get_recipe_outcomes_endpoint(
     """
     _require_recipe(recipe_id, db)
     return get_recipe_outcomes(recipe_id, db)
+
+
+@router.get("/{recipe_id}/related", response_model=list[RecommendedItem])
+def get_related_recipes(
+    recipe_id: UUID,
+    limit: int = Query(default=8, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[RecommendedItem]:
+    """
+    Return up to `limit` items (cards and recipes) similar to the given recipe.
+
+    Similarity is Jaccard overlap of taste keys; candidates with no shared key
+    are excluded. Ordered by similarity, ties by the viewer's taste score.
+    The viewed recipe, its linked catalog card, and blocked items are never
+    returned.
+
+    Returns:
+        list[RecommendedItem] (200): Similar items for the "More like this" row.
+
+    Raises:
+        HTTPException(401): Unauthenticated caller.
+        HTTPException(404): Recipe not found.
+    """
+    recipe = _require_recipe(recipe_id, db)
+    ranked = related_items(recipe, current_user, db, limit)
+
+    card_ids = [item.card.id for item in ranked if item.kind == "card"]
+    card_overlap = overlap_tags(db, card_ids) if card_ids else {}
+
+    recipe_ids = [item.recipe.id for item in ranked if item.kind == "recipe"]
+    bookmarked: set[UUID] = set()
+    if recipe_ids:
+        bookmarked = {
+            rel.recipe_id
+            for rel in db.query(UserRecipeRelation)
+            .filter(
+                UserRecipeRelation.user_id == current_user.id,
+                UserRecipeRelation.recipe_id.in_(recipe_ids),
+                UserRecipeRelation.is_bookmarked.is_(True),
+            )
+            .all()
+        }
+
+    items: list[RecommendedItem] = []
+    for ranked_item in ranked:
+        if ranked_item.kind == "card":
+            card = ranked_item.card
+            c_overlap = card_overlap.get(card.id, set())
+            text_tags = tags_from_text(card.name, card.headline)
+            stored_keys = card.ingredient_keys
+            if stored_keys is not None:
+                text_tags = {t for t in text_tags if not t.startswith("ingredient:")}
+                c_overlap = {t for t in c_overlap if not t.startswith("ingredient:")}
+                tags = text_tags | c_overlap | {f"ingredient:{k}" for k in stored_keys}
+            else:
+                tags = text_tags | c_overlap
+            card_resp = CardResponse(
+                id=card.id,
+                name=card.name,
+                source_type=card.source_type,
+                headline=card.headline,
+                image_url=card.image_url,
+                prep_time_minutes=card.prep_time_minutes,
+                rating=card.rating,
+                rating_count=card.rating_count,
+                recipe_url=card.recipe_url,
+                recipe_id=card.recipe_id,
+                is_persisted=bool(card.recipe_rel and card.recipe_rel.is_persisted),
+                ingredient_keys=card.ingredient_keys,
+                tags=sorted(tags),
+            )
+            items.append(RecommendedItem(
+                kind="card",
+                card=card_resp,
+                score=ranked_item.score,
+                reason=ranked_item.reason,
+            ))
+        else:
+            recipe_obj = ranked_item.recipe
+            recipe_resp = RecipeListResponse(
+                id=recipe_obj.id,
+                name=recipe_obj.name,
+                source_type=recipe_obj.source_type,
+                source_url=recipe_obj.source_url,
+                source_image=recipe_obj.source_image,
+                prep_time_minutes=recipe_obj.prep_time_minutes,
+                cook_time_minutes=recipe_obj.cook_time_minutes,
+                base_servings=recipe_obj.base_servings,
+                tags=recipe_obj.tags or [],
+                times_cooked=recipe_obj.times_cooked,
+                created_by=recipe_obj.created_by,
+                is_bookmarked=recipe_obj.id in bookmarked,
+            )
+            items.append(RecommendedItem(
+                kind="recipe",
+                recipe=recipe_resp,
+                score=ranked_item.score,
+                reason=ranked_item.reason,
+            ))
+
+    return items

@@ -54,6 +54,7 @@ vi.mock('../api/hooks/useRecipes', () => ({
     isError: false,
   })),
   useRecipeOutcomes: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+  useRelatedItems: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
 }))
 
 const mockRecordViewMutate = vi.fn()
@@ -70,6 +71,7 @@ vi.mock('../api/hooks/useRecipeEngagement', () => ({
     },
     isLoading: false,
   }),
+  useMyRecipeRelations: vi.fn(() => ({ data: new Map() })),
   useToggleBookmark: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useToggleLike: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
   useCookRecipe: () => ({ mutateAsync: mockCookMutateAsync }),
@@ -498,6 +500,107 @@ describe('RecipeDetail', () => {
     it('shows empty state when outcomes list is empty', () => {
       renderPage()
       expect(screen.getByText('Nobody here has cooked this yet.')).toBeInTheDocument()
+    })
+  })
+
+  describe('"More like this" row', () => {
+    afterEach(async () => {
+      const useRecipesModule = await import('../api/hooks/useRecipes')
+      vi.mocked(useRecipesModule.useRelatedItems).mockReturnValue({ data: [], isLoading: false, isError: false } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    })
+
+    it('renders nothing when useRelatedItems returns empty array', () => {
+      renderPage()
+      expect(screen.queryByRole('region', { name: /more like this/i })).not.toBeInTheDocument()
+    })
+
+    it('renders the row on the Ingredients tab when items exist', async () => {
+      const useRecipesModule = await import('../api/hooks/useRecipes')
+      vi.mocked(useRecipesModule.useRelatedItems).mockReturnValueOnce({
+        data: [
+          {
+            kind: 'recipe' as const,
+            recipe: {
+              id: 'related-1',
+              name: 'Related Pasta',
+              source_type: 'manual',
+              source_url: null,
+              source_image: null,
+              prep_time_minutes: null,
+              cook_time_minutes: null,
+              base_servings: 4,
+              tags: [],
+              times_cooked: 0,
+              created_by: null,
+              is_bookmarked: false,
+            },
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      renderPage()
+      expect(screen.getByRole('region', { name: /more like this/i })).toBeInTheDocument()
+    })
+
+    it('renders the row on the Cook tab when items exist', async () => {
+      const useRecipesModule = await import('../api/hooks/useRecipes')
+      vi.mocked(useRecipesModule.useRelatedItems).mockReturnValue({
+        data: [
+          {
+            kind: 'recipe' as const,
+            recipe: {
+              id: 'related-1',
+              name: 'Related Pasta',
+              source_type: 'manual',
+              source_url: null,
+              source_image: null,
+              prep_time_minutes: null,
+              cook_time_minutes: null,
+              base_servings: 4,
+              tags: [],
+              times_cooked: 0,
+              created_by: null,
+              is_bookmarked: false,
+            },
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: 'Cook & enjoy!' }))
+      expect(screen.getByRole('region', { name: /more like this/i })).toBeInTheDocument()
+    })
+
+    it('renders the row on the Nutrition tab when items exist', async () => {
+      const useRecipesModule = await import('../api/hooks/useRecipes')
+      vi.mocked(useRecipesModule.useRelatedItems).mockReturnValue({
+        data: [
+          {
+            kind: 'recipe' as const,
+            recipe: {
+              id: 'related-1',
+              name: 'Related Pasta',
+              source_type: 'manual',
+              source_url: null,
+              source_image: null,
+              prep_time_minutes: null,
+              cook_time_minutes: null,
+              base_servings: 4,
+              tags: [],
+              times_cooked: 0,
+              created_by: null,
+              is_bookmarked: false,
+            },
+          },
+        ],
+        isLoading: false,
+        isError: false,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: 'Nutrition' }))
+      expect(screen.getByRole('region', { name: /more like this/i })).toBeInTheDocument()
     })
   })
 

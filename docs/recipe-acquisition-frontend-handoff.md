@@ -151,7 +151,7 @@ Verified by reading the repo at `976d2d0`. "Not found" means a search turned up 
 | Ingredient pills per step | `RecipeIngredient.step_index` exists | Scraped recipes may all have `step_index = null`; pills then need a "General" group or a matching pass | Closed (#551) |
 | "Start N min" on a step | Nothing found | Durations must be read from step text (deterministic pattern match) | Closed (#551) |
 | Cook timers | Nothing found | Frontend-only state is enough | Closed (#551) |
-| Similar recipes | Nothing found | Needs a similarity query on shared ingredients and tags | Open |
+| Similar recipes | `GET /recipes/{id}/related` (Jaccard key overlap, limit=8) | Cards and recipes similar to the viewed recipe; row titled "More like this" | Closed (#596) |
 | Estimated nutrition | `Recipe.nutritional_info` exists | Needs an ingredient-to-nutrient lookup, an `estimated` marker, and ranges | Open question 5 |
 | Source health check, rows and alert | Nothing found | Needs a daily job, stored status per source, and a status endpoint readable by members | Closed (#547) |
 | Pantry check sheet | `recipe/PantryCheck.tsx` exists | Needs per-ingredient in-stock results, not only a summary | Closed (#548) |

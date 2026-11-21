@@ -3517,3 +3517,113 @@ class TestOutcomes:
 
         # 1 (auth) + 1 (recipe existence) + 2 (service: relations + cook events) = 4
         assert total[0] == 4
+
+
+class TestRelatedEndpoint:
+    """GET /recipes/{recipe_id}/related — 'More like this' row."""
+
+    @pytest.fixture
+    def recipe(self, db_session):
+        from src.db.models.recipe_ingredient import RecipeIngredient
+        r = Recipe(
+            id=uuid4(),
+            name="Pasta Primavera",
+            source_type="manual",
+            is_persisted=True,
+            times_cooked=0,
+            base_servings=4,
+            tags=["pasta", "vegetarian"],
+        )
+        db_session.add(r)
+        db_session.flush()
+        db_session.add(RecipeIngredient(recipe_id=r.id, ingredient_name="pasta", quantity=1.0, unit="cup"))
+        db_session.commit()
+        db_session.refresh(r)
+        return r
+
+    def _make_collection(self, db_session, slug="all-recipes", source_type="hellofresh_web"):
+        from src.db.models.source_catalog import SourceCollection
+        coll = SourceCollection(
+            id=uuid4(),
+            source_type=source_type,
+            slug=slug,
+            name=slug.replace("-", " ").title(),
+            parent_slug=None,
+            url=f"https://example.com/{slug}",
+        )
+        db_session.add(coll)
+        db_session.flush()
+        return coll
+
+    def _make_card(self, db_session, collection, name, ingredient_keys=None, recipe_id=None):
+        from src.db.models.source_catalog import SourceRecipeCard, SourceCollectionCard
+        card = SourceRecipeCard(
+            id=uuid4(),
+            source_type=collection.source_type,
+            external_id=f"ext-{name[:8]}",
+            name=name,
+            recipe_url=f"https://example.com/{name}",
+            ingredient_keys=ingredient_keys,
+            recipe_id=recipe_id,
+        )
+        db_session.add(card)
+        db_session.flush()
+        link = SourceCollectionCard(collection_id=collection.id, card_id=card.id, position=0)
+        db_session.add(link)
+        db_session.flush()
+        return card
+
+    def test_unknown_recipe_id_returns_404(self, client, auth_headers):
+        response = client.get(f"/recipes/{uuid4()}/related", headers=auth_headers)
+        assert response.status_code == 404
+
+    def test_returns_200_empty_list_when_no_catalog(self, client, auth_headers, recipe):
+        """With no catalog cards, the endpoint returns an empty list (not an error)."""
+        response = client.get(f"/recipes/{recipe.id}/related", headers=auth_headers)
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_linked_card_excluded(self, client, auth_headers, recipe, db_session):
+        """The catalog card whose recipe_id == the viewed recipe is never returned."""
+        coll = self._make_collection(db_session)
+        # Card linked to the viewed recipe — must be excluded
+        linked_card = self._make_card(
+            db_session, coll, "linked",
+            ingredient_keys=["pasta", "basil"],
+            recipe_id=recipe.id,
+        )
+        # Unrelated card with matching keys — should appear
+        other_card = self._make_card(
+            db_session, coll, "other-pasta",
+            ingredient_keys=["pasta", "tomato"],
+        )
+        db_session.commit()
+
+        response = client.get(f"/recipes/{recipe.id}/related?limit=10", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        returned_ids = {item["card"]["id"] for item in data if item.get("card")}
+        assert str(linked_card.id) not in returned_ids, (
+            "card linked to the viewed recipe must not appear in related results"
+        )
+        assert str(other_card.id) in returned_ids, (
+            "card sharing keys with the viewed recipe must appear in related results"
+        )
+
+    def test_response_shape(self, client, auth_headers, recipe, db_session):
+        """Each item in the response has the expected RecommendedItem shape."""
+        coll = self._make_collection(db_session)
+        self._make_card(
+            db_session, coll, "pasta-roni",
+            ingredient_keys=["pasta", "basil"],
+        )
+        db_session.commit()
+
+        response = client.get(f"/recipes/{recipe.id}/related?limit=10", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 1, "expected at least one related item (pasta-roni shares 'pasta' key)"
+        for item in data:
+            assert item["kind"] in ("card", "recipe")
+            assert "score" in item
+            assert "reason" in item
