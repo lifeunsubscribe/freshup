@@ -92,6 +92,9 @@ def list_collections(
         .filter_by(source_type=source)
         .scalar()
     )
+    if row_count > 0:
+        # Cheap repair for names an older fetch blanked (no network).
+        catalog_service.restore_blank_names(db, source)
     if row_count == 0:
         try:
             CATALOG_SOURCES[source].seed_fn(db)

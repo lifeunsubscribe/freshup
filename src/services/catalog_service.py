@@ -211,6 +211,34 @@ def seed_hellofresh_collections(db: Session) -> int:
     return len(new_rows)
 
 
+def restore_blank_names(db: Session, source_type: str, commit: bool = True) -> int:
+    """
+    Give collections whose name is empty their name back, without fetching.
+
+    Fetching a Home Chef listing used to overwrite the seeded name with the
+    crawler's empty one. Home Chef names come from the seed list; any other
+    source's from its slug. Returns how many rows were repaired.
+    """
+    unnamed = (
+        db.query(SourceCollection)
+        .filter_by(source_type=source_type)
+        .filter(SourceCollection.name == "")
+        .all()
+    )
+    if not unnamed:
+        return 0
+    if source_type == HOMECHEF_SOURCE:
+        names = {**dict(_HOMECHEF_CATEGORY_SLUGS), MENU_SLUG: "This week at Home Chef"}
+    else:
+        names = {}
+    for row in unnamed:
+        row.name = names.get(row.slug) or _slug_to_name(row.slug)
+    if commit:
+        db.commit()
+    logger.info("Restored %d blank %s collection names", len(unnamed), source_type)
+    return len(unnamed)
+
+
 def seed_homechef_collections(db: Session) -> int:
     """
     Seed Home Chef collections from the fixed category slug list.
@@ -230,16 +258,7 @@ def seed_homechef_collections(db: Session) -> int:
         for row in db.query(SourceCollection.slug).filter_by(source_type=HOMECHEF_SOURCE).all()
     }
 
-    seed_names = {**dict(_HOMECHEF_CATEGORY_SLUGS), MENU_SLUG: "This week at Home Chef"}
-    unnamed = (
-        db.query(SourceCollection)
-        .filter_by(source_type=HOMECHEF_SOURCE)
-        .filter(SourceCollection.name == "")
-        .all()
-    )
-    for row in unnamed:
-        if row.slug in seed_names:
-            row.name = seed_names[row.slug]
+    unnamed = restore_blank_names(db, HOMECHEF_SOURCE, commit=False)
 
     new_rows: list[SourceCollection] = []
     for slug, name in _HOMECHEF_CATEGORY_SLUGS:
@@ -275,7 +294,7 @@ def seed_homechef_collections(db: Session) -> int:
     if new_rows or unnamed:
         db.commit()
         logger.info(
-            "Seeded %d Home Chef collections, restored %d names", len(new_rows), len(unnamed)
+            "Seeded %d Home Chef collections, restored %d names", len(new_rows), unnamed
         )
 
     return len(new_rows)

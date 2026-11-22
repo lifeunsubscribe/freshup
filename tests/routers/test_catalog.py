@@ -845,3 +845,23 @@ class TestSourceTypeFields:
         assert len(cards) == 2, "expected 2 cards from _make_page(n_cards=2); loop would pass vacuously on empty list"
         for card in cards:
             assert card.get("source_type") == HELLOFRESH_SOURCE
+
+
+
+class TestListCollectionsRestoresBlankNames:
+    """An older fetch blanked Home Chef names; listing gives them back without fetching."""
+
+    def test_blank_names_come_back_on_list(self, client, db_session, member_headers):
+        from src.services import catalog_service
+
+        catalog_service.seed_homechef_collections(db_session)
+        db_session.query(SourceCollection).filter_by(source_type="homechef_web").update({"name": ""})
+        db_session.commit()
+
+        response = client.get("/catalog/homechef_web/collections", headers=member_headers)
+
+        assert response.status_code == 200
+        names = {c["slug"]: c["name"] for c in response.json()}
+        assert names["chicken"] == "Chicken"
+        assert names["this-week"] == "This week at Home Chef"
+        assert "" not in names.values()
