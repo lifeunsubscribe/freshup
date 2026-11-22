@@ -33,6 +33,7 @@ import type {
   RecipeAggregateRatingsResponse,
   RecipeOutcome,
   RecommendedItem,
+  RecipeVariationSave,
 } from '../types';
 
 // Query keys for cache management
@@ -61,6 +62,10 @@ export interface RecipeListFilters {
   liked?: boolean;
   /** Only the current user's viewed recipes, most recently viewed first. */
   viewed?: boolean;
+  /** Only the recipes the current user has saved. */
+  bookmarked?: boolean;
+  /** Only the current user's own versions of recipes. */
+  variations?: boolean;
 }
 
 /**
@@ -84,6 +89,8 @@ export function useRecipeList(
     params.append('has_variation', String(filters.has_variation));
   if (filters.liked) params.append('liked', 'true');
   if (filters.viewed) params.append('viewed', 'true');
+  if (filters.bookmarked) params.append('bookmarked', 'true');
+  if (filters.variations) params.append('variations', 'true');
 
   const queryString = params.toString();
 
@@ -464,5 +471,27 @@ export function useRelatedItems(
       apiClient<RecommendedItem[]>(`/recipes/${id}/related`, { method: 'GET' }),
     staleTime: 5 * 60 * 1000,
     ...options,
+  });
+}
+
+/**
+ * Save a change to a recipe's ingredients or steps as the user's own version.
+ *
+ * The original is never changed: the first change makes a copy, later changes
+ * to that copy update it. Resolves to the version.
+ */
+export function useSaveVariation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ recipeId, changes }: { recipeId: string; changes: RecipeVariationSave }) =>
+      apiClient<RecipeResponse>(`/recipes/${encodeURIComponent(recipeId)}/variation`, {
+        method: 'POST',
+        body: JSON.stringify(changes),
+      }),
+    onSuccess: (version) => {
+      queryClient.setQueryData(recipeKeys.detail(version.id), version);
+      queryClient.invalidateQueries({ queryKey: recipeKeys.lists() });
+    },
   });
 }

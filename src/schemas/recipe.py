@@ -167,6 +167,8 @@ class RecipeResponse(BaseModel):
     nutritional_info: Optional[dict]
     times_cooked: int
     created_by: Optional[UUID]
+    # Set when this recipe is a user's own version of another.
+    variation_of: Optional[UUID] = None
     notes: Optional[str]
     is_persisted: bool
     # A recipe is not usable without its ingredients, and the frontend recipe page
@@ -190,6 +192,7 @@ class RecipeListResponse(BaseModel):
     tags: list
     times_cooked: int
     created_by: Optional[UUID]
+    variation_of: Optional[UUID] = None
     is_bookmarked: bool = False
 
 
@@ -459,3 +462,28 @@ class RecipeViewCreate(BaseModel):
         default=None,
         description="Surface where the view originated: browse, detail, search, feed, or menu",
     )
+
+
+class VariationIngredient(BaseModel):
+    """One ingredient of a user's version of a recipe."""
+
+    ingredient_name: str = Field(..., min_length=1, max_length=255)
+    # 0.001 is the importer's "no amount" (to taste); anything positive is allowed.
+    quantity: float = Field(..., gt=0)
+    # Imported recipes often have no unit ("2 eggs"); allow it empty.
+    unit: str = Field(default="", max_length=50)
+    is_optional: bool = False
+
+
+class RecipeVariationSave(BaseModel):
+    """
+    A user's change to a recipe's ingredients or steps.
+
+    Saved as their own version: a copy of the recipe that points at the
+    original, or, when the recipe already is their version, an update to it.
+    """
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    ingredients: list[VariationIngredient]
+    steps: list[str]
+    notes: Optional[str] = Field(default=None, max_length=10000)

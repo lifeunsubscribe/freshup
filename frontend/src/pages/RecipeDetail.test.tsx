@@ -55,6 +55,17 @@ vi.mock('../api/hooks/useRecipes', () => ({
   })),
   useRecipeOutcomes: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
   useRelatedItems: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+  useSaveVariation: vi.fn(() => ({ mutate: mockSaveVariationMutate, isPending: false, isError: false, reset: vi.fn() })),
+}))
+
+const mockSaveVariationMutate = vi.fn()
+
+vi.mock('../api/hooks/useCollections', () => ({
+  useCollections: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+  useCollectionRecipes: vi.fn(() => ({ data: [] })),
+  useCreateCollection: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
+  useAddToCollection: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
+  useRemoveFromCollection: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
 }))
 
 const mockRecordViewMutate = vi.fn()

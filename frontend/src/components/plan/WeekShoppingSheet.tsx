@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Sheet from '../ui/Sheet'
 import { useAddWeekShopping, useWeekShopping } from '../../api'
@@ -38,14 +38,22 @@ export default function WeekShoppingSheet({ open, onClose, weekStart, weekName }
   const [result, setResult] = useState<{ added: number; skipped: string[] } | null>(null)
   const reset = add.reset
 
-  // Each opening starts from the suggestions of the moment.
+  // Each opening starts from the suggestions of the moment: once per opening,
+  // when the list arrives, so later re-renders keep the user's ticks.
+  const seeded = useRef(false)
   useEffect(() => {
     if (!open) {
-      setResult(null)
-      reset()
+      if (seeded.current) {
+        setResult(null)
+        reset()
+      }
+      seeded.current = false
       return
     }
-    if (data) setChecked(new Set(data.lines.filter((l) => l.suggested).map((l) => l.key)))
+    if (data && !seeded.current) {
+      seeded.current = true
+      setChecked(new Set(data.lines.filter((l) => l.suggested).map((l) => l.key)))
+    }
   }, [open, data, reset])
 
   // A line can be added only when it would put something on the list.

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LogOut, MessageSquare, UserRound } from 'lucide-react'
+import { BookOpen, LogOut, MessageSquare, UserRound } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import FeedbackSheet from './FeedbackSheet'
 
@@ -60,6 +60,18 @@ export default function ProfileMenu() {
             <p className="text-[14px] font-medium text-text-primary truncate">{currentUser.name}</p>
             <p className="text-[12px] text-text-tertiary truncate">{currentUser.email}</p>
           </div>
+          <Link
+            to="/my-recipes"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-start gap-3 px-4 py-3 hover:bg-cream-surface"
+          >
+            <BookOpen size={16} className="mt-0.5 text-text-secondary" />
+            <span>
+              <span className="block text-[14px] text-text-primary">My recipes</span>
+              <span className="block text-[12px] text-text-secondary">Saved, your versions and collections</span>
+            </span>
+          </Link>
           <Link
             to="/profile"
             role="menuitem"

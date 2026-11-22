@@ -299,6 +299,8 @@ export interface RecipeResponse {
   source_image: string | null;
   steps: string[];
   created_by: string | null;
+  /** Set when this recipe is a user's own version of another. */
+  variation_of?: string | null;
   notes: string | null;
   tags: string[];
   cook_time_minutes: number | null;
@@ -323,6 +325,32 @@ export interface RecipeListResponse {
   is_bookmarked?: boolean;
   source_url?: string | null;
   source_image?: string | null;
+  variation_of?: string | null;
+}
+
+/** One ingredient of a user's version of a recipe. */
+export interface VariationIngredient {
+  ingredient_name: string;
+  quantity: number;
+  unit: string;
+  is_optional?: boolean;
+}
+
+/** A change to a recipe's ingredients or steps, saved as the user's own version. */
+export interface RecipeVariationSave {
+  name?: string;
+  ingredients: VariationIngredient[];
+  steps: string[];
+}
+
+/** A user's collection of recipes (stored as a "menu"). */
+export interface Collection {
+  id: string;
+  name: string;
+  description: string | null;
+  cover_image: string | null;
+  sort_order: number;
+  created_at: string;
 }
 
 export interface RecipeCreate {

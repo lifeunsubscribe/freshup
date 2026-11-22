@@ -14,8 +14,8 @@ Logging Policy:
 import logging
 from uuid import UUID
 from typing import Optional
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy import func, or_, String
 
@@ -42,6 +42,7 @@ from src.schemas.recipe import (
     RecipeAggregateRatingsResponse,
     RecipeOutcomeResponse,
     AdHocRecipeCreate,
+    RecipeVariationSave,
     CookEventCreate,
     CookEventResponse,
     RecipeViewCreate,
@@ -52,6 +53,7 @@ from src.routers.recipe_helpers import (
     verify_recipe_ownership_with_system_check,
     validate_step_index,
 )
+from src.services import recipe_service
 from src.services.recipe_service import trigger_persistence, get_recipe_outcomes
 from src.services.feed_service import get_bookmarked_recipe_ids
 from src.schemas.recommendation import RecommendedItem
@@ -298,6 +300,8 @@ def list_recipes(
     has_variation: Optional[bool] = Query(default=None, description="Filter by variation groups presence (true/false)"),
     liked: bool = Query(default=False, description="Only recipes the current user has liked (their favorites)"),
     viewed: bool = Query(default=False, description="Only the current user's viewed recipes, most recently viewed first"),
+    bookmarked: bool = Query(default=False, description="Only recipes the current user has saved"),
+    variations: bool = Query(default=False, description="Only the current user's own versions of recipes"),
 ):
     """
     List all recipes with filtering and pagination.
@@ -413,6 +417,24 @@ def list_recipes(
         )
         query = query.filter(Recipe.id.in_(liked_ids))
 
+    # Apply bookmarked filter (the caller's saved recipes; bookmarks are private)
+    if bookmarked:
+        bookmarked_ids_q = (
+            db.query(UserRecipeRelation.recipe_id)
+            .filter(
+                UserRecipeRelation.user_id == current_user.id,
+                UserRecipeRelation.is_bookmarked.is_(True),
+            )
+        )
+        query = query.filter(Recipe.id.in_(bookmarked_ids_q))
+
+    # Apply variations filter: the caller's own versions of other recipes
+    if variations:
+        query = query.filter(
+            Recipe.variation_of.isnot(None),
+            Recipe.created_by == current_user.id,
+        )
+
     # Apply viewed filter: join a per-recipe max(viewed_at) subquery so each
     # recipe appears once and the ordering reflects the most recent view.
     order_col = Recipe.created_at.desc()
@@ -512,6 +534,41 @@ def get_recipe(
         )
 
     return recipe
+
+
+@router.post("/{recipe_id}/variation", response_model=RecipeResponse)
+def save_recipe_variation(
+    recipe_id: UUID,
+    changes: RecipeVariationSave,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Save a change to a recipe's ingredients or steps as the user's own version.
+
+    The original is never changed. The first change makes a copy that points
+    at it and belongs to the user (201); changes to that copy update it (200).
+    The version is listed under the user's variations (`GET /recipes?variations=true`).
+    """
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if recipe is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+    try:
+        version, created = recipe_service.save_variation(recipe, current_user, changes, db)
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save your version of this recipe",
+        )
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    version = (
+        db.query(Recipe)
+        .options(joinedload(Recipe.ingredients))
+        .filter(Recipe.id == version.id)
+        .first()
+    )
+    return version
 
 
 @router.put("/{recipe_id}", response_model=RecipeResponse)

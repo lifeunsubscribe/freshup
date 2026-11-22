@@ -138,7 +138,7 @@ export default function Recipes() {
       <div className="py-6 space-y-4">
         {/* Page title + search + Add a recipe entry */}
         <div className="flex items-center justify-between gap-3">
-          <PageTitle>Recipes</PageTitle>
+          <PageTitle>Browse recipes</PageTitle>
           <div className="flex items-center gap-2 min-w-0">
             {searchOpen || searchQuery ? (
               <div className="w-72 max-w-full">

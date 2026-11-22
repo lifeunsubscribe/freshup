@@ -3627,3 +3627,149 @@ class TestRelatedEndpoint:
             assert item["kind"] in ("card", "recipe")
             assert "score" in item
             assert "reason" in item
+
+
+# ---------------------------------------------------------------------------
+# My recipes: saved recipes, and a user's own versions of recipes
+# ---------------------------------------------------------------------------
+
+
+def _recipe_with_ingredients(db_session, user, name="Fried Rice"):
+    from src.db.models.recipe_ingredient import RecipeIngredient
+
+    recipe = Recipe(
+        id=uuid4(), name=name, source_type="hellofresh", source_url="https://example.com/r",
+        source_image="https://example.com/r.jpg", base_servings=2, steps=["Cook rice.", "Fry it."],
+        tags=["asian"], is_persisted=True, created_by=user.id,
+        nutritional_info={"calories": "600"},
+    )
+    db_session.add(recipe)
+    db_session.flush()
+    db_session.add_all([
+        RecipeIngredient(id=uuid4(), recipe_id=recipe.id, ingredient_name="Rice", quantity=1.0, unit="cup"),
+        RecipeIngredient(id=uuid4(), recipe_id=recipe.id, ingredient_name="Egg", quantity=2.0, unit=""),
+    ])
+    db_session.commit()
+    return recipe
+
+
+_CHANGES = {
+    "ingredients": [
+        {"ingredient_name": "Rice", "quantity": 1.0, "unit": "cup"},
+        {"ingredient_name": "Tofu", "quantity": 7.0, "unit": "oz"},
+        {"ingredient_name": "Salt", "quantity": 0.001, "unit": ""},
+    ],
+    "steps": ["Cook rice.", "Fry the tofu, then the rice.", "  "],
+}
+
+
+class TestRecipeVariations:
+    def test_a_change_saves_a_copy_and_leaves_the_original_alone(
+        self, client, db_session, auth_headers, test_user
+    ):
+        original = _recipe_with_ingredients(db_session, test_user)
+
+        response = client.post(f"/recipes/{original.id}/variation", json=_CHANGES, headers=auth_headers)
+
+        assert response.status_code == 201
+        version = response.json()
+        assert version["id"] != str(original.id)
+        assert version["variation_of"] == str(original.id)
+        assert version["name"] == "Fried Rice (my version)"
+        assert version["created_by"] == str(test_user.id)
+        assert version["steps"] == ["Cook rice.", "Fry the tofu, then the rice."]
+        assert [(i["ingredient_name"], i["quantity"], i["unit"]) for i in version["ingredients"]] == [
+            ("Rice", 1.0, "cup"), ("Tofu", 7.0, "oz"), ("Salt", 0.001, ""),
+        ]
+        # Carried over: picture, source, servings, tags. Not nutrition: it no longer holds.
+        assert version["source_image"] == "https://example.com/r.jpg"
+        assert version["base_servings"] == 2
+        assert version["tags"] == ["asian"]
+        assert version["nutritional_info"] is None
+
+        db_session.expire_all()
+        unchanged = client.get(f"/recipes/{original.id}", headers=auth_headers).json()
+        assert unchanged["steps"] == ["Cook rice.", "Fry it."]
+        assert [i["ingredient_name"] for i in unchanged["ingredients"]] == ["Rice", "Egg"]
+        assert unchanged["variation_of"] is None
+
+    def test_changing_your_own_version_updates_it(self, client, db_session, auth_headers, test_user):
+        original = _recipe_with_ingredients(db_session, test_user)
+        version = client.post(f"/recipes/{original.id}/variation", json=_CHANGES, headers=auth_headers).json()
+
+        response = client.post(
+            f"/recipes/{version['id']}/variation",
+            json={"name": "Tofu Fried Rice", "ingredients": [{"ingredient_name": "Rice", "quantity": 2.0, "unit": "cup"}],
+                  "steps": ["Just rice."]},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 200
+        updated = response.json()
+        assert updated["id"] == version["id"]
+        assert updated["variation_of"] == str(original.id)
+        assert updated["name"] == "Tofu Fried Rice"
+        assert [i["ingredient_name"] for i in updated["ingredients"]] == ["Rice"]
+        assert updated["steps"] == ["Just rice."]
+
+    def test_someone_elses_version_is_copied_not_changed(
+        self, client, db_session, auth_headers, auth_headers2, test_user
+    ):
+        original = _recipe_with_ingredients(db_session, test_user)
+        theirs = client.post(f"/recipes/{original.id}/variation", json=_CHANGES, headers=auth_headers).json()
+
+        mine = client.post(f"/recipes/{theirs['id']}/variation", json=_CHANGES, headers=auth_headers2)
+
+        assert mine.status_code == 201
+        assert mine.json()["id"] != theirs["id"]
+        assert mine.json()["variation_of"] == theirs["id"]
+
+    def test_variations_list_shows_only_your_own_versions(
+        self, client, db_session, auth_headers, auth_headers2, test_user
+    ):
+        original = _recipe_with_ingredients(db_session, test_user)
+        mine = client.post(f"/recipes/{original.id}/variation", json=_CHANGES, headers=auth_headers).json()
+        client.post(f"/recipes/{original.id}/variation", json=_CHANGES, headers=auth_headers2)
+
+        listed = client.get("/recipes?variations=true", headers=auth_headers).json()
+
+        assert [r["id"] for r in listed] == [mine["id"]]
+        assert listed[0]["variation_of"] == str(original.id)
+
+    @pytest.mark.parametrize("body", [
+        {"ingredients": [{"ingredient_name": "", "quantity": 1, "unit": ""}], "steps": []},
+        {"ingredients": [{"ingredient_name": "Rice", "quantity": 0, "unit": ""}], "steps": []},
+        {"steps": []},
+    ])
+    def test_rejects_an_unusable_change(self, client, db_session, auth_headers, test_user, body):
+        original = _recipe_with_ingredients(db_session, test_user)
+
+        response = client.post(f"/recipes/{original.id}/variation", json=body, headers=auth_headers)
+
+        assert response.status_code == 422
+
+    def test_unknown_recipe_returns_404(self, client, auth_headers):
+        response = client.post(f"/recipes/{uuid4()}/variation", json=_CHANGES, headers=auth_headers)
+
+        assert response.status_code == 404
+
+    def test_requires_sign_in(self, client, db_session, test_user):
+        original = _recipe_with_ingredients(db_session, test_user)
+
+        assert client.post(f"/recipes/{original.id}/variation", json=_CHANGES).status_code in (401, 403)
+
+
+class TestSavedRecipesFilter:
+    def test_lists_only_the_callers_saved_recipes(
+        self, client, db_session, auth_headers, auth_headers2, test_user
+    ):
+        saved = _recipe_with_ingredients(db_session, test_user, "Saved One")
+        _recipe_with_ingredients(db_session, test_user, "Not Saved")
+        theirs = _recipe_with_ingredients(db_session, test_user, "Saved By Someone Else")
+        assert client.post(f"/recipes/{saved.id}/bookmark", json={}, headers=auth_headers).status_code == 200
+        assert client.post(f"/recipes/{theirs.id}/bookmark", json={}, headers=auth_headers2).status_code == 200
+
+        listed = client.get("/recipes?bookmarked=true", headers=auth_headers).json()
+
+        assert [r["name"] for r in listed] == ["Saved One"]
+        assert listed[0]["is_bookmarked"] is True

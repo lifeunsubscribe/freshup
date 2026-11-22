@@ -145,3 +145,72 @@ def get_recipe_outcomes(recipe_id: UUID, db: Session) -> list[RecipeOutcomeRespo
     rows.sort(key=lambda r: (r["last_cooked_at"] is None, -(r["last_cooked_at"].timestamp() if r["last_cooked_at"] else 0), r["user_name"]))
 
     return [RecipeOutcomeResponse(**r) for r in rows]
+
+
+def is_own_variation(recipe: Recipe, user: User) -> bool:
+    """True when the recipe is this user's version of another recipe."""
+    return recipe.variation_of is not None and recipe.created_by == user.id
+
+
+def save_variation(recipe: Recipe, user: User, changes, db: Session) -> tuple[Recipe, bool]:
+    """
+    Save a user's changes to a recipe's ingredients or steps as their version.
+
+    The original is never changed: the first time, a copy is made that points
+    at it (`variation_of`) and belongs to the user; after that, changes to the
+    copy update the copy.  Returns (the version, True when it was just made).
+    """
+    from src.db.models.recipe_ingredient import RecipeIngredient
+
+    created = not is_own_variation(recipe, user)
+    if created:
+        version = Recipe(
+            name=changes.name or f"{recipe.name} (my version)",
+            source_type=recipe.source_type,
+            source_url=recipe.source_url,
+            source_image=recipe.source_image,
+            prep_time_minutes=recipe.prep_time_minutes,
+            cook_time_minutes=recipe.cook_time_minutes,
+            base_servings=recipe.base_servings,
+            tags=list(recipe.tags or []),
+            # Nutrition no longer holds once the ingredients change.
+            nutritional_info=None,
+            notes=changes.notes if changes.notes is not None else recipe.notes,
+            is_persisted=True,
+            created_by=user.id,
+            variation_of=recipe.id,
+        )
+        db.add(version)
+        db.flush()
+    else:
+        version = recipe
+        if changes.name:
+            version.name = changes.name
+        if changes.notes is not None:
+            version.notes = changes.notes
+        for ingredient in list(version.ingredients):
+            db.delete(ingredient)
+        db.flush()
+
+    version.steps = [step.strip() for step in changes.steps if step.strip()]
+    for position, item in enumerate(changes.ingredients):
+        db.add(RecipeIngredient(
+            recipe_id=version.id,
+            ingredient_name=item.ingredient_name.strip(),
+            quantity=item.quantity,
+            unit=item.unit.strip(),
+            is_optional=item.is_optional,
+        ))
+
+    try:
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error saving a variation of recipe {recipe.id}: {e}")
+        raise
+    db.refresh(version)
+    logger.info(
+        f"{'Created' if created else 'Updated'} variation {version.id} of recipe "
+        f"{version.variation_of} for user {user.id}"
+    )
+    return version, created

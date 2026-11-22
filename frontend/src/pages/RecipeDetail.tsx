@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { FolderPlus, PencilLine } from 'lucide-react'
+import VariationSheet from '../components/recipe/VariationSheet'
+import CollectionSheet from '../components/recipe/CollectionSheet'
 import PageContainer from '../components/layout/PageContainer'
 import RecipeHeader from '../components/recipe/RecipeHeader'
 import ServingsControl from '../components/recipe/ServingsControl'
@@ -51,6 +54,16 @@ export default function RecipeDetail() {
   const [engagementError, setEngagementError] = useState<string | null>(null)
   // What was just added to the plan, and the week it went into (for the link).
   const [planConfirmation, setPlanConfirmation] = useState<{ text: string; weekStart: string } | null>(null)
+  const [isVariationSheetOpen, setIsVariationSheetOpen] = useState(false)
+  const [isCollectionSheetOpen, setIsCollectionSheetOpen] = useState(false)
+  // Shown once after saving a version: where it lives now.
+  const [variationNotice, setVariationNotice] = useState<string | null>(null)
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (!variationNotice) return
+    const timer = setTimeout(() => setVariationNotice(null), 6000)
+    return () => clearTimeout(timer)
+  }, [variationNotice])
   const [isPlanSheetOpen, setIsPlanSheetOpen] = useState(false)
   const [isPantrySheetOpen, setIsPantrySheetOpen] = useState(false)
   const [isTimerSheetOpen, setIsTimerSheetOpen] = useState(false)
@@ -274,6 +287,7 @@ export default function RecipeDetail() {
 
   const isLiked = myRelation?.is_liked ?? false
   const isBookmarked = myRelation?.is_bookmarked ?? false
+  const isOwnVersion = !!recipe.variation_of && !!currentUser && recipe.created_by === currentUser.id
 
   const stockStatus = recipe
     ? checkIngredientAvailability(recipe.ingredients, inventoryItems)
@@ -336,6 +350,32 @@ export default function RecipeDetail() {
               onRate={handleRate}
               disabled={!myRelation}
             />
+
+            {isOwnVersion && recipe.variation_of && (
+              <p className="mt-2 text-[13px] text-text-secondary">
+                Your version.{' '}
+                <Link to={`/recipes/${recipe.variation_of}`} className="text-olive underline">
+                  See the original
+                </Link>
+              </p>
+            )}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => setIsVariationSheetOpen(true)}
+                className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium"
+              >
+                <PencilLine size={14} />
+                {isOwnVersion ? 'Edit your version' : 'Make it your own'}
+              </button>
+              <button
+                onClick={() => setIsCollectionSheetOpen(true)}
+                className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium"
+              >
+                <FolderPlus size={14} />
+                Add to a collection
+              </button>
+            </div>
           </RecipeHeader>
 
           <ServingsControl
@@ -397,6 +437,16 @@ export default function RecipeDetail() {
             </p>
           </div>
         )}
+        {variationNotice && (
+          <div role="status" className="fixed bottom-20 left-4 right-4 bg-green-50 border border-green-200 rounded-lg p-3 shadow-lg z-40">
+            <p className="text-sm text-green-800">
+              {variationNotice}{' '}
+              <Link to="/my-recipes" className="font-medium underline">
+                My recipes
+              </Link>
+            </p>
+          </div>
+        )}
         {groceryConfirmation && (
           <div className="fixed bottom-20 left-4 right-4 bg-green-50 border border-green-200 rounded-lg p-3 shadow-lg z-40">
             <p className="text-sm text-green-800">{groceryConfirmation}</p>
@@ -416,6 +466,25 @@ export default function RecipeDetail() {
           />
         )}
       </>
+
+      <VariationSheet
+        open={isVariationSheetOpen}
+        onClose={() => setIsVariationSheetOpen(false)}
+        recipe={recipe}
+        isOwnVersion={isOwnVersion}
+        onSaved={(version, created) => {
+          setIsVariationSheetOpen(false)
+          setVariationNotice(created ? 'Saved as your version, under My variations.' : 'Your version is updated.')
+          if (created) navigate(`/recipes/${version.id}`)
+        }}
+      />
+
+      <CollectionSheet
+        open={isCollectionSheetOpen}
+        onClose={() => setIsCollectionSheetOpen(false)}
+        recipeId={recipe.id}
+        recipeName={recipe.name}
+      />
 
       <AddToPlanSheet
         open={isPlanSheetOpen}

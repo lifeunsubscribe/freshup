@@ -45,12 +45,20 @@ class Recipe(Base):
     # so a forgotten flag on a new creation path would silently destroy user data.
     is_persisted: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     created_by: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # A user's own version of another recipe: set on the copy made when they
+    # change its ingredients or steps (see recipe_service.save_variation).
+    variation_of: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("recipes.id", name="fk_recipes_variation_of_recipes", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     notes: Mapped[Optional[str]] = mapped_column(String(10000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
     created_by_user: Mapped[Optional["User"]] = relationship(back_populates="recipes_created")
+    variation_of_rel: Mapped[Optional["Recipe"]] = relationship(remote_side=[id], foreign_keys=[variation_of])
     ingredients: Mapped[list["RecipeIngredient"]] = relationship(back_populates="recipe_rel")
     user_relations: Mapped[list["UserRecipeRelation"]] = relationship(back_populates="recipe_rel")
     menu_recipes: Mapped[list["MenuRecipe"]] = relationship(back_populates="recipe_rel")

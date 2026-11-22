@@ -116,7 +116,7 @@ describe('Recipes Page', () => {
   describe('page structure', () => {
     it('renders page title', () => {
       renderWithRouter(<Recipes />)
-      expect(screen.getByText('Recipes')).toBeInTheDocument()
+      expect(screen.getByText('Browse recipes')).toBeInTheDocument()
     })
 
     it('renders a search icon button instead of an always-visible search bar', () => {
@@ -137,7 +137,7 @@ describe('Recipes Page', () => {
       const user = userEvent.setup({ delay: null })
       renderWithRouter(<Recipes />)
       await openSearch(user)
-      await user.click(screen.getByText('Recipes'))
+      await user.click(screen.getByText('Browse recipes'))
       expect(screen.getByRole('button', { name: 'Search recipes' })).toBeInTheDocument()
       expect(screen.queryByPlaceholderText('Search recipes...')).not.toBeInTheDocument()
     })
@@ -510,7 +510,7 @@ describe('Recipes Page', () => {
       renderWithRouter(<Recipes />)
       // PageTitle appends the signature olive period, so the accessible name
       // is "Recipes.", not "Recipes".
-      const heading = screen.getByRole('heading', { name: 'Recipes.' })
+      const heading = screen.getByRole('heading', { name: 'Browse recipes.' })
       expect(heading).toBeInTheDocument()
     })
 

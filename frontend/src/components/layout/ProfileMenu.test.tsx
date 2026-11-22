@@ -45,6 +45,7 @@ describe('ProfileMenu', () => {
     expect(screen.getByText('Sarah')).toBeInTheDocument()
     expect(screen.getByText('sarah@example.test')).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /My profile/ })).toHaveAttribute('href', '/profile')
+    expect(screen.getByRole('menuitem', { name: /My recipes/ })).toHaveAttribute('href', '/my-recipes')
     expect(screen.getByRole('menuitem', { name: 'Log out' })).toBeInTheDocument()
   })
 

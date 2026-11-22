@@ -660,6 +660,8 @@ Once persisted, a recipe is permanent — it accumulates ratings, cook events, a
 
 ### 5.13 Menu System (added v1.1)
 
+**My recipes (2026-11-21).** The account menu's "My recipes" page (`/my-recipes`) holds what a user has kept: their saved (bookmarked) recipes (`GET /recipes?bookmarked=true`), their collections (menus, below; `/my-recipes/collections/:id`), and, once there is one, *My variations*. A variation is the user's own version of a recipe: changing a recipe's ingredients or steps ("Make it your own" on the recipe page, `POST /recipes/{id}/variation`) never edits the original; the first change saves a copy owned by the user with `recipes.variation_of` pointing at the original, and later changes to that copy update it (`GET /recipes?variations=true` lists them). The copy keeps the picture, source, servings and tags, and drops nutrition, which no longer holds.
+
 Menus are user-owned recipe collections — the FreshUp equivalent of playlists. They come in two flavors:
 
 **Manual menus:** User creates a menu, gives it a name, and manually adds/removes recipes. No filter rules.

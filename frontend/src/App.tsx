@@ -8,6 +8,8 @@ import Home from './pages/Home'
 import Plan from './pages/Plan'
 import PlanWeek from './pages/PlanWeek'
 import ProfileMenu from './components/layout/ProfileMenu'
+import MyRecipes from './pages/MyRecipes'
+import MyCollection from './pages/MyCollection'
 import Recipes from './pages/Recipes'
 import AddRecipe from './pages/AddRecipe'
 import RecipeDetail from './pages/RecipeDetail'
@@ -68,6 +70,22 @@ function AppContent() {
           element={
             <ProtectedRoute>
               <Plan />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/my-recipes"
+          element={
+            <ProtectedRoute>
+              <MyRecipes />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/my-recipes/collections/:id"
+          element={
+            <ProtectedRoute>
+              <MyCollection />
             </ProtectedRoute>
           }
         />
