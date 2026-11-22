@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Bookmark } from 'lucide-react'
 import Pill from '../ui/Pill'
 import { useOpenCard } from '../../api/hooks/useCatalog'
+import { useToggleBookmark } from '../../api/hooks/useRecipeEngagement'
 import type { CardResponse } from '../../api/types'
 
 export interface CatalogCardProps {
@@ -15,6 +16,37 @@ export default function CatalogCard({ card, collectionSlug, isNew = false }: Cat
   const navigate = useNavigate()
   const [imageError, setImageError] = useState(false)
   const { mutate: openCard, isPending, isError, error, reset } = useOpenCard()
+  // Saving from the card: its own request, so it never shows "Opening…" or navigates.
+  const { mutate: openForSave, isPending: isImportingForSave } = useOpenCard()
+  const toggleBookmark = useToggleBookmark()
+  const [justSaved, setJustSaved] = useState(false)
+  const [saveFailed, setSaveFailed] = useState(false)
+  const isSaved = card.is_persisted || justSaved
+  const isSaving = isImportingForSave || toggleBookmark.isPending
+
+  /**
+   * The bookmark saves the recipe where it stands: the card stays on the page
+   * and its bookmark fills in. Looking at a recipe never saves it; this does.
+   */
+  function handleSave(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (isSaved || isSaving) return
+    setSaveFailed(false)
+    const bookmark = (recipeId: string) =>
+      toggleBookmark.mutate(
+        { recipeId, next: true },
+        { onSuccess: () => setJustSaved(true), onError: () => setSaveFailed(true) }
+      )
+    if (card.recipe_id) {
+      bookmark(card.recipe_id)
+      return
+    }
+    // Not fetched yet: bring the recipe in first, then save it.
+    openForSave(
+      { cardId: card.id, source: card.source_type, collectionSlug },
+      { onSuccess: (recipe) => bookmark(recipe.id), onError: () => setSaveFailed(true) }
+    )
+  }
 
   function handleOpen() {
     openCard(
@@ -78,7 +110,7 @@ export default function CatalogCard({ card, collectionSlug, isNew = false }: Cat
           )}
         </div>
 
-        {card.is_persisted && (
+        {isSaved && (
           <div className="absolute top-2 left-2">
             <Pill variant="success">Saved</Pill>
           </div>
@@ -108,20 +140,33 @@ export default function CatalogCard({ card, collectionSlug, isNew = false }: Cat
         </div>
 
         <div className="mt-auto flex items-center gap-1 text-xs">
-          <Bookmark
-            size={14}
-            className={card.is_persisted ? 'fill-olive stroke-olive' : 'stroke-mocha'}
-            strokeWidth={2}
-          />
-          {card.is_persisted ? (
-            <span className="text-olive font-medium">Saved</span>
+          {isSaved ? (
+            <span className="flex items-center gap-1">
+              <Bookmark size={14} className="fill-olive stroke-olive" strokeWidth={2} />
+              <span className="text-olive font-medium">Saved</span>
+            </span>
           ) : (
-            <span className="text-mocha">Not saved yet</span>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              aria-label={`Save ${card.name}`}
+              className="flex items-center gap-1 -my-2 py-2 pr-2 disabled:opacity-60"
+            >
+              <Bookmark size={14} className="stroke-mocha" strokeWidth={2} />
+              <span className="text-mocha">{isSaving ? 'Saving…' : 'Not saved yet'}</span>
+            </button>
           )}
           {isNew && (
             <span className="text-mocha font-medium ml-1">New</span>
           )}
         </div>
+
+        {saveFailed && (
+          <p role="alert" className="mt-1 text-xs text-mocha">
+            Could not save this one. Try again.
+          </p>
+        )}
 
         {isError && (
           <div className="mt-2 text-xs text-mocha">

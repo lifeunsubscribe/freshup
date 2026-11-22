@@ -10,6 +10,12 @@ vi.mock('../../api/hooks/useCatalog', () => ({
   useOpenCard: vi.fn(),
 }))
 
+const bookmarkMutate = vi.fn()
+let bookmarkPending = false
+vi.mock('../../api/hooks/useRecipeEngagement', () => ({
+  useToggleBookmark: () => ({ mutate: bookmarkMutate, isPending: bookmarkPending }),
+}))
+
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')
@@ -64,6 +70,8 @@ function setMutationState(overrides: {
 }
 
 beforeEach(() => {
+  bookmarkMutate.mockReset()
+  bookmarkPending = false
   mockNavigate.mockClear()
   mockMutate.mockClear()
   mockReset.mockClear()
@@ -311,5 +319,64 @@ describe('CatalogCard', () => {
       await user.keyboard(' ')
       expect(mockNavigate).toHaveBeenCalledWith('/recipes/kb-recipe-2')
     })
+  })
+})
+
+describe('CatalogCard saving from the bookmark', () => {
+  const saveButton = () => screen.getByRole('button', { name: 'Save Lemon Herb Chicken' })
+
+  it('saves a recipe that is already fetched, in place', async () => {
+    bookmarkMutate.mockImplementation((_vars, options) => options.onSuccess())
+    renderCard({ card: { ...baseCard, recipe_id: 'recipe-9' } })
+
+    await userEvent.click(saveButton())
+
+    expect(bookmarkMutate).toHaveBeenCalledWith({ recipeId: 'recipe-9', next: true }, expect.anything())
+    expect(mockMutate).not.toHaveBeenCalled()
+    // The bookmark fills in and the card stays where it is.
+    expect(screen.getAllByText('Saved').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Not saved yet')).not.toBeInTheDocument()
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('brings in a recipe that is not fetched yet, then saves it, without leaving the page', async () => {
+    mockMutate.mockImplementation((_vars, options) => options.onSuccess({ id: 'recipe-new' }))
+    bookmarkMutate.mockImplementation((_vars, options) => options.onSuccess())
+    renderCard()
+
+    await userEvent.click(saveButton())
+
+    expect(mockMutate).toHaveBeenCalledWith(
+      { cardId: 'card-123', source: 'hellofresh_web', collectionSlug: 'test-collection' },
+      expect.anything()
+    )
+    expect(bookmarkMutate).toHaveBeenCalledWith({ recipeId: 'recipe-new', next: true }, expect.anything())
+    expect(mockNavigate).not.toHaveBeenCalled()
+    expect(screen.getAllByText('Saved').length).toBeGreaterThan(0)
+  })
+
+  it('says so when the save fails, and leaves the card unsaved', async () => {
+    bookmarkMutate.mockImplementation((_vars, options) => options.onError(new Error('nope')))
+    renderCard({ card: { ...baseCard, recipe_id: 'recipe-9' } })
+
+    await userEvent.click(saveButton())
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not save this one. Try again.')
+    expect(screen.getByText('Not saved yet')).toBeInTheDocument()
+  })
+
+  it('offers no save control on a card that is already saved', () => {
+    renderCard({ card: { ...baseCard, recipe_id: 'recipe-9', is_persisted: true } })
+
+    expect(screen.queryByRole('button', { name: /^Save / })).not.toBeInTheDocument()
+  })
+
+  it('opening the card still navigates and does not save', async () => {
+    renderCard({ card: { ...baseCard, recipe_id: 'recipe-9' } })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Lemon Herb Chicken' }))
+
+    expect(mockNavigate).toHaveBeenCalledWith('/recipes/recipe-9')
+    expect(bookmarkMutate).not.toHaveBeenCalled()
   })
 })

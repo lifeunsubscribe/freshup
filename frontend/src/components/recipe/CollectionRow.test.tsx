@@ -5,6 +5,13 @@ import CollectionRow from './CollectionRow'
 import { useCollection } from '../../api/hooks/useCatalog'
 import type { CollectionSummary, CollectionDetail, CardResponse } from '../../api/types'
 
+// CatalogCard's bookmark saves through this hook, which needs a QueryClient;
+// these tests are about the list, not saving.
+vi.mock('../../api/hooks/useRecipeEngagement', async () => ({
+  ...(await vi.importActual('../../api/hooks/useRecipeEngagement')),
+  useToggleBookmark: () => ({ mutate: vi.fn(), isPending: false }),
+}))
+
 vi.mock('../../api/hooks/useCatalog', () => ({
   useCollection: vi.fn(),
   useOpenCard: vi.fn(() => ({
