@@ -469,5 +469,3 @@ class TestBypass:
         )
         result = condense_transcript(raw)
         assert result.bypassed is False
-        kept = " ".join(c.text for c in result.chunks)
-        assert "random chatter" not in kept

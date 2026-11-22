@@ -350,13 +350,9 @@ def _group_surviving_segments(
     cut: dict[int, str],
 ) -> list[Passage]:
     """
-    Group the segments NOT in cut into passages, starting a new group at each cut
-    or at each caption boundary (timestamp change).
+    Group the segments NOT in cut into passages, starting a new group at each cut.
 
-    This ensures no passage spans a gap where segments were removed, and that
-    segments from different captions never merge into the same passage (which would
-    cause a zero-signal chatter segment to inherit cooking signal from an adjacent
-    cooking caption).
+    This ensures no passage spans a gap where segments were removed.
     """
     passages: list[Passage] = []
     run: list[TranscriptSegment] = []
@@ -375,11 +371,6 @@ def _group_surviving_segments(
         if i in cut:
             _flush()
         else:
-            if (run
-                    and seg.start_seconds is not None
-                    and run[-1].start_seconds is not None
-                    and seg.start_seconds != run[-1].start_seconds):
-                _flush()
             run.append(seg)
     _flush()
     return passages
@@ -424,10 +415,9 @@ def condense_transcript(
 
     # Step 4: group surviving segments into passages, respecting cut boundaries
     passages = _group_surviving_segments(segments, cut)
-    # total_chars is computed from passages so it uses the same measurement basis
-    # (passage texts include join-space separators) as kept_chars — this ensures
-    # kept_chars <= total_chars always holds.
-    total_chars = sum(len(p.text) for p in passages)
+    # total_chars counts all content in passage units (pre-cut) so the kept-ratio
+    # denominator reflects the original transcript size, not just the surviving portion.
+    total_chars = sum(len(p.text) for p in group_passages(segments))
 
     # Steps 5 & 6
     zero_signal_passages = [p for p in passages if cooking_signal(p.text) == 0]
