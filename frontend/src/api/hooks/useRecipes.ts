@@ -439,22 +439,35 @@ export function useRecipeOutcomes(
   });
 }
 
+export const recommendationKeys = {
+  all: ['recommendations'] as const,
+  list: (limit: number, meal: string) => [...recommendationKeys.all, limit, meal] as const,
+};
+
+/** How long "For you" stays as it is before it is worked out again. */
+const RECOMMENDATIONS_STABLE_MS = 30 * 60 * 1000;
+
 /**
  * Personalised recommendations from GET /recommendations.
  *
- * Keyed under recipeKeys.lists() so bookmark and view invalidations also
- * refresh the "For you" row.
+ * Deliberately not under recipeKeys.lists(): viewing, saving or liking a
+ * recipe changes the ranking, and refreshing on every view made a recipe
+ * vanish from "For you" the moment it was opened (an "explore" pick stops
+ * being one once looked at). The row stays as it was for half an hour, or
+ * until the page is reloaded.
  */
 export function useRecommendations(limit: number = 20, meal?: 'dinner') {
   return useQuery({
     // `meal` lists what suits that meal first; used when choosing for a dinner slot.
-    queryKey: [...recipeKeys.lists(), 'recommendations', limit, meal ?? 'any'] as const,
+    queryKey: recommendationKeys.list(limit, meal ?? 'any'),
     queryFn: async () =>
       apiClient<RecommendedItem[]>(
         `/recommendations?limit=${limit}${meal ? `&meal=${meal}` : ''}`,
         { method: 'GET' }
       ),
-    staleTime: 5 * 60 * 1000,
+    staleTime: RECOMMENDATIONS_STABLE_MS,
+    gcTime: RECOMMENDATIONS_STABLE_MS,
+    refetchOnWindowFocus: false,
   });
 }
 

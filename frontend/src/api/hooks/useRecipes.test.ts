@@ -243,20 +243,21 @@ describe('useRecommendations', () => {
     )
   })
 
-  it('is keyed under recipeKeys.lists() so list invalidations refresh it', async () => {
+  it('is not refreshed when recipe lists are, so opening a recipe does not reshuffle For you', async () => {
     mockApiClient.mockResolvedValue([])
 
-    renderHook(() => useRecommendations(20), { wrapper })
-    await waitFor(() => expect(mockApiClient).toHaveBeenCalled())
+    const { result } = renderHook(() => useRecommendations(20), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const callsBefore = mockApiClient.mock.calls.length
 
-    const queries = queryClient.getQueryCache().getAll()
-    const recoQuery = queries.find((q) =>
+    // What viewing, saving or liking a recipe does.
+    await queryClient.invalidateQueries({ queryKey: recipeKeys.lists() })
+
+    expect(mockApiClient.mock.calls.length).toBe(callsBefore)
+    const recoQuery = queryClient.getQueryCache().getAll().find((q) =>
       JSON.stringify(q.queryKey).includes('recommendations')
     )
-    expect(recoQuery).toBeDefined()
-    const listsKey = [...recipeKeys.lists()]
-    const key = recoQuery!.queryKey as unknown[]
-    expect(key.slice(0, listsKey.length)).toEqual(listsKey)
+    expect(recoQuery?.isStale()).toBe(false)
   })
 })
 
