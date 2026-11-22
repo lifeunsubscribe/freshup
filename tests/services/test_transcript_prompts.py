@@ -2,12 +2,18 @@
 Unit tests for transcript prompt generation (Phase 2D).
 
 Verifies that CHUNK_SYSTEM_PROMPT names the required JSON keys and constraints,
-and that create_chunk_prompt embeds the chunk text.
+that create_chunk_prompt embeds the chunk text, that MERGE_SYSTEM_PROMPT names
+the merge schema keys, and that create_merge_prompt embeds ingredients and actions.
 """
 
 import pytest
 
-from src.services.llm.prompts.transcript import CHUNK_SYSTEM_PROMPT, create_chunk_prompt
+from src.services.llm.prompts.transcript import (
+    CHUNK_SYSTEM_PROMPT,
+    MERGE_SYSTEM_PROMPT,
+    create_chunk_prompt,
+    create_merge_prompt,
+)
 
 
 def test_system_prompt_names_ingredients_key():
@@ -58,3 +64,67 @@ def test_create_chunk_prompt_different_texts():
     assert p1 != p2
     assert "chop the onion finely" in p1
     assert "simmer for ten minutes" in p2
+
+
+# ---------------------------------------------------------------------------
+# MERGE_SYSTEM_PROMPT
+# ---------------------------------------------------------------------------
+
+def test_merge_system_prompt_names_title_key():
+    assert '"title"' in MERGE_SYSTEM_PROMPT
+
+
+def test_merge_system_prompt_names_steps_key():
+    assert '"steps"' in MERGE_SYSTEM_PROMPT
+
+
+def test_merge_system_prompt_names_tags_key():
+    assert '"tags"' in MERGE_SYSTEM_PROMPT
+
+
+def test_merge_system_prompt_names_servings_key():
+    assert '"servings"' in MERGE_SYSTEM_PROMPT
+
+
+def test_merge_system_prompt_says_transcript_is_not_instructions():
+    lower = MERGE_SYSTEM_PROMPT.lower()
+    assert "instructions" in lower or "instruction" in lower
+
+
+def test_merge_system_prompt_mentions_allowed_list():
+    lower = MERGE_SYSTEM_PROMPT.lower()
+    assert "allowed" in lower
+
+
+# ---------------------------------------------------------------------------
+# create_merge_prompt
+# ---------------------------------------------------------------------------
+
+def test_create_merge_prompt_contains_ingredients():
+    prompt = create_merge_prompt(["chicken", "garlic"], ["Cook the chicken."], ["Italian"])
+    assert "chicken" in prompt
+    assert "garlic" in prompt
+
+
+def test_create_merge_prompt_contains_actions():
+    prompt = create_merge_prompt(["onion"], ["Dice the onion.", "Sauté until soft."], ["Italian"])
+    assert "Dice the onion." in prompt
+    assert "Sauté until soft." in prompt
+
+
+def test_create_merge_prompt_contains_allowed_tags():
+    prompt = create_merge_prompt(["chicken"], ["Cook."], ["Italian", "Main course"])
+    assert "Italian" in prompt
+    assert "Main course" in prompt
+
+
+def test_create_merge_prompt_different_inputs_produce_different_prompts():
+    p1 = create_merge_prompt(["chicken"], ["Roast."], ["Italian"])
+    p2 = create_merge_prompt(["salmon"], ["Poach."], ["Asian"])
+    assert p1 != p2
+
+
+def test_create_merge_prompt_empty_lists_no_error():
+    """create_merge_prompt handles empty ingredient/action lists without raising."""
+    prompt = create_merge_prompt([], [], [])
+    assert isinstance(prompt, str)

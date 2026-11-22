@@ -3,17 +3,28 @@ Transcript recipe extraction service for FreshUp (Phase 2D).
 
 Sends transcript chunks one at a time to the local LLM to extract ingredients
 and cooking actions. Amount verification ensures the model cannot invent
-quantities that were never spoken.
+quantities that were never spoken. A final merge call assembles the notes
+into a ScrapedRecipeData that the existing URL-import path can consume.
 """
 
 import re
 from typing import Optional
 
-from src.schemas.transcript import ChunkNotes, IngredientMention, NotesResult
+from src.db.models.recipe import SourceType
+from src.schemas.scraper import ScrapedRecipeData
+from src.schemas.transcript import ChunkNotes, IngredientMention, NotesResult, RecipeDraft
+from src.services.ingredient_keys import keys_for
 from src.services.llm.client import LLMClient
 from src.services.llm.exceptions import LLMResponseError, LLMUnavailableError
-from src.services.llm.prompts.transcript import CHUNK_SYSTEM_PROMPT, create_chunk_prompt
-from src.services.transcript_filter import MEASURE_WORDS, Chunk
+from src.services.llm.prompts.transcript import (
+    CHUNK_SYSTEM_PROMPT,
+    MERGE_SYSTEM_PROMPT,
+    create_chunk_prompt,
+    create_merge_prompt,
+)
+from src.services.recipe_themes import TAG_INDEX, VALUE_LABELS, normalize_tag
+from src.services.scraper_service import MAX_SCRAPED_TAGS
+from src.services.transcript_filter import MEASURE_WORDS, Chunk, CondensedTranscript, condense_transcript
 
 # Maps spoken number words to their digit equivalents.
 # Multi-word phrases must come before single-word entries so the substitution
@@ -210,3 +221,199 @@ async def extract_all_notes(
         # LLMUnavailableError intentionally propagates unchanged.
 
     return NotesResult(notes=notes, failed_chunks=failed)
+
+
+# Maximum characters in the merge prompt. Exceeding this raises TranscriptTooLongError
+# rather than truncating — the sanitiser would silently cut the last steps off at 16,000.
+MERGE_INPUT_BUDGET = 12000
+
+# Tag labels from the cuisine/dish/diet/meal_type themes, built once at import time.
+_MERGE_ALLOWED_TAGS: list[str] = [
+    label
+    for theme in ("cuisine", "dish", "diet", "meal_type")
+    for label in VALUE_LABELS[theme].values()
+]
+
+# Canonical keys in the ingredient theme — used to auto-add ingredient tags.
+_INGREDIENT_THEME_KEYS: frozenset[str] = frozenset(VALUE_LABELS["ingredient"].keys())
+
+
+class NoRecipeFoundError(Exception):
+    """Raised when the notes contain no ingredients and no actions."""
+
+
+class TranscriptTooLongError(Exception):
+    """Raised when the merge prompt exceeds MERGE_INPUT_BUDGET characters."""
+
+
+def merge_ingredients(notes: list[ChunkNotes]) -> list[IngredientMention]:
+    """
+    Combine per-chunk ingredient mentions into one list.
+
+    Two mentions are the same ingredient when keys_for(name) returns the same
+    non-empty set, or when their lowercased names are identical. The first
+    non-None amount wins; order follows first mention.
+    """
+    # identity -> (insertion_order, canonical_name, amount)
+    seen: dict[tuple, tuple[int, str, Optional[str]]] = {}
+
+    for chunk_notes in notes:
+        for ing in chunk_notes.ingredients:
+            name = ing.name.strip()
+            if not name:
+                continue
+            ingredient_keys = keys_for(name)
+            if ingredient_keys:
+                identity: tuple = ("keys", frozenset(ingredient_keys))
+            else:
+                identity = ("name", name.lower())
+
+            if identity in seen:
+                order, existing_name, existing_amount = seen[identity]
+                if existing_amount is None and ing.amount is not None:
+                    seen[identity] = (order, existing_name, ing.amount)
+            else:
+                seen[identity] = (len(seen), name, ing.amount)
+
+    ordered = sorted(seen.values(), key=lambda t: t[0])
+    return [IngredientMention(name=name, amount=amount) for _, name, amount in ordered]
+
+
+def _build_tags(
+    draft_tags: list[str],
+    merged: list[IngredientMention],
+) -> list[str]:
+    """
+    Build the final tag list from model reply tags and ingredient keys.
+
+    Model tags are kept only when normalize_tag(tag) is in TAG_INDEX.
+    Ingredient keys from VALUE_LABELS["ingredient"] are added for each merged
+    ingredient. Deduplicated by canonical value, model tags first.
+    """
+    seen_values: set[str] = set()
+    tags: list[str] = []
+
+    for tag in draft_tags:
+        entry = TAG_INDEX.get(normalize_tag(tag))
+        if entry is not None and entry[1] not in seen_values:
+            seen_values.add(entry[1])
+            tags.append(tag)
+
+    for mention in merged:
+        for key in keys_for(mention.name):
+            if key in _INGREDIENT_THEME_KEYS and key not in seen_values:
+                seen_values.add(key)
+                tags.append(key)
+
+    return tags[:MAX_SCRAPED_TAGS]
+
+
+async def notes_to_recipe(
+    notes: list[ChunkNotes],
+    client: LLMClient,
+    *,
+    source_url: str,
+    title_hint: Optional[str] = None,
+    author: Optional[str] = None,
+) -> ScrapedRecipeData:
+    """
+    Merge per-chunk notes into a single ScrapedRecipeData via one LLM merge call.
+
+    Args:
+        notes: Ordered list of ChunkNotes from extract_all_notes.
+        client: LLMClient instance.
+        source_url: URL to record as the recipe's source.
+        title_hint: Caller-supplied title (e.g. video title); wins over model's.
+        author: Attribution string passed through to ScrapedRecipeData.
+
+    Returns:
+        ScrapedRecipeData ready for the existing import path.
+
+    Raises:
+        NoRecipeFoundError: If the notes hold no ingredients and no actions.
+        TranscriptTooLongError: If the merge prompt exceeds MERGE_INPUT_BUDGET.
+        LLMUnavailableError: Propagated from the client.
+        LLMResponseError: Propagated from the client.
+    """
+    all_actions: list[str] = [action for chunk in notes for action in chunk.actions]
+    merged = merge_ingredients(notes)
+
+    if not merged and not all_actions:
+        raise NoRecipeFoundError("Notes contain no ingredients and no actions.")
+
+    prompt = create_merge_prompt(
+        ingredients=[m.name for m in merged],
+        actions=all_actions,
+        allowed_tags=_MERGE_ALLOWED_TAGS,
+    )
+
+    if len(prompt) > MERGE_INPUT_BUDGET:
+        raise TranscriptTooLongError(
+            f"Merge prompt is {len(prompt)} characters, exceeds budget of {MERGE_INPUT_BUDGET}."
+        )
+
+    draft: RecipeDraft = await client.complete(
+        prompt=prompt,
+        system_prompt=MERGE_SYSTEM_PROMPT,
+        response_schema=RecipeDraft,
+    )
+
+    # Format ingredient strings: "<amount> <name>" or "<name>" when no amount.
+    ingredient_strings: list[str] = [
+        f"{m.amount} {m.name}" if m.amount else m.name
+        for m in merged
+    ]
+
+    title = title_hint or draft.title or None
+
+    return ScrapedRecipeData(
+        source_url=source_url,
+        source_type=SourceType.url_import.value,
+        title=title,
+        image_url=None,
+        site_name=None,
+        author=author,
+        servings=draft.servings,
+        ingredients=ingredient_strings,
+        instructions=draft.steps[:30],
+        tags=_build_tags(draft.tags, merged),
+    )
+
+
+async def transcript_to_recipe(
+    raw: str,
+    client: LLMClient,
+    *,
+    source_url: str,
+    title_hint: Optional[str] = None,
+    author: Optional[str] = None,
+    skip_ranges: tuple = (),
+) -> ScrapedRecipeData:
+    """
+    Full pipeline: condense transcript, extract chunk notes, merge into recipe.
+
+    Args:
+        raw: Raw transcript string (timestamped or plain text).
+        client: LLMClient instance.
+        source_url: URL to record as the recipe's source.
+        title_hint: Caller-supplied title; wins over model's title.
+        author: Attribution string passed through to ScrapedRecipeData.
+        skip_ranges: Pairs of (start_seconds, end_seconds) to cut before filtering.
+
+    Returns:
+        ScrapedRecipeData ready for the existing import path.
+
+    Raises:
+        NoRecipeFoundError: If nothing cooking-related survives filtering.
+        TranscriptTooLongError: If the merge prompt exceeds MERGE_INPUT_BUDGET.
+        LLMUnavailableError: Propagated from the client.
+    """
+    condensed: CondensedTranscript = condense_transcript(raw, skip_ranges=skip_ranges)
+    notes_result: NotesResult = await extract_all_notes(condensed.chunks, client)
+    return await notes_to_recipe(
+        notes_result.notes,
+        client,
+        source_url=source_url,
+        title_hint=title_hint,
+        author=author,
+    )
