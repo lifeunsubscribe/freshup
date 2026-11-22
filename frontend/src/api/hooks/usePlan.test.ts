@@ -9,6 +9,7 @@ import {
   useGenerateDraft,
   useRemixWeek,
   useRemovePlanEntry,
+  useAddWeekShopping,
   planKeys,
 } from './usePlan'
 import { groceryKeys } from './useGrocery'
@@ -147,15 +148,30 @@ describe('the grocery list follows the plan', () => {
     return { wrapper, spy: vi.spyOn(queryClient, 'invalidateQueries') }
   }
 
-  it('refreshes the grocery list when a dinner is accepted', async () => {
+  it('refreshes the plan, not the grocery list, when a dinner is accepted', async () => {
     const { wrapper, spy } = setupClient()
     const { result } = renderHook(() => useConfirmEntry(), { wrapper })
 
     await result.current.mutateAsync('entry-1')
 
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ queryKey: planKeys.all }))
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: groceryKeys.all })
+  })
+
+  it('adds the chosen lines of a week and refreshes that week and the grocery list', async () => {
+    const { apiClient } = await import('../client')
+    const { wrapper, spy } = setupClient()
+    const { result } = renderHook(() => useAddWeekShopping(), { wrapper })
+
+    await result.current.mutateAsync({ weekStart: '2026-11-15', keys: ['garlic|clove'] })
+
+    expect(vi.mocked(apiClient)).toHaveBeenLastCalledWith('/plan/week/shopping', {
+      method: 'POST',
+      body: JSON.stringify({ week_start: '2026-11-15', keys: ['garlic|clove'] }),
+    })
     await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: planKeys.shopping('2026-11-15') })
       expect(spy).toHaveBeenCalledWith({ queryKey: groceryKeys.all })
-      expect(spy).toHaveBeenCalledWith({ queryKey: planKeys.all })
     })
   })
 

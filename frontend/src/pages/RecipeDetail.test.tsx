@@ -183,6 +183,30 @@ describe('RecipeDetail', () => {
       expect(typeof call.date).toBe('string')
     })
 
+    it('says where it was added, with a link to that week of the plan', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: /add to plan/i }))
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
+
+      const { date } = mockCreateEntryMutateAsync.mock.calls[0][0]
+      const day = new Date(date + 'T00:00:00')
+      const sunday = new Date(day)
+      sunday.setDate(day.getDate() - day.getDay())
+      const weekStart = [
+        sunday.getFullYear(),
+        String(sunday.getMonth() + 1).padStart(2, '0'),
+        String(sunday.getDate()).padStart(2, '0'),
+      ].join('-')
+      const dayName = day.toLocaleDateString('en-US', { weekday: 'long' })
+
+      expect(await screen.findByText(`Added to ${dayName} dinner.`, { exact: false })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /See (this week's plan|that week)/ })).toHaveAttribute(
+        'href',
+        `/plan/${weekStart}`
+      )
+    })
+
     it('shows confirmation banner after successful plan entry', async () => {
       renderPage()
       await userEvent.click(screen.getByRole('button', { name: /add to plan/i }))

@@ -170,6 +170,23 @@ describe('GroceryItem', () => {
       expect(screen.queryByText('Gochujang Shrimp Fried Rice')).not.toBeInTheDocument()
     })
 
+    it('names the first of several recipes and counts the rest', () => {
+      const item = createMockItem({ source: 'meal_plan', recipe_names: ['Fried Rice', 'Tofu Bowl', 'Stew'] })
+      renderWithProviders(<GroceryItem item={item} />)
+
+      const chip = screen.getByLabelText('For Fried Rice and Tofu Bowl and Stew')
+      expect(chip).toHaveTextContent('Fried Rice +2')
+    })
+
+    it('writes the amount plainly: no "count", "to taste" for seasoning', () => {
+      const { unmount } = renderWithProviders(<GroceryItem item={createMockItem({ quantity: 3, unit: 'count' })} />)
+      expect(screen.getByText('(3)')).toBeInTheDocument()
+      unmount()
+
+      renderWithProviders(<GroceryItem item={createMockItem({ item_name: 'Salt', quantity: 0.001, unit: '' })} />)
+      expect(screen.getByText('(to taste)')).toBeInTheDocument()
+    })
+
     it('says "meal plan" for a planned item whose recipe is not known', () => {
       const item = createMockItem({ source: 'meal_plan', recipe_name: null })
       renderWithProviders(<GroceryItem item={item} />)

@@ -113,6 +113,8 @@ class GroceryItemResponse(BaseModel):
     linked_meal_plan_entry: Optional[UUID] = None
     recipe_name: Optional[str] = None
     plan_date: Optional[date] = None
+    # Every recipe the item is for; more than one when dinners share an ingredient.
+    recipe_names: list[str] = []
 
 
 class StoreGroupedItems(BaseModel):

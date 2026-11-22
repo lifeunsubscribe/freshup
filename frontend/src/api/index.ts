@@ -153,6 +153,8 @@ export {
   useCreatePlanEntry,
   useRemixWeek,
   useRemovePlanEntry,
+  useWeekShopping,
+  useAddWeekShopping,
   planKeys,
 } from './hooks/usePlan';
 

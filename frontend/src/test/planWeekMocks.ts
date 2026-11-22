@@ -8,13 +8,20 @@ import {
   useCreatePlanEntry,
   useRemixWeek,
   useRemovePlanEntry,
+  useWeekShopping,
+  useAddWeekShopping,
 } from '../api'
 import { useRecommendations } from '../api/hooks/useRecipes'
-import type { MealPlanEntryDisplay, RecommendedItem, WeekViewResponse } from '../api/types'
+import type {
+  MealPlanEntryDisplay,
+  RecommendedItem,
+  WeekShoppingResponse,
+  WeekViewResponse,
+} from '../api/types'
 
 /**
  * Shared stand-ins for the plan hooks, for tests of the Plan page and the week
- * editor. The test file must itself call vi.mock('../api', ...) for the eight
+ * editor. The test file must itself call vi.mock('../api', ...) for the ten
  * plan hooks and vi.mock('../api/hooks/useRecipes', ...) for useRecommendations;
  * this module only fills those mocks in.
  */
@@ -53,6 +60,9 @@ export const planMocks = {
   createMutateAsync: vi.fn(),
   remixMutate: vi.fn(),
   removeMutate: vi.fn(),
+  addShoppingMutate: vi.fn(),
+  /** What GET /plan/week/shopping returns, by week. */
+  shopping: {} as Record<string, WeekShoppingResponse>,
   /** What GET /recommendations returns for the add band. */
   recommendations: [] as RecommendedItem[],
   /** Weeks the mocked GET /plan/week knows about; any other week is empty. */
@@ -62,6 +72,7 @@ export const planMocks = {
 export function resetPlanMocks() {
   planMocks.weeks = {}
   planMocks.recommendations = []
+  planMocks.shopping = {}
 }
 
 export function setupPlanMocks({
@@ -115,6 +126,18 @@ export function setupPlanMocks({
     mutate: planMocks.removeMutate,
     isPending: false,
   } as unknown as ReturnType<typeof useRemovePlanEntry>)
+  vi.mocked(useWeekShopping).mockImplementation(((weekStart: string) => ({
+    data: planMocks.shopping[weekStart],
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  })) as unknown as typeof useWeekShopping)
+  vi.mocked(useAddWeekShopping).mockReturnValue({
+    mutate: planMocks.addShoppingMutate,
+    isPending: false,
+    isError: false,
+    reset: vi.fn(),
+  } as unknown as ReturnType<typeof useAddWeekShopping>)
   vi.mocked(useRecommendations).mockReturnValue({
     data: planMocks.recommendations,
     isLoading: false,

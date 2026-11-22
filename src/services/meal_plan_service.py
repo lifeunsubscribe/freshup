@@ -16,7 +16,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.db.models.user import User
 from src.db.models.meal_plan import MealPlanEntry, MealPlanStatus, MealType
 from src.db.models.recipe import Recipe
-from src.services import grocery_service
 from src.services import recipe_service
 from src.services.plan_week import week_days, week_start_of
 from src.exceptions import NotFoundError, ValidationError
@@ -454,10 +453,11 @@ def confirm_entry(
     db: Session
 ) -> tuple[MealPlanEntry, int]:
     """
-    Confirm a draft meal plan entry and propagate ingredients to grocery list.
+    Confirm a draft meal plan entry.
 
-    Transitions entry from draft → approved and creates grocery list items
-    for the recipe's ingredients.
+    Transitions entry from draft → approved; a card entry has its recipe
+    imported first.  The grocery list is not touched: ingredients reach it by
+    hand or from the week's shopping list (src/services/week_shopping.py).
 
     Args:
         entry_id: ID of the entry to confirm
@@ -465,7 +465,7 @@ def confirm_entry(
         db: Database session
 
     Returns:
-        Tuple of (updated_entry, grocery_items_added)
+        Tuple of (updated_entry, grocery_items_added), the count always 0
 
     Raises:
         NotFoundError: If entry doesn't exist
@@ -532,45 +532,10 @@ def confirm_entry(
     # Update status to approved
     entry.status = MealPlanStatus.approved.value
 
-    # Propagate recipe ingredients to grocery list.
-    # Each required (non-optional) ingredient becomes a grocery item with source="meal_plan".
+    # Accepting a dinner does not touch the grocery list. Ingredients reach it
+    # by hand or from the week's shopping list (src/services/week_shopping.py),
+    # where they are merged across dinners and checked against the pantry.
     grocery_items_added = 0
-    recipe = entry.recipe_rel
-
-    # Reload ingredients if not yet loaded (card entries import the recipe in-flight).
-    if not recipe.ingredients:
-        db.refresh(recipe)
-
-    for ingredient in recipe.ingredients:
-        # Skip optional ingredients - they don't automatically go to grocery list
-        if ingredient.is_optional:
-            continue
-
-        try:
-            # Create grocery list item for each required ingredient
-            # Note: This creates items even if they're already in inventory
-            # Future enhancement: check inventory first to avoid duplicates
-            grocery_service.create_item(
-                item_name=ingredient.ingredient_name,
-                quantity=ingredient.quantity,
-                unit=ingredient.unit,
-                source="meal_plan",  # Tags items as coming from meal plan confirmation
-                current_user=current_user,
-                db=db,
-                # The list shows which recipe each item is for, and removing
-                # the meal takes its unpurchased items off the list again.
-                linked_recipe=recipe.id,
-                linked_meal_plan_entry=entry.id,
-            )
-            grocery_items_added += 1
-        except ValidationError as e:
-            # Log but continue if a specific ingredient fails validation
-            # This prevents one bad ingredient from blocking the entire confirmation
-            # Common failure: ingredient unit not compatible with inventory UnitType enum
-            logger.warning(
-                f"Failed to add ingredient '{ingredient.ingredient_name}' "
-                f"to grocery list: {e}"
-            )
 
     try:
         db.commit()
@@ -1030,33 +995,23 @@ def remove_entry(entry_id: UUID, db: Session) -> int:
     """
     Take a dinner off the plan, suggested or accepted.
 
-    The grocery list follows the plan: items that were added for this meal and
-    are not yet purchased come off the list.  Purchased ones stay (the food is
-    in the house) and simply lose their link to the meal.
+    The grocery list follows the plan: an unbought item that was only for this
+    meal comes off the list, and one shared with other dinners shrinks by this
+    meal's share.  Purchased ones stay (the food is in the house) and simply
+    lose their link to the meal.
 
     Returns the number of grocery items removed.
 
     Raises:
         NotFoundError: If the entry does not exist.
     """
-    from src.db.models.grocery_list import GroceryListItem
+    from src.services.week_shopping import release_entry
 
     entry = db.query(MealPlanEntry).filter(MealPlanEntry.id == entry_id).first()
     if not entry:
         raise NotFoundError(f"Meal plan entry {entry_id} not found")
 
-    linked = (
-        db.query(GroceryListItem)
-        .filter(GroceryListItem.linked_meal_plan_entry == entry_id)
-        .all()
-    )
-    removed = 0
-    for item in linked:
-        if item.purchased:
-            item.linked_meal_plan_entry = None
-        else:
-            db.delete(item)
-            removed += 1
+    removed = release_entry(db, entry_id)
 
     try:
         # Flush the grocery changes first: the items point at the entry.

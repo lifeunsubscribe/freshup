@@ -55,6 +55,7 @@ def create_item(
     target_store: Optional[UUID] = None,
     linked_recipe: Optional[UUID] = None,
     linked_meal_plan_entry: Optional[UUID] = None,
+    plan_sources: Optional[list] = None,
 ) -> GroceryListItem:
     """
     Create a new grocery list item.
@@ -73,6 +74,8 @@ def create_item(
         linked_recipe: The recipe this item is for, when it comes from a planned meal
         linked_meal_plan_entry: The planned meal it is for; removing that meal
             takes the item off the list again while it is unpurchased
+        plan_sources: For an item imported from a week's shopping list, every
+            dinner it is for and that dinner's share (see GroceryListItem)
 
     Returns:
         GroceryListItem: Created grocery item
@@ -90,6 +93,7 @@ def create_item(
         target_store=target_store,
         linked_recipe=linked_recipe,
         linked_meal_plan_entry=linked_meal_plan_entry,
+        plan_sources=plan_sources,
     )
 
     db.add(new_item)

@@ -97,16 +97,11 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
     }
   }
 
-  function groceryNotice(prefix: string, added: number): string {
-    if (added === 0) return `${prefix} Nothing new was needed on your grocery list.`
-    return `${prefix} Added ${added} ${added === 1 ? 'item' : 'items'} to your grocery list.`
-  }
-
   function accept(entry: MealPlanEntryDisplay) {
     setNotice(null)
     setRowError(null)
     confirm.mutate(entry.id, {
-      onSuccess: (result) => setNotice(groceryNotice('Accepted.', result.grocery_items_added)),
+      onSuccess: () => setNotice('Accepted.'),
       onError: failure(entry.id, 'Could not accept this one. Try again.'),
     })
   }
@@ -117,12 +112,10 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
     setRowError(null)
     setAcceptingAll(true)
     let accepted = 0
-    let added = 0
     for (const entry of suggestions) {
       try {
-        const result = await confirm.mutateAsync(entry.id)
+        await confirm.mutateAsync(entry.id)
         accepted += 1
-        added += result.grocery_items_added
       } catch (error) {
         failure(entry.id, 'Could not accept this one. Try again.')(error)
         break
@@ -130,9 +123,7 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
     }
     setAcceptingAll(false)
     if (accepted > 0) {
-      setNotice(
-        groceryNotice(`Accepted ${accepted} ${accepted === 1 ? 'dinner' : 'dinners'}.`, added)
-      )
+      setNotice(`Accepted ${accepted} ${accepted === 1 ? 'dinner' : 'dinners'}.`)
     }
   }
 
@@ -153,8 +144,8 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
         ...('recipeId' in pick ? { recipe_id: pick.recipeId } : { catalog_card_id: pick.cardId }),
       })
       try {
-        const result = await confirm.mutateAsync(entry.id)
-        setNotice(groceryNotice('Added.', result.grocery_items_added))
+        await confirm.mutateAsync(entry.id)
+        setNotice('Added.')
       } catch (error) {
         failure(entry.id, 'Added as a suggestion. Could not accept it yet.')(error)
         void refetch()

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import PageContainer from '../components/layout/PageContainer'
 import RecipeHeader from '../components/recipe/RecipeHeader'
 import ServingsControl from '../components/recipe/ServingsControl'
@@ -32,6 +32,7 @@ import { checkIngredientAvailability } from '../utils/pantryMatcher'
 import { useCookTimers } from '../hooks/useCookTimers'
 import { useAuth } from '../contexts/AuthContext'
 import type { MealType } from '../api/types'
+import { weekStartOf, weekStartOfDateStr } from '../utils/week'
 
 /** Header pill, as in the recipe-detail mockup: rounder and quieter than the shared Pill. */
 function HeaderPill({ children, tone = 'bg-cream-icon text-text-secondary' }: { children: ReactNode; tone?: string }) {
@@ -48,7 +49,8 @@ export default function RecipeDetail() {
 
   const [activeTab, setActiveTab] = useState<TabType>('ingredients')
   const [engagementError, setEngagementError] = useState<string | null>(null)
-  const [planConfirmation, setPlanConfirmation] = useState<string | null>(null)
+  // What was just added to the plan, and the week it went into (for the link).
+  const [planConfirmation, setPlanConfirmation] = useState<{ text: string; weekStart: string } | null>(null)
   const [isPlanSheetOpen, setIsPlanSheetOpen] = useState(false)
   const [isPantrySheetOpen, setIsPantrySheetOpen] = useState(false)
   const [isTimerSheetOpen, setIsTimerSheetOpen] = useState(false)
@@ -219,7 +221,10 @@ export default function RecipeDetail() {
       weekday: 'long',
     })
     const mealLabel = mealType.charAt(0).toUpperCase() + mealType.slice(1)
-    setPlanConfirmation(`Added to ${dayLabel} ${mealLabel}.`)
+    setPlanConfirmation({
+      text: `Added to ${dayLabel} ${mealLabel.toLowerCase()}.`,
+      weekStart: weekStartOfDateStr(date) ?? weekStartOf(new Date()),
+    })
     if (planConfirmationTimeoutRef.current) clearTimeout(planConfirmationTimeoutRef.current)
     planConfirmationTimeoutRef.current = setTimeout(() => {
       setPlanConfirmation(null)
@@ -381,7 +386,15 @@ export default function RecipeDetail() {
         )}
         {planConfirmation && (
           <div className="fixed bottom-20 left-4 right-4 bg-green-50 border border-green-200 rounded-lg p-3 shadow-lg z-40">
-            <p className="text-sm text-green-800">{planConfirmation}</p>
+            <p className="text-sm text-green-800">
+              {planConfirmation.text}{' '}
+              <Link
+                to={`/plan/${planConfirmation.weekStart}`}
+                className="font-medium underline"
+              >
+                {planConfirmation.weekStart === weekStartOf(new Date()) ? "See this week's plan" : 'See that week'}
+              </Link>
+            </p>
           </div>
         )}
         {groceryConfirmation && (

@@ -21,6 +21,8 @@ vi.mock('../api', () => ({
   useCreatePlanEntry: vi.fn(),
   useRemixWeek: vi.fn(),
   useRemovePlanEntry: vi.fn(),
+  useWeekShopping: vi.fn(),
+  useAddWeekShopping: vi.fn(),
 }))
 
 vi.mock('../api/hooks/useRecipes', () => ({
@@ -270,9 +272,9 @@ describe('Week editor', () => {
       planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16'), entry('2026-11-17')] }
     })
 
-    it('accepts one and reports what went on the grocery list', () => {
+    it('accepts one, without touching the grocery list', () => {
       planMocks.confirmMutate.mockImplementation((_id, options) =>
-        options.onSuccess({ entry: entry('2026-11-16'), grocery_items_added: 8 })
+        options.onSuccess({ entry: entry('2026-11-16'), grocery_items_added: 0 })
       )
       setup()
 
@@ -281,7 +283,7 @@ describe('Week editor', () => {
 
       expect(planMocks.confirmMutate).toHaveBeenCalledWith('entry-2026-11-16', expect.anything())
       expect(screen.getByRole('status')).toHaveTextContent(
-        'Accepted. Added 8 items to your grocery list.'
+        'Accepted.'
       )
     })
 
@@ -308,11 +310,11 @@ describe('Week editor', () => {
       expect(screen.queryByRole('button', { name: /Accept all/ })).not.toBeInTheDocument()
     })
 
-    it('accepts all of a later week in order and adds up the grocery items', async () => {
+    it('accepts all of a later week in order', async () => {
       planMocks.weeks['2026-11-22'] = { draft_entries: [entry('2026-11-23'), entry('2026-11-24')] }
       planMocks.confirmMutateAsync
-        .mockResolvedValueOnce({ grocery_items_added: 8 })
-        .mockResolvedValueOnce({ grocery_items_added: 5 })
+        .mockResolvedValueOnce({ grocery_items_added: 0 })
+        .mockResolvedValueOnce({ grocery_items_added: 0 })
       setup()
 
       renderWeek('2026-11-22')
@@ -325,7 +327,7 @@ describe('Week editor', () => {
         'entry-2026-11-24',
       ])
       expect(screen.getByRole('status')).toHaveTextContent(
-        'Accepted 2 dinners. Added 13 items to your grocery list.'
+        'Accepted 2 dinners.'
       )
     })
 

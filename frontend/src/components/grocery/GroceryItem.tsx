@@ -3,6 +3,7 @@ import Pill from '../ui/Pill'
 import ErrorBanner from '../ui/ErrorBanner'
 import type { GroceryItemResponse } from '../../api/types'
 import { useMutationErrorHandler } from '../../utils/mutationErrorUtils'
+import { formatAmount } from '../../utils/amount'
 
 export interface GroceryItemProps {
   item: GroceryItemResponse
@@ -54,6 +55,13 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false }:
       onError: (error) => handleError(error, 'Could not take this off the list. Please try again.'),
     })
   }
+
+  // The recipes this item is for: several when dinners share an ingredient.
+  const recipes = item.recipe_names?.length
+    ? item.recipe_names
+    : item.recipe_name
+      ? [item.recipe_name]
+      : []
 
   // Check if any mutation is pending to prevent double-clicks
   const isPending =
@@ -148,7 +156,7 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false }:
           >
             {item.item_name}{' '}
             <span className="font-normal text-text-secondary">
-              ({item.quantity} {item.unit})
+              ({formatAmount(item.quantity, item.unit)})
             </span>
           </div>
 
@@ -173,15 +181,17 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false }:
           </button>
         )}
 
-        {/* Context chip on right: the recipe this is for, else where it came from */}
-        {item.recipe_name ? (
+        {/* Context chip on right: the recipe(s) this is for, else where it came from */}
+        {recipes.length > 0 ? (
           !hideRecipe && (
             <div
               className="flex-shrink-0 max-w-[40%] truncate"
-              title={`For ${item.recipe_name}`}
-              aria-label={`For ${item.recipe_name}`}
+              title={`For ${recipes.join(', ')}`}
+              aria-label={`For ${recipes.join(' and ')}`}
             >
-              <Pill variant="success">{item.recipe_name}</Pill>
+              <Pill variant="success">
+                {recipes.length === 1 ? recipes[0] : `${recipes[0]} +${recipes.length - 1}`}
+              </Pill>
             </div>
           )
         ) : (

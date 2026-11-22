@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Check, ChevronLeft, ChevronRight, Plus, RefreshCw, Shuffle, Trash2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Plus, RefreshCw, ShoppingCart, Shuffle, Trash2 } from 'lucide-react'
 import PageContainer from '../components/layout/PageContainer'
 import AddDinnerBand from '../components/plan/AddDinnerBand'
+import WeekShoppingSheet from '../components/plan/WeekShoppingSheet'
 import PlanSummary from '../components/plan/PlanSummary'
 import { usePlanWeek } from '../components/plan/usePlanWeek'
 import { useAuth } from '../contexts/AuthContext'
@@ -45,6 +46,8 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
   const plan = usePlanWeek(weekStart, { autoFill: !isPastWeek })
   // The empty day an "Add something" band is open for, if any.
   const [addingFor, setAddingFor] = useState<string | null>(null)
+  const [shoppingOpen, setShoppingOpen] = useState(false)
+  const title = weekTitle(weekStart, thisWeek)
 
   return (
     <PageContainer>
@@ -73,7 +76,7 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
         </div>
 
         <PlanSummary
-          title={weekTitle(weekStart, thisWeek)}
+          title={title}
           weekStart={weekStart}
           ownerName={currentUser?.name}
           days={plan.days}
@@ -83,6 +86,16 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
         />
 
         <div className="flex flex-wrap items-center gap-2">
+          {plan.stats.planned > 0 && (
+            <button
+              onClick={() => setShoppingOpen(true)}
+              aria-label={`Grocery list for ${title.toLowerCase()}`}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium"
+            >
+              <ShoppingCart size={14} />
+              Grocery list
+            </button>
+          )}
           {/* Not for the week in progress, where days are decided one by one. */}
           {weekStart !== thisWeek && plan.stats.suggested > 0 && (
             <button
@@ -202,6 +215,13 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
           </ul>
         )}
       </div>
+
+      <WeekShoppingSheet
+        open={shoppingOpen}
+        onClose={() => setShoppingOpen(false)}
+        weekStart={weekStart}
+        weekName={title.toLowerCase()}
+      />
     </PageContainer>
   )
 }

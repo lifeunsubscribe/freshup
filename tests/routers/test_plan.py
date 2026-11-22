@@ -372,15 +372,15 @@ def test_confirm_entry_transitions_to_approved(client, db_session, auth_headers,
     data = response.json()
 
     assert data["entry"]["status"] == MealPlanStatus.approved.value
-    assert data["grocery_items_added"] > 0  # At least one ingredient added
+    # Accepting does not touch the grocery list (see the week's shopping list).
+    assert data["grocery_items_added"] == 0
 
 
-def test_confirm_entry_adds_ingredients_to_grocery_list(client, db_session, auth_headers, recipes_pool, test_user):
-    """Test that confirming an entry adds recipe ingredients to grocery list."""
-    # Create a draft entry
+def test_confirm_entry_leaves_the_grocery_list_alone(client, db_session, auth_headers, recipes_pool):
+    """Ingredients reach the list by hand or from the week's shopping list, not on accept."""
     entry = MealPlanEntry(
         id=uuid4(),
-        date=date(2025, 6, 2),  # Fixed date to avoid flakiness
+        date=date(2025, 6, 2),
         meal_type=MealType.dinner.value,
         recipe_id=recipes_pool[0].id,
         planned_servings=4,
@@ -389,21 +389,11 @@ def test_confirm_entry_adds_ingredients_to_grocery_list(client, db_session, auth
     db_session.add(entry)
     db_session.commit()
 
-    # Verify no grocery items exist before confirmation
-    grocery_count_before = db_session.query(GroceryListItem).count()
-    assert grocery_count_before == 0
-
-    response = client.put(
-        f"/plan/entries/{entry.id}/confirm",
-        headers=auth_headers,
-    )
+    response = client.put(f"/plan/entries/{entry.id}/confirm", headers=auth_headers)
 
     assert response.status_code == 200
-
-    # Verify grocery items were created
-    grocery_items = db_session.query(GroceryListItem).all()
-    assert len(grocery_items) > 0
-    assert grocery_items[0].source == "meal_plan"
+    assert response.json()["grocery_items_added"] == 0
+    assert db_session.query(GroceryListItem).count() == 0
 
 
 def test_confirm_entry_fails_for_nonexistent_entry(client, auth_headers):
@@ -2108,71 +2098,263 @@ def test_remix_requires_a_sunday(client, auth_headers):
 # ---------------------------------------------------------------------------
 
 
-def _accepted_dinner(client, db_session, auth_headers, recipe, day=date(2025, 6, 2)):
-    """A draft entry for `recipe`, accepted through the API. Returns the entry id."""
+def _recipe_with(db_session, test_user, name, ingredients):
+    """A recipe with the given (name, quantity, unit) ingredients."""
+    recipe = Recipe(
+        id=uuid4(), name=name, source_type="manual", base_servings=2,
+        is_persisted=True, created_by=test_user.id,
+    )
+    db_session.add(recipe)
+    db_session.flush()
+    for ingredient_name, quantity, unit in ingredients:
+        db_session.add(RecipeIngredient(
+            id=uuid4(), recipe_id=recipe.id, ingredient_name=ingredient_name,
+            quantity=quantity, unit=unit, is_optional=False,
+        ))
+    db_session.commit()
+    return recipe
+
+
+def _dinner(db_session, recipe, day, status=MealPlanStatus.approved.value):
     entry = MealPlanEntry(
-        id=uuid4(),
-        date=day,
-        meal_type=MealType.dinner.value,
-        recipe_id=recipe.id,
-        planned_servings=4,
-        status=MealPlanStatus.draft.value,
+        id=uuid4(), date=day, meal_type=MealType.dinner.value, recipe_id=recipe.id,
+        planned_servings=2, status=status,
     )
     db_session.add(entry)
     db_session.commit()
-    response = client.put(f"/plan/entries/{entry.id}/confirm", headers=auth_headers)
+    return entry
+
+
+@pytest.fixture
+def week_of_two_dinners(db_session, test_user):
+    """Two accepted dinners and one suggestion in the week of Sunday June 1, 2025."""
+    fried_rice = _recipe_with(db_session, test_user, "Fried Rice", [
+        ("Garlic", 2.0, "cloves"),
+        ("Yellow onion", 1.0, ""),
+        ("Salt", 0.001, ""),
+        ("Shrimp", 10.0, "ounces"),
+    ])
+    tofu_bowl = _recipe_with(db_session, test_user, "Tofu Bowl", [
+        ("garlic", 3.0, "clove"),
+        ("Onion", 1.0, "unit"),
+        ("Tofu", 14.0, "oz"),
+    ])
+    suggested = _recipe_with(db_session, test_user, "Suggested Stew", [("Beef", 1.0, "lb")])
+    return {
+        "fried_rice": _dinner(db_session, fried_rice, date(2025, 6, 2)),
+        "tofu_bowl": _dinner(db_session, tofu_bowl, date(2025, 6, 4)),
+        "suggestion": _dinner(db_session, suggested, date(2025, 6, 5), MealPlanStatus.draft.value),
+    }
+
+
+def _shopping(client, auth_headers, week_start="2025-06-01"):
+    response = client.get(f"/plan/week/shopping?week_start={week_start}", headers=auth_headers)
     assert response.status_code == 200
-    assert response.json()["grocery_items_added"] > 0
-    return entry.id
+    body = response.json()
+    return body, {line["name"].lower(): line for line in body["lines"]}
 
 
-def test_accepting_a_dinner_links_its_grocery_items_to_the_meal_and_recipe(
-    client, db_session, auth_headers, recipes_pool
+def _add_lines(client, auth_headers, keys, week_start="2025-06-01"):
+    response = client.post(
+        "/plan/week/shopping", json={"week_start": week_start, "keys": keys}, headers=auth_headers
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_week_shopping_merges_an_ingredient_across_accepted_dinners(
+    client, auth_headers, week_of_two_dinners
 ):
-    entry_id = _accepted_dinner(client, db_session, auth_headers, recipes_pool[0])
+    body, lines = _shopping(client, auth_headers)
 
-    items = db_session.query(GroceryListItem).all()
-    assert items
-    for item in items:
-        assert item.linked_meal_plan_entry == entry_id
-        assert item.linked_recipe == recipes_pool[0].id
-        assert item.recipe_name == recipes_pool[0].name
-        assert item.plan_date == date(2025, 6, 2)
+    assert body["dinners"] == 2
+    garlic = lines["garlic"]
+    assert garlic["unit"] == "clove"
+    assert garlic["quantity"] == 5.0
+    assert garlic["add_quantity"] == 5.0
+    assert garlic["suggested"] is True
+    assert [(n["recipe_name"], n["quantity"]) for n in garlic["needs"]] == [
+        ("Fried Rice", 2.0), ("Tofu Bowl", 3.0),
+    ]
+    # "Yellow onion" (no unit) and "Onion" (unit) are one ingredient, one line.
+    assert lines["yellow onion"]["quantity"] == 2.0
+    assert "onion" not in lines
+    # A suggestion that is not accepted contributes nothing.
+    assert "beef" not in lines
 
 
-def test_removing_an_accepted_dinner_takes_its_unpurchased_items_off_the_list(
-    client, db_session, auth_headers, recipes_pool, test_user
+def test_week_shopping_shows_seasoning_to_taste_without_an_amount(
+    client, auth_headers, week_of_two_dinners
 ):
-    db_session.add(RecipeIngredient(
-        id=uuid4(), recipe_id=recipes_pool[0].id, ingredient_name="Second Ingredient",
-        quantity=1.0, unit="cups", is_optional=False,
+    _, lines = _shopping(client, auth_headers)
+
+    salt = lines["salt"]
+    assert salt["to_taste"] is True
+    assert salt["suggested"] is True
+    assert salt["add_quantity"] == 0.0
+
+
+def test_week_shopping_subtracts_pantry_stock_in_the_same_unit(
+    client, db_session, auth_headers, test_user, week_of_two_dinners
+):
+    db_session.add_all([
+        InventoryItem(name="Garlic", quantity=2.0, unit="clove", category="produce",
+                      storage_location="pantry", added_by=test_user.id),
+        InventoryItem(name="Shrimp", quantity=1.0, unit="lb", category="protein",
+                      storage_location="freezer", added_by=test_user.id),
+        InventoryItem(name="Tofu", quantity=20.0, unit="oz", category="protein",
+                      storage_location="fridge", added_by=test_user.id),
+        InventoryItem(name="Kosher salt", quantity=1.0, unit="box", category="pantry_staple",
+                      storage_location="pantry", added_by=test_user.id),
+    ])
+    db_session.commit()
+
+    _, lines = _shopping(client, auth_headers)
+
+    # 5 cloves needed, 2 in the pantry: 3 to buy, still checked.
+    assert lines["garlic"]["add_quantity"] == 3.0
+    assert lines["garlic"]["pantry_counted"] is True
+    assert lines["garlic"]["suggested"] is True
+    # Shrimp in pounds cannot be weighed against ounces: shown, not subtracted, left to the user.
+    assert lines["shrimp"]["pantry_quantity"] == 1.0
+    assert lines["shrimp"]["pantry_unit"] == "lb"
+    assert lines["shrimp"]["pantry_counted"] is False
+    assert lines["shrimp"]["add_quantity"] == 10.0
+    assert lines["shrimp"]["suggested"] is False
+    # Enough tofu in the fridge: nothing to buy.
+    assert lines["tofu"]["add_quantity"] == 0.0
+    assert lines["tofu"]["suggested"] is False
+    # Salt in the cupboard: not suggested.
+    assert lines["salt"]["suggested"] is False
+
+
+def test_week_shopping_leaves_unchecked_what_is_already_on_the_list(
+    client, db_session, auth_headers, test_user, week_of_two_dinners
+):
+    db_session.add(GroceryListItem(
+        id=uuid4(), item_name="Tofu", quantity=1.0, unit="unit", source="manual",
+        added_by=test_user.id,
     ))
     db_session.commit()
-    entry_id = _accepted_dinner(client, db_session, auth_headers, recipes_pool[0])
-    items = db_session.query(GroceryListItem).order_by(GroceryListItem.item_name).all()
-    assert len(items) == 2
-    bought = items[0]
-    bought.purchased = True
-    other = GroceryListItem(
-        id=uuid4(), item_name="Dish soap", quantity=1.0, unit="unit",
-        source="manual", added_by=test_user.id,
-    )
-    db_session.add(other)
-    db_session.commit()
-    bought_id, other_id, unbought = bought.id, other.id, len(items) - 1
 
-    response = client.delete(f"/plan/entries/{entry_id}", headers=auth_headers)
+    _, lines = _shopping(client, auth_headers)
+
+    assert lines["tofu"]["listed_otherwise"] is True
+    assert lines["tofu"]["suggested"] is False
+
+
+def test_adding_lines_puts_one_item_per_line_and_does_not_offer_them_again(
+    client, db_session, auth_headers, week_of_two_dinners
+):
+    _, lines = _shopping(client, auth_headers)
+
+    result = _add_lines(client, auth_headers, [lines["garlic"]["key"], lines["salt"]["key"]])
+
+    assert result == {"added": 2, "skipped": []}
+    items = {item.item_name: item for item in db_session.query(GroceryListItem).all()}
+    assert set(items) == {"Garlic", "Salt"}
+    garlic = items["Garlic"]
+    assert (garlic.quantity, garlic.unit) == (5.0, "clove")
+    assert garlic.recipe_names == ["Fried Rice", "Tofu Bowl"]
+    assert garlic.recipe_name is None  # more than one dinner
+    assert [s["quantity"] for s in garlic.plan_sources] == [2.0, 3.0]
+
+    _, again = _shopping(client, auth_headers)
+    assert again["garlic"]["add_quantity"] == 0.0
+    assert again["garlic"]["suggested"] is False
+    assert again["salt"]["suggested"] is False
+
+    # The grocery API shows both dinners on the item.
+    from src.schemas.grocery import GroceryItemResponse
+    assert GroceryItemResponse.model_validate(garlic).recipe_names == ["Fried Rice", "Tofu Bowl"]
+
+
+def test_an_item_for_one_dinner_names_that_dinner(client, db_session, auth_headers, week_of_two_dinners):
+    _, lines = _shopping(client, auth_headers)
+
+    _add_lines(client, auth_headers, [lines["shrimp"]["key"]])
+
+    shrimp = db_session.query(GroceryListItem).one()
+    assert shrimp.recipe_name == "Fried Rice"
+    assert shrimp.linked_meal_plan_entry == week_of_two_dinners["fried_rice"].id
+    assert shrimp.plan_date == date(2025, 6, 2)
+
+
+def test_removing_a_dinner_takes_its_share_off_the_list(
+    client, db_session, auth_headers, week_of_two_dinners
+):
+    _, lines = _shopping(client, auth_headers)
+    _add_lines(client, auth_headers, [lines["garlic"]["key"], lines["shrimp"]["key"], lines["tofu"]["key"]])
+
+    response = client.delete(
+        f"/plan/entries/{week_of_two_dinners['fried_rice'].id}", headers=auth_headers
+    )
 
     assert response.status_code == 200
-    assert response.json() == {"grocery_items_removed": unbought}
+    # Shrimp was only for the fried rice: gone. Garlic is shared: it shrinks.
+    assert response.json() == {"grocery_items_removed": 1}
     db_session.expire_all()
-    left = {item.id: item for item in db_session.query(GroceryListItem).all()}
-    assert set(left) == {bought_id, other_id}
-    # What was already bought stays, no longer tied to the meal.
-    assert left[bought_id].linked_meal_plan_entry is None
-    assert db_session.query(MealPlanEntry).filter(MealPlanEntry.id == entry_id).count() == 0
-    week = client.get("/plan/week?week_start=2025-06-01", headers=auth_headers).json()
-    assert week["confirmed_entries"] == []
+    items = {item.item_name: item for item in db_session.query(GroceryListItem).all()}
+    assert set(items) == {"Garlic", "Tofu"}
+    assert items["Garlic"].quantity == 3.0
+    assert items["Garlic"].recipe_names == ["Tofu Bowl"]
+    assert items["Garlic"].linked_meal_plan_entry == week_of_two_dinners["tofu_bowl"].id
+
+
+def test_removing_a_dinner_keeps_what_was_already_bought(
+    client, db_session, auth_headers, week_of_two_dinners
+):
+    _, lines = _shopping(client, auth_headers)
+    _add_lines(client, auth_headers, [lines["shrimp"]["key"]])
+    shrimp = db_session.query(GroceryListItem).one()
+    shrimp.purchased = True
+    db_session.commit()
+
+    response = client.delete(
+        f"/plan/entries/{week_of_two_dinners['fried_rice'].id}", headers=auth_headers
+    )
+
+    assert response.json() == {"grocery_items_removed": 0}
+    db_session.expire_all()
+    kept = db_session.query(GroceryListItem).one()
+    assert kept.purchased is True
+    assert kept.linked_meal_plan_entry is None
+    assert not kept.plan_sources
+
+
+def test_removing_a_dinner_also_clears_items_linked_the_old_way(
+    client, db_session, auth_headers, test_user, week_of_two_dinners
+):
+    """Items added on accept before this change carry only the direct link."""
+    entry = week_of_two_dinners["fried_rice"]
+    db_session.add(GroceryListItem(
+        id=uuid4(), item_name="Shrimp", quantity=10.0, unit="ounces", source="meal_plan",
+        added_by=test_user.id, linked_meal_plan_entry=entry.id, linked_recipe=entry.recipe_id,
+    ))
+    db_session.commit()
+
+    response = client.delete(f"/plan/entries/{entry.id}", headers=auth_headers)
+
+    assert response.json() == {"grocery_items_removed": 1}
+    assert db_session.query(GroceryListItem).count() == 0
+
+
+@pytest.mark.parametrize("call", ["get", "post"])
+def test_week_shopping_requires_a_sunday(client, auth_headers, call):
+    if call == "get":
+        response = client.get("/plan/week/shopping?week_start=2025-06-02", headers=auth_headers)
+    else:
+        response = client.post(
+            "/plan/week/shopping", json={"week_start": "2025-06-02", "keys": []}, headers=auth_headers
+        )
+
+    assert response.status_code == 422
+
+
+def test_week_shopping_for_a_week_with_no_accepted_dinners_is_empty(client, auth_headers):
+    body, _ = _shopping(client, auth_headers)
+
+    assert body == {"week_start": "2025-06-01", "dinners": 0, "lines": []}
 
 
 def test_removing_a_suggestion_touches_no_grocery_items(
@@ -2194,22 +2376,6 @@ def test_removing_a_suggestion_touches_no_grocery_items(
     assert response.status_code == 200
     assert response.json() == {"grocery_items_removed": 0}
     assert db_session.query(GroceryListItem).count() == 1
-
-
-def test_removing_one_dinner_leaves_another_dinners_items(
-    client, db_session, auth_headers, recipes_pool
-):
-    """Two accepted dinners of the same recipe: each keeps its own items."""
-    first = _accepted_dinner(client, db_session, auth_headers, recipes_pool[0], date(2025, 6, 2))
-    second = _accepted_dinner(client, db_session, auth_headers, recipes_pool[0], date(2025, 6, 4))
-    per_dinner = db_session.query(GroceryListItem).count() // 2
-
-    client.delete(f"/plan/entries/{first}", headers=auth_headers)
-
-    db_session.expire_all()
-    left = db_session.query(GroceryListItem).all()
-    assert len(left) == per_dinner
-    assert {item.linked_meal_plan_entry for item in left} == {second}
 
 
 def test_removing_an_unknown_entry_returns_404(client, auth_headers):

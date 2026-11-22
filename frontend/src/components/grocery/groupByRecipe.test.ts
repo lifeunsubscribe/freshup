@@ -63,6 +63,26 @@ describe('groupByRecipe', () => {
   })
 })
 
+describe('groupByRecipe with items shared by several dinners', () => {
+  it('puts them in one group at the top', () => {
+    const groups = groupByRecipe([
+      forMeal('Shrimp', 'entry-sat', 'Fried Rice', '2026-11-21'),
+      item('Garlic', { source: 'meal_plan', recipe_names: ['Fried Rice', 'Tofu Bowl'] }),
+      item('Dish soap'),
+    ])
+
+    expect(groups.map((g) => [g.recipeName, g.items.map((i) => i.item_name)])).toEqual([
+      ['For several dinners', ['Garlic']],
+      ['Fried Rice', ['Shrimp']],
+      [null, ['Dish soap']],
+    ])
+  })
+
+  it('opens the list by recipe when only shared items came from the plan', () => {
+    expect(defaultGroceryView([item('Garlic', { recipe_names: ['A', 'B'] })])).toBe('by-recipe')
+  })
+})
+
 describe('defaultGroceryView', () => {
   it('opens by store only once an item has a store', () => {
     expect(defaultGroceryView([item('Milk', { target_store: 'store-1' }), forMeal('Rice', 'e', 'Fried Rice', null)])).toBe('by-store')

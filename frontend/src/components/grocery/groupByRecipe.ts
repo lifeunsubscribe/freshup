@@ -22,6 +22,14 @@ export function groupByRecipe(items: GroceryItemResponse[]): RecipeGroup[] {
   const other: GroceryItemResponse[] = []
 
   for (const item of items) {
+    const names = item.recipe_names?.length ? item.recipe_names : item.recipe_name ? [item.recipe_name] : []
+    if (names.length > 1) {
+      // Shared by several dinners: one group, the item says which.
+      const shared = meals.get('shared')
+      if (shared) shared.items.push(item)
+      else meals.set('shared', { key: 'shared', recipeName: SHARED_GROUP, planDate: null, items: [item] })
+      continue
+    }
     if (!item.recipe_name) {
       other.push(item)
       continue
@@ -41,6 +49,9 @@ export function groupByRecipe(items: GroceryItemResponse[]): RecipeGroup[] {
   }
 
   const ordered = [...meals.values()].sort((a, b) => {
+    // Items shared by several dinners lead: they serve the most meals.
+    if (a.key === 'shared') return -1
+    if (b.key === 'shared') return 1
     // Undated meals (already eaten, or their plan entry is gone) go last.
     if (a.planDate === b.planDate) return (a.recipeName ?? '').localeCompare(b.recipeName ?? '')
     if (a.planDate === null) return 1
@@ -52,6 +63,9 @@ export function groupByRecipe(items: GroceryItemResponse[]): RecipeGroup[] {
     : ordered
 }
 
+/** The group heading for items several dinners share. */
+export const SHARED_GROUP = 'For several dinners'
+
 export type GroceryView = 'by-recipe' | 'by-store' | 'flat'
 
 /**
@@ -60,6 +74,6 @@ export type GroceryView = 'by-recipe' | 'by-store' | 'flat'
  */
 export function defaultGroceryView(items: GroceryItemResponse[]): GroceryView {
   if (items.some((item) => item.target_store)) return 'by-store'
-  if (items.some((item) => item.recipe_name)) return 'by-recipe'
+  if (items.some((item) => item.recipe_name || item.recipe_names?.length)) return 'by-recipe'
   return 'flat'
 }

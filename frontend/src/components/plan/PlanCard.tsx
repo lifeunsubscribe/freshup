@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, ChevronRight, Plus, RefreshCw, Shuffle, Trash2 } from 'lucide-react'
+import { Check, ChevronRight, Plus, RefreshCw, ShoppingCart, Shuffle, Trash2 } from 'lucide-react'
 import type { MealPlanEntryDisplay } from '../../api/types'
 import { ownOrSourceName } from '../../utils/sourceNames'
 import { weekdayName } from '../../utils/week'
 import AddDinnerBand from './AddDinnerBand'
+import WeekShoppingSheet from './WeekShoppingSheet'
 import PlanSummary from './PlanSummary'
 import { usePlanWeek } from './usePlanWeek'
 
@@ -39,6 +40,7 @@ export default function PlanCard({
   const large = size === 'large'
   // The empty day an "Add something" band is open for, if any.
   const [addingFor, setAddingFor] = useState<string | null>(null)
+  const [shoppingOpen, setShoppingOpen] = useState(false)
 
   // Open the current week's carousel at today, not at the start of the week.
   const listRef = useRef<HTMLUListElement>(null)
@@ -96,6 +98,16 @@ export default function PlanCard({
               className="px-3 h-9 rounded-button-sm border border-warm-btn-border text-text-secondary text-[13px] font-medium disabled:opacity-50"
             >
               Fill {plan.openDays === 1 ? 'empty day' : `${plan.openDays} empty days`}
+            </button>
+          )}
+          {plan.stats.planned > 0 && (
+            <button
+              onClick={() => setShoppingOpen(true)}
+              aria-label={`Grocery list for ${title.toLowerCase()}`}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium"
+            >
+              <ShoppingCart size={14} />
+              Grocery list
             </button>
           )}
           <Link
@@ -188,6 +200,13 @@ export default function PlanCard({
           />
         </div>
       )}
+
+      <WeekShoppingSheet
+        open={shoppingOpen}
+        onClose={() => setShoppingOpen(false)}
+        weekStart={weekStart}
+        weekName={title.toLowerCase()}
+      />
     </section>
   )
 }

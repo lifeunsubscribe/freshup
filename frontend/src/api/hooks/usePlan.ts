@@ -10,12 +10,15 @@ import type {
   SwapEntryResponse,
   RemixWeekResponse,
   RemoveEntryResponse,
+  WeekShoppingResponse,
+  WeekShoppingAddResponse,
 } from '../types'
 
 export const planKeys = {
   all: ['plan'] as const,
   entries: () => [...planKeys.all, 'entries'] as const,
   week: (weekStart: string) => [...planKeys.all, 'week', weekStart] as const,
+  shopping: (weekStart: string) => [...planKeys.all, 'shopping', weekStart] as const,
 }
 
 export function useWeekPlan(weekStart: string) {
@@ -63,9 +66,8 @@ export function useConfirmEntry() {
         { method: 'PUT' }
       ),
     onSuccess: () => {
+      // Also refreshes the week's shopping list, which counts accepted dinners.
       queryClient.invalidateQueries({ queryKey: planKeys.all })
-      // Accepting a dinner puts its ingredients on the grocery list.
-      queryClient.invalidateQueries({ queryKey: groceryKeys.all })
     },
   })
 }
@@ -116,6 +118,40 @@ export function useRemixWeek() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: planKeys.all })
+    },
+  })
+}
+
+/**
+ * The week's shopping list: what its accepted dinners need, one line per
+ * ingredient, checked against the pantry and the grocery list.
+ */
+export function useWeekShopping(weekStart: string, { enabled = true }: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: planKeys.shopping(weekStart),
+    queryFn: () =>
+      apiClient<WeekShoppingResponse>(
+        `/plan/week/shopping?week_start=${encodeURIComponent(weekStart)}`,
+        { method: 'GET' }
+      ),
+    enabled,
+    // Pantry and list change elsewhere; always read fresh when the sheet opens.
+    staleTime: 0,
+  })
+}
+
+/** Put the chosen lines of a week's shopping list on the grocery list. */
+export function useAddWeekShopping() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ weekStart, keys }: { weekStart: string; keys: string[] }) =>
+      apiClient<WeekShoppingAddResponse>('/plan/week/shopping', {
+        method: 'POST',
+        body: JSON.stringify({ week_start: weekStart, keys }),
+      }),
+    onSuccess: (_, { weekStart }) => {
+      queryClient.invalidateQueries({ queryKey: planKeys.shopping(weekStart) })
+      queryClient.invalidateQueries({ queryKey: groceryKeys.all })
     },
   })
 }

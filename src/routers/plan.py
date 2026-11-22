@@ -29,6 +29,11 @@ from src.schemas.plan import (
     RemixWeekRequest,
     RemixWeekResponse,
     RemoveEntryResponse,
+    ShoppingLineNeed,
+    ShoppingLineResponse,
+    WeekShoppingResponse,
+    WeekShoppingAddRequest,
+    WeekShoppingAddResponse,
 )
 from src.exceptions import NotFoundError, ValidationError
 
@@ -122,6 +127,71 @@ def remix_week(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to remix the week",
         )
+
+
+@router.get("/week/shopping", response_model=WeekShoppingResponse)
+def get_week_shopping(
+    week_start: Annotated[date, Query(description="First day of the week, a Sunday (YYYY-MM-DD)")],
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> WeekShoppingResponse:
+    """
+    The ingredients the week's accepted dinners need, one line per ingredient,
+    checked against the pantry and the grocery list, for the user to approve.
+
+    **Auth:** Required
+    """
+    from src.services.plan_week import week_start_of
+    from src.services.week_shopping import week_shopping_lines
+
+    if week_start_of(week_start) != week_start:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="week_start must be a Sunday")
+    lines, dinners = week_shopping_lines(db, week_start)
+    return WeekShoppingResponse(
+        week_start=week_start,
+        dinners=dinners,
+        lines=[
+            ShoppingLineResponse(
+                key=line.key,
+                name=line.name,
+                unit=line.unit,
+                to_taste=line.to_taste,
+                quantity=round(line.quantity, 3),
+                add_quantity=line.add_quantity,
+                suggested=line.suggested,
+                pantry_quantity=line.pantry_quantity,
+                pantry_unit=line.pantry_unit,
+                pantry_counted=line.pantry_counted,
+                listed_quantity=round(line.listed_quantity, 3),
+                listed_otherwise=line.listed_otherwise,
+                needs=[
+                    ShoppingLineNeed(recipe_name=n.recipe_name, date=n.day, quantity=round(n.quantity, 3))
+                    for n in line.needs
+                ],
+            )
+            for line in lines
+        ],
+    )
+
+
+@router.post("/week/shopping", response_model=WeekShoppingAddResponse)
+def add_week_shopping(
+    request: WeekShoppingAddRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> WeekShoppingAddResponse:
+    """
+    Put the chosen lines of the week's shopping list on the grocery list.
+
+    Each line becomes one item that records which dinners it is for, so
+    removing a dinner later takes its share off again.
+
+    **Auth:** Required
+    """
+    from src.services.week_shopping import add_lines_to_grocery_list
+
+    result = add_lines_to_grocery_list(db, request.week_start, request.keys, current_user)
+    return WeekShoppingAddResponse(added=result.added, skipped=result.skipped)
 
 
 @router.get("/week", response_model=WeekViewResponse)

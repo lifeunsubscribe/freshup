@@ -131,6 +131,61 @@ class WeekViewResponse(BaseModel):
     )
 
 
+class ShoppingLineNeed(BaseModel):
+    """One dinner's share of a shopping line."""
+
+    recipe_name: str
+    date: date_type
+    quantity: float
+
+
+class ShoppingLineResponse(BaseModel):
+    """
+    One ingredient the week's accepted dinners need, merged across dinners.
+
+    `add_quantity` is what approving the line would put on the grocery list:
+    the need, less what is already listed for these dinners, less pantry stock
+    in the same unit.  `suggested` is whether the line starts checked.
+    """
+
+    key: str
+    name: str
+    unit: str
+    to_taste: bool = Field(..., description="The recipes give no amount (e.g. salt to taste)")
+    quantity: float
+    add_quantity: float
+    suggested: bool
+    pantry_quantity: Optional[float] = None
+    pantry_unit: Optional[str] = None
+    pantry_counted: bool = Field(..., description="Pantry stock is in this unit and was subtracted")
+    listed_quantity: float
+    listed_otherwise: bool = Field(..., description="On the grocery list already, added some other way")
+    needs: list[ShoppingLineNeed]
+
+
+class WeekShoppingResponse(BaseModel):
+    week_start: date_type
+    dinners: int = Field(..., description="Accepted dinners the lines come from")
+    lines: list[ShoppingLineResponse]
+
+
+class WeekShoppingAddRequest(BaseModel):
+    week_start: date_type
+    keys: list[str] = Field(..., description="The lines to put on the grocery list")
+
+    @field_validator('week_start')
+    @classmethod
+    def validate_week_start(cls, v: date_type) -> date_type:
+        if v.weekday() != WEEK_START_WEEKDAY:
+            raise ValueError(f'week_start must be a {WEEK_START_NAME}')
+        return v
+
+
+class WeekShoppingAddResponse(BaseModel):
+    added: int
+    skipped: list[str] = Field(default_factory=list, description="Lines that could not be added")
+
+
 class RemoveEntryResponse(BaseModel):
     """What removing a planned meal did to the grocery list."""
 

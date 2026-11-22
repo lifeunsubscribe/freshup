@@ -11,6 +11,7 @@ import {
   suggestedRecipe,
 } from '../test/planWeekMocks'
 import { useWeekPlan } from '../api'
+import type { WeekShoppingResponse } from '../api/types'
 
 vi.mock('../api', () => ({
   useWeekPlan: vi.fn(),
@@ -21,6 +22,8 @@ vi.mock('../api', () => ({
   useCreatePlanEntry: vi.fn(),
   useRemixWeek: vi.fn(),
   useRemovePlanEntry: vi.fn(),
+  useWeekShopping: vi.fn(),
+  useAddWeekShopping: vi.fn(),
 }))
 
 vi.mock('../api/hooks/useRecipes', () => ({
@@ -164,7 +167,7 @@ describe('Plan page', () => {
   it('accepts a whole sample week from its card, but not the week in progress', async () => {
     planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16'), entry('2026-11-17')] }
     planMocks.weeks['2026-11-22'] = { draft_entries: [entry('2026-11-23'), entry('2026-11-24')] }
-    planMocks.confirmMutateAsync.mockResolvedValue({ grocery_items_added: 4 })
+    planMocks.confirmMutateAsync.mockResolvedValue({ grocery_items_added: 0 })
     setup()
 
     renderWithProviders(<Plan />)
@@ -178,7 +181,7 @@ describe('Plan page', () => {
       'entry-2026-11-24',
     ])
     expect(card('Next week').getByRole('status')).toHaveTextContent(
-      'Accepted 2 dinners. Added 8 items to your grocery list.'
+      'Accepted 2 dinners.'
     )
   })
 
@@ -225,6 +228,96 @@ describe('Plan page', () => {
     expect(planMocks.removeMutate).toHaveBeenCalledWith('entry-2026-11-16', expect.anything())
   })
 
+  describe('the week\'s grocery list', () => {
+    const line = (name: string, extra: Partial<WeekShoppingResponse['lines'][number]> = {}) => ({
+      key: `${name.toLowerCase()}|count`,
+      name,
+      unit: 'count',
+      to_taste: false,
+      quantity: 2,
+      add_quantity: 2,
+      suggested: true,
+      pantry_quantity: null,
+      pantry_unit: null,
+      pantry_counted: false,
+      listed_quantity: 0,
+      listed_otherwise: false,
+      needs: [
+        { recipe_name: 'Fried Rice', date: '2026-11-16', quantity: 1 },
+        { recipe_name: 'Tofu Bowl', date: '2026-11-18', quantity: 1 },
+      ],
+      ...extra,
+    })
+
+    beforeEach(() => {
+      planMocks.weeks[THIS_WEEK] = {
+        confirmed_entries: [entry('2026-11-16', { status: 'approved', recipe_id: 'recipe-1' })],
+      }
+      planMocks.shopping[THIS_WEEK] = {
+        week_start: THIS_WEEK,
+        dinners: 2,
+        lines: [
+          line('Onion'),
+          line('Garlic', { unit: 'clove', quantity: 5, add_quantity: 3, pantry_quantity: 2, pantry_unit: 'clove', pantry_counted: true }),
+          line('Tofu', { add_quantity: 0, suggested: false, pantry_quantity: 3, pantry_unit: 'count', pantry_counted: true }),
+          line('Shrimp', { unit: 'oz', quantity: 10, add_quantity: 10, suggested: false, pantry_quantity: 1, pantry_unit: 'lb' }),
+        ],
+      }
+    })
+
+    it('is offered on a week with an accepted dinner, and not on one without', () => {
+      setup()
+
+      renderWithProviders(<Plan />)
+
+      expect(card('This week').getByRole('button', { name: 'Grocery list for this week' })).toBeInTheDocument()
+      expect(card('Next week').queryByRole('button', { name: /Grocery list/ })).not.toBeInTheDocument()
+    })
+
+    it('opens a checklist of the week\'s ingredients with the suggested ones checked', () => {
+      setup()
+
+      renderWithProviders(<Plan />)
+      fireEvent.click(card('This week').getByRole('button', { name: 'Grocery list for this week' }))
+
+      const sheet = within(screen.getByRole('dialog', { name: 'Shopping for this week' }))
+      expect(sheet.getByText(/From 2 accepted dinners/)).toBeInTheDocument()
+      const box = (name: string) => sheet.getByRole('checkbox', { name: new RegExp(`^${name}`) })
+      expect(box('Onion')).toBeChecked()
+      expect(box('Garlic')).toBeChecked()
+      // Enough in the pantry: nothing to add, so it cannot be checked.
+      expect(box('Tofu')).not.toBeChecked()
+      expect(box('Tofu')).toBeDisabled()
+      // Pantry stock in another unit: shown, left for the user to decide.
+      expect(box('Shrimp')).not.toBeChecked()
+      expect(sheet.getByText('You have 1 lb; check whether it is enough')).toBeInTheDocument()
+      expect(sheet.getByText('You have 2 clove, counted')).toBeInTheDocument()
+      expect(sheet.getAllByText('For Fried Rice, Tofu Bowl')).toHaveLength(4)
+      expect(sheet.getByRole('button', { name: 'Add 2 items to grocery list' })).toBeInTheDocument()
+    })
+
+    it('adds what is checked, and says so with a link to the list', () => {
+      planMocks.addShoppingMutate.mockImplementation((_vars, options) =>
+        options.onSuccess({ added: 3, skipped: [] })
+      )
+      setup()
+
+      renderWithProviders(<Plan />)
+      fireEvent.click(card('This week').getByRole('button', { name: 'Grocery list for this week' }))
+      const sheet = within(screen.getByRole('dialog', { name: 'Shopping for this week' }))
+      fireEvent.click(sheet.getByRole('checkbox', { name: /^Shrimp/ }))
+      fireEvent.click(sheet.getByRole('checkbox', { name: /^Onion/ }))
+      fireEvent.click(sheet.getByRole('button', { name: 'Add 2 items to grocery list' }))
+
+      expect(planMocks.addShoppingMutate).toHaveBeenCalledWith(
+        { weekStart: THIS_WEEK, keys: ['garlic|count', 'shrimp|count'] },
+        expect.anything()
+      )
+      expect(sheet.getByRole('status')).toHaveTextContent('Added 3 items to your grocery list.')
+      expect(sheet.getByRole('link', { name: 'Open the list' })).toHaveAttribute('href', '/grocery')
+    })
+  })
+
   it('says which meal the plan covers', () => {
     planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
     setup()
@@ -265,7 +358,7 @@ describe('Plan page', () => {
 
     it('puts the chosen catalog card on that day, accepts it and closes the band', async () => {
       planMocks.createMutateAsync.mockResolvedValue({ id: 'new-entry' })
-      planMocks.confirmMutateAsync.mockResolvedValue({ grocery_items_added: 6 })
+      planMocks.confirmMutateAsync.mockResolvedValue({ grocery_items_added: 0 })
       setup()
 
       renderWithProviders(<Plan />)
@@ -281,7 +374,7 @@ describe('Plan page', () => {
       })
       expect(planMocks.confirmMutateAsync).toHaveBeenCalledWith('new-entry')
       expect(card('This week').getByRole('status')).toHaveTextContent(
-        'Added. Added 6 items to your grocery list.'
+        'Added.'
       )
       expect(screen.queryByRole('region', { name: 'Add a dinner for Sunday' })).not.toBeInTheDocument()
     })

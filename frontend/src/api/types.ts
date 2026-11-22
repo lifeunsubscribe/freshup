@@ -444,6 +444,8 @@ export interface GroceryItemResponse {
   recipe_name?: string | null;
   /** The day of that planned meal, YYYY-MM-DD. */
   plan_date?: string | null;
+  /** Every recipe the item is for; several when dinners share an ingredient. */
+  recipe_names?: string[];
 }
 
 export interface BulkPurchaseRequest {
@@ -785,6 +787,47 @@ export interface WeekViewResponse {
   week_start: string;
   confirmed_entries: MealPlanEntryDisplay[];
   draft_entries: MealPlanEntryDisplay[];
+}
+
+/** One dinner's share of a shopping line. */
+export interface ShoppingLineNeed {
+  recipe_name: string;
+  date: string;
+  quantity: number;
+}
+
+/** One ingredient the week's accepted dinners need, merged across dinners. */
+export interface ShoppingLine {
+  key: string;
+  name: string;
+  unit: string;
+  /** The recipes give no amount ("salt, to taste"). */
+  to_taste: boolean;
+  quantity: number;
+  /** What approving the line puts on the grocery list. */
+  add_quantity: number;
+  /** Whether the line starts checked. */
+  suggested: boolean;
+  pantry_quantity: number | null;
+  pantry_unit: string | null;
+  /** Pantry stock is in this unit and was subtracted. */
+  pantry_counted: boolean;
+  listed_quantity: number;
+  /** On the grocery list already, added some other way. */
+  listed_otherwise: boolean;
+  needs: ShoppingLineNeed[];
+}
+
+export interface WeekShoppingResponse {
+  week_start: string;
+  /** Accepted dinners the lines come from. */
+  dinners: number;
+  lines: ShoppingLine[];
+}
+
+export interface WeekShoppingAddResponse {
+  added: number;
+  skipped: string[];
 }
 
 export interface RemoveEntryResponse {
