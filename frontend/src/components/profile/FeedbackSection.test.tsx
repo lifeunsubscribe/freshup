@@ -22,8 +22,8 @@ describe('FeedbackSection', () => {
   it('lists each note with who sent it and from which page', () => {
     useFeedbackList.mockReturnValue({
       data: [
-        { id: '1', message: 'Swap is hard to find', page: '/plan', created_at: '2026-11-21T12:00:00', user_name: 'Alex' },
-        { id: '2', message: 'Love the carousels', page: null, created_at: '2026-11-20T09:00:00', user_name: 'Sarah' },
+        { id: '1', message: 'Swap is hard to find', kind: 'not-working', page: '/plan', created_at: '2026-11-21T12:00:00', user_name: 'Alex' },
+        { id: '2', message: 'Love the carousels', kind: 'idea', page: null, created_at: '2026-11-20T09:00:00', user_name: 'Sarah' },
       ],
       isLoading: false,
       isError: false,
@@ -34,6 +34,8 @@ describe('FeedbackSection', () => {
     const notes = screen.getAllByRole('listitem')
     expect(notes).toHaveLength(2)
     expect(notes[0]).toHaveTextContent('Swap is hard to find')
+    expect(notes[0]).toHaveTextContent('Something is not working')
+    expect(notes[1]).toHaveTextContent('An idea')
     expect(notes[0]).toHaveTextContent(/Alex · .* · \/plan/)
     expect(notes[1]).toHaveTextContent('Love the carousels')
   })

@@ -64,7 +64,7 @@ KNOWN_UNITS = {
     'teaspoon', 'teaspoons', 'tsp', 'ts',
     'milliliter', 'milliliters', 'ml', 'mls',
     'liter', 'liters', 'l',
-    'fluid ounce', 'fluid ounces', 'fl oz', 'fl. oz.',
+    'fluid ounce', 'fluid ounces', 'fl oz',
     'pint', 'pints', 'pt', 'pts',
     'quart', 'quarts', 'qt', 'qts',
     'gallon', 'gallons', 'gal', 'gals',
@@ -241,14 +241,17 @@ def _extract_unit(text: str) -> tuple[str, str]:
         if re.match(r'^' + re.escape(word) + r'\b', text, re.IGNORECASE):
             return "", text[len(word):].strip()
 
-    # Try to match known units at the start of the text
-    # Use word boundary to avoid partial matches
+    # Try to match known units at the start of the text. A unit must not run
+    # into a letter ("c" is not the start of "cashews"). Abbreviations may carry
+    # periods, as Home Chef writes them: "8 oz. Shrimp", "3 fl. oz. Liquid Egg".
     for unit in sorted(KNOWN_UNITS, key=len, reverse=True):  # Longest first to avoid partial matches
-        # Case-insensitive pattern with word boundary
-        pattern = r'^' + re.escape(unit) + r'\b'
-        if re.match(pattern, text, re.IGNORECASE):
-            matched_unit = text[:len(unit)]
-            remaining = _strip_unit_abbreviation(text[len(unit):].strip())
+        spelled = re.escape(unit).replace(r'\ ', r'\.?\s*')  # "fl oz" also as "fl. oz"
+        match = re.match(r'^(' + spelled + r')\.?(?![A-Za-z])', text, re.IGNORECASE)
+        if match:
+            # Recorded without the periods: "fl. oz." is "fl oz", "oz." is "oz".
+            matched_unit = re.sub(r'\.', '', match.group(1)).strip()
+            matched_unit = re.sub(r'\s+', ' ', matched_unit)
+            remaining = _strip_unit_abbreviation(text[match.end():].strip())
             return matched_unit, remaining
 
     return "", text

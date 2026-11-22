@@ -474,6 +474,8 @@ export interface GroceryItemResponse {
   plan_date?: string | null;
   /** Every recipe the item is for; several when dinners share an ingredient. */
   recipe_names?: string[];
+  /** The same recipes with ids, for linking. */
+  recipes?: { id: string; name: string }[];
 }
 
 export interface BulkPurchaseRequest {
@@ -653,9 +655,12 @@ export type RecommendedItem =
 // ============================================================================
 
 /** A note sent to the developer from the account menu. */
+export type FeedbackKind = 'wrong-info' | 'not-working' | 'idea' | 'other';
+
 export interface FeedbackResponse {
   id: string;
   message: string;
+  kind: FeedbackKind;
   page: string | null;
   created_at: string;
   user_name: string;

@@ -106,8 +106,9 @@ describe('ProfileMenu', () => {
       })
       fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
+      // Wrong or badly shown information is chosen until another kind is picked.
       expect(sendMutate).toHaveBeenCalledWith(
-        { message: 'The swap button is hard to find.', page: '/plan/2026-11-15' },
+        { message: 'The swap button is hard to find.', page: '/plan/2026-11-15', kind: 'wrong-info' },
         expect.anything()
       )
       expect(screen.getByRole('status')).toHaveTextContent('Your note is saved for review.')
@@ -115,6 +116,23 @@ describe('ProfileMenu', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Done' }))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('asks what the note is about, starting with wrong or badly shown information', () => {
+      renderWithProviders(<ProfileMenu />)
+      openFeedback()
+
+      expect(screen.getByRole('button', { name: 'Wrong or badly shown information' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByText(/A wrong amount, an odd name, a missing picture/)).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'An idea' }))
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Dark mode' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+      expect(sendMutate).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Dark mode', kind: 'idea' }),
+        expect.anything()
+      )
     })
 
     it('keeps the note and says so when it could not be sent', () => {

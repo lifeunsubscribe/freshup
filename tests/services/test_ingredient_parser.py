@@ -698,3 +698,26 @@ class TestHelloFreshIngredientFormat:
         assert result["unit"] == "cup"
         assert result["ingredient_name"] == "(optional) cheese"
         assert result["is_optional"] is True
+
+
+class TestUnitAbbreviationsWithPeriods:
+    """Home Chef writes units with periods: "8 oz. Shrimp", "3 fl. oz. Liquid Egg"."""
+
+    @pytest.mark.parametrize("raw, quantity, unit, name", [
+        ("8 oz. Shrimp", 8.0, "oz", "Shrimp"),
+        ("1 tsp. Chopped Ginger", 1.0, "tsp", "Chopped Ginger"),
+        ("2 Tbsp. butter", 2.0, "Tbsp", "butter"),
+        ("1 lb. ground beef", 1.0, "lb", "ground beef"),
+        ("3 fl. oz. Liquid Egg", 3.0, "fl oz", "Liquid Egg"),
+        ("1 fl oz Soy Sauce", 1.0, "fl oz", "Soy Sauce"),
+        ("1 fl. oz Soy Sauce", 1.0, "fl oz", "Soy Sauce"),
+    ])
+    def test_the_period_is_not_left_on_the_name(self, raw, quantity, unit, name):
+        parsed = parse_ingredient(raw)
+
+        assert (parsed["quantity"], parsed["unit"], parsed["ingredient_name"]) == (quantity, unit, name)
+
+    def test_a_unit_letter_at_the_start_of_a_word_is_not_a_unit(self):
+        parsed = parse_ingredient("2 cashews")
+
+        assert (parsed["unit"], parsed["ingredient_name"]) == ("", "cashews")

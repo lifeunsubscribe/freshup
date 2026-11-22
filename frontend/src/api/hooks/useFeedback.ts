@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../client'
-import type { FeedbackResponse } from '../types'
+import type { FeedbackKind, FeedbackResponse } from '../types'
 
 export const feedbackKeys = {
   all: ['feedback'] as const,
@@ -10,7 +10,7 @@ export const feedbackKeys = {
 export function useSendFeedback() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (note: { message: string; page?: string }) =>
+    mutationFn: (note: { message: string; page?: string; kind?: FeedbackKind }) =>
       apiClient<FeedbackResponse>('/feedback', { method: 'POST', body: JSON.stringify(note) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: feedbackKeys.all })

@@ -97,6 +97,7 @@ describe('Grocery page views', () => {
       item('Shrimp', {
         source: 'meal_plan',
         linked_meal_plan_entry: 'entry-1',
+        linked_recipe: 'recipe-1',
         recipe_name: 'Gochujang Shrimp Fried Rice',
         plan_date: '2026-11-21',
       }),
@@ -105,6 +106,11 @@ describe('Grocery page views', () => {
     renderWithProviders(<Grocery />)
     fireEvent.click(screen.getByRole('button', { name: 'All Items' }))
 
-    expect(screen.getByLabelText('For Gochujang Shrimp Fried Rice')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /For Gochujang Shrimp Fried Rice/ })).toHaveAttribute(
+      'href',
+      '/recipes/recipe-1'
+    )
+    // Who added it sits under the chip, not on a line of its own.
+    expect(screen.getByText('Added by Sarah')).toBeInTheDocument()
   })
 })

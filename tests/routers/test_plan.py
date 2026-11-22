@@ -2267,6 +2267,11 @@ def test_adding_lines_puts_one_item_per_line_and_does_not_offer_them_again(
     # The grocery API shows both dinners on the item.
     from src.schemas.grocery import GroceryItemResponse
     assert GroceryItemResponse.model_validate(garlic).recipe_names == ["Fried Rice", "Tofu Bowl"]
+    refs = GroceryItemResponse.model_validate(garlic).recipes
+    assert [(str(r.id), r.name) for r in refs] == [
+        (str(week_of_two_dinners["fried_rice"].recipe_id), "Fried Rice"),
+        (str(week_of_two_dinners["tofu_bowl"].recipe_id), "Tofu Bowl"),
+    ]
 
 
 def test_an_item_for_one_dinner_names_that_dinner(client, db_session, auth_headers, week_of_two_dinners):

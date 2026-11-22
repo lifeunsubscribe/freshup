@@ -160,3 +160,27 @@ class TestListFeedback:
 
     def test_requires_sign_in(self, client):
         assert client.get("/feedback").status_code in (401, 403)
+
+
+class TestFeedbackKind:
+    def test_stores_what_the_note_is_about(self, client, db_session, member, coordinator):
+        response = client.post(
+            "/feedback",
+            json={"message": "Shrimp shows as '. Shrimp'", "kind": "wrong-info", "page": "/recipes/1"},
+            headers=_auth(member),
+        )
+
+        assert response.status_code == 201
+        assert response.json()["kind"] == "wrong-info"
+        listed = client.get("/feedback", headers=_auth(coordinator)).json()
+        assert listed[0]["kind"] == "wrong-info"
+
+    def test_defaults_to_other(self, client, member):
+        response = client.post("/feedback", json={"message": "Hi"}, headers=_auth(member))
+
+        assert response.json()["kind"] == "other"
+
+    def test_rejects_an_unknown_kind(self, client, member):
+        response = client.post("/feedback", json={"message": "Hi", "kind": "rant"}, headers=_auth(member))
+
+        assert response.status_code == 422

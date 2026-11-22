@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sheet from '../ui/Sheet'
 import { useSendFeedback } from '../../api/hooks/useFeedback'
+import type { FeedbackKind } from '../../api/types'
+import { FEEDBACK_KINDS } from '../../utils/feedbackKinds'
 
 /** The API's limit on a note's length. */
 const MAX_LENGTH = 4000
@@ -19,6 +21,7 @@ export default function FeedbackSheet({ open, onClose }: FeedbackSheetProps) {
   const { pathname } = useLocation()
   const send = useSendFeedback()
   const [message, setMessage] = useState('')
+  const [kind, setKind] = useState<FeedbackKind>('wrong-info')
   const [sent, setSent] = useState(false)
   const reset = send.reset
 
@@ -37,7 +40,7 @@ export default function FeedbackSheet({ open, onClose }: FeedbackSheetProps) {
 
   function handleSend() {
     send.mutate(
-      { message: trimmed, page: pathname },
+      { message: trimmed, page: pathname, kind },
       {
         onSuccess: () => {
           setMessage('')
@@ -78,9 +81,30 @@ export default function FeedbackSheet({ open, onClose }: FeedbackSheetProps) {
           </p>
         ) : (
           <>
+            <fieldset>
+              <legend className="text-[13px] text-text-secondary mb-2">What is it about?</legend>
+              <div className="flex flex-wrap gap-2">
+                {FEEDBACK_KINDS.map((option) => (
+                  <button
+                    key={option.kind}
+                    type="button"
+                    onClick={() => setKind(option.kind)}
+                    aria-pressed={kind === option.kind}
+                    className={`px-3 py-1.5 rounded-pill text-[13px] border ${
+                      kind === option.kind
+                        ? 'bg-olive text-white border-olive'
+                        : 'bg-white text-text-secondary border-warm-btn-border'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
             <label htmlFor="feedback-message" className="block text-[13px] text-text-secondary">
-              What is working, what is not, what you wish it did. It is saved along with the page
-              you are on.
+              {kind === 'wrong-info'
+                ? 'What is wrong, and where? A wrong amount, an odd name, a missing picture, a recipe in the wrong place. The page you are on is saved with your note.'
+                : 'What is working, what is not, what you wish it did. The page you are on is saved with your note.'}
             </label>
             <textarea
               id="feedback-message"

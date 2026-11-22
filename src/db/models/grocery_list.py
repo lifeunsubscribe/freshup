@@ -61,6 +61,18 @@ class GroceryListItem(Base):
         return [s for s in (self.plan_sources or []) if isinstance(s, dict)]
 
     @property
+    def recipes(self) -> list[dict]:
+        """Every recipe this item is for, as {"id", "name"}, in the order the dinners are planned."""
+        sources = sorted(self._source_dicts(), key=lambda s: s.get("date") or "")
+        seen: dict[str, dict] = {}
+        for s in sources:
+            if s.get("recipe_id") and s["recipe_id"] not in seen:
+                seen[s["recipe_id"]] = {"id": s["recipe_id"], "name": s.get("recipe_name") or ""}
+        if not seen and self.linked_recipe_rel is not None:
+            return [{"id": str(self.linked_recipe_rel.id), "name": self.linked_recipe_rel.name}]
+        return list(seen.values())
+
+    @property
     def recipe_names(self) -> list[str]:
         """Every recipe this item is for, in the order the dinners are planned."""
         sources = sorted(self._source_dicts(), key=lambda s: s.get("date") or "")

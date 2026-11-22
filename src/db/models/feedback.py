@@ -28,6 +28,8 @@ class Feedback(Base):
         ForeignKey("users.id", name="fk_feedback_user_id_users")
     )
     message: Mapped[str] = mapped_column(Text)
+    # What the note is about: wrong-info, not-working, idea or other.
+    kind: Mapped[str] = mapped_column(String(30), default="other", server_default="other")
     # The page the user was on when they sent it, e.g. "/plan/2026-11-15".
     page: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

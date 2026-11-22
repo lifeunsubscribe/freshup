@@ -3,13 +3,16 @@ import Pill from '../ui/Pill'
 import ErrorBanner from '../ui/ErrorBanner'
 import type { GroceryItemResponse } from '../../api/types'
 import { useMutationErrorHandler } from '../../utils/mutationErrorUtils'
-import { formatAmount } from '../../utils/amount'
+import { formatAmount, shortRecipeName } from '../../utils/amount'
+import { Link } from 'react-router-dom'
 
 export interface GroceryItemProps {
   item: GroceryItemResponse
   purchaserName?: string
   /** Leave out the recipe chip, for a list already grouped under the recipe. */
   hideRecipe?: boolean
+  /** Who put it on the list, shown under the chip. */
+  addedBy?: string
 }
 
 /**
@@ -18,14 +21,15 @@ export interface GroceryItemProps {
  * Features:
  * - Checkbox (18-20px) with 5-6px border radius
  * - Checked state: olive fill, strikethrough item name with tertiary text
- * - Item name and quantity inline: "Olive oil (1 bottle)"
- * - Context chip on right: the recipe the item is for, "staple restock", or "manual"
+ * - Amount in its own column ("2 tsp"), so amounts line up down the list
+ * - Context chip on right: the recipe the item is for (short name, links to the
+ *   recipe), "staple restock", or "manual"; who added it underneath
  * - "Have it" on an unbought item takes it off the list: it is already in the house
  * - Shows purchaser name when checked: "Sarah" in secondary text
  * - Optimistic updates: immediate visual feedback, API call in background
  * - Touch target: minimum 44px for mobile usability
  */
-export default function GroceryItem({ item, purchaserName, hideRecipe = false }: GroceryItemProps) {
+export default function GroceryItem({ item, purchaserName, hideRecipe = false, addedBy }: GroceryItemProps) {
   const purchaseMutation = usePurchaseGroceryItem()
   const unpurchaseMutation = useUnpurchaseGroceryItem()
   const haveMutation = useHaveGroceryItem()
@@ -57,10 +61,10 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false }:
   }
 
   // The recipes this item is for: several when dinners share an ingredient.
-  const recipes = item.recipe_names?.length
-    ? item.recipe_names
-    : item.recipe_name
-      ? [item.recipe_name]
+  const recipes: { id: string; name: string }[] = item.recipes?.length
+    ? item.recipes
+    : item.linked_recipe && item.recipe_name
+      ? [{ id: item.linked_recipe, name: item.recipe_name }]
       : []
 
   // Check if any mutation is pending to prevent double-clicks
@@ -98,12 +102,12 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false }:
 
   return (
     <div>
-      <div className="flex items-center gap-3 py-2 min-h-[44px]">
+      <div className="flex items-start gap-3 py-2 min-h-[44px]">
         {/* Checkbox with touch target */}
         <button
           onClick={handleCheckboxClick}
           disabled={isPending}
-          className="flex-shrink-0 p-2 -m-2 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-shrink-0 p-2 -m-2 mt-[3px] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
           aria-label={
             item.purchased
               ? `Unmark ${item.item_name} as purchased`
@@ -124,7 +128,6 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false }:
               }
             `}
           >
-            {/* Checkmark when purchased */}
             {item.purchased && (
               <svg
                 width="12"
@@ -146,18 +149,25 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false }:
           </div>
         </button>
 
-        {/* Item name and quantity */}
+        {/* Amount: its own column, so amounts line up down the list */}
+        <span
+          data-testid="grocery-amount"
+          className={`flex-shrink-0 w-[68px] pt-[1px] text-[14px] tabular-nums ${
+            item.purchased ? 'text-text-tertiary' : 'text-text-secondary'
+          }`}
+        >
+          {formatAmount(item.quantity, item.unit)}
+        </span>
+
+        {/* Item name */}
         <div className="flex-1 min-w-0">
           <div
             className={`
-              text-[15px] font-medium
+              text-[15px] font-medium leading-snug
               ${item.purchased ? 'line-through text-text-tertiary' : 'text-text-primary'}
             `}
           >
-            {item.item_name}{' '}
-            <span className="font-normal text-text-secondary">
-              ({formatAmount(item.quantity, item.unit)})
-            </span>
+            {item.item_name}
           </div>
 
           {/* Purchased by line (only shown when checked) */}
@@ -175,30 +185,35 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false }:
             disabled={isPending}
             aria-label={`I already have ${item.item_name}`}
             type="button"
-            className="flex-shrink-0 px-2 min-h-[44px] text-[13px] text-olive disabled:opacity-50"
+            className="flex-shrink-0 px-1 -my-2 min-h-[44px] text-[13px] text-olive disabled:opacity-50"
           >
             Have it
           </button>
         )}
 
-        {/* Context chip on right: the recipe(s) this is for, else where it came from */}
-        {recipes.length > 0 ? (
-          !hideRecipe && (
-            <div
-              className="flex-shrink-0 max-w-[40%] truncate"
-              title={`For ${recipes.join(', ')}`}
-              aria-label={`For ${recipes.join(' and ')}`}
-            >
-              <Pill variant="success">
-                {recipes.length === 1 ? recipes[0] : `${recipes[0]} +${recipes.length - 1}`}
-              </Pill>
-            </div>
-          )
-        ) : (
-          <div className="flex-shrink-0">
+        {/* Right column: what the item is for, and who added it beneath */}
+        <div className="flex-shrink-0 flex flex-col items-end gap-1 max-w-[42%]">
+          {recipes.length > 0 ? (
+            !hideRecipe && (
+              <span className="flex items-center gap-1 max-w-full">
+                <Link
+                  to={`/recipes/${recipes[0].id}`}
+                  title={`For ${recipes.map((r) => r.name).join(', ')}`}
+                  aria-label={`For ${recipes.map((r) => r.name).join(' and ')}: open ${recipes[0].name}`}
+                  className="inline-block max-w-full truncate px-2.5 py-1 text-tiny font-medium rounded-pill bg-olive text-cream hover:bg-olive-dark"
+                >
+                  {shortRecipeName(recipes[0].name)}
+                </Link>
+                {recipes.length > 1 && (
+                  <span className="text-tiny font-medium text-olive-dark">+{recipes.length - 1}</span>
+                )}
+              </span>
+            )
+          ) : (
             <Pill variant={getSourceVariant()}>{getSourceLabel()}</Pill>
-          </div>
-        )}
+          )}
+          {addedBy && <span className="text-xs text-text-secondary">Added by {addedBy}</span>}
+        </div>
       </div>
 
       {/* Error message banner */}

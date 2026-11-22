@@ -29,6 +29,7 @@ def _response(feedback: Feedback) -> FeedbackResponse:
     return FeedbackResponse(
         id=feedback.id,
         message=feedback.message,
+        kind=feedback.kind or "other",
         page=feedback.page,
         created_at=feedback.created_at,
         user_name=feedback.user_rel.name,
@@ -42,7 +43,9 @@ def send_feedback(
     db: Session = Depends(get_db),
 ) -> FeedbackResponse:
     """Store a note to the developer from the signed-in user."""
-    feedback = Feedback(user_id=current_user.id, message=request.message, page=request.page)
+    feedback = Feedback(
+        user_id=current_user.id, message=request.message, page=request.page, kind=request.kind
+    )
     db.add(feedback)
     db.commit()
     db.refresh(feedback)

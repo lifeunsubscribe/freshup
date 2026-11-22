@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import GroceryItem from './GroceryItem'
 import type { GroceryItemResponse } from '../../api/types'
 
@@ -47,7 +48,9 @@ describe('GroceryItem', () => {
 
   const renderWithProviders = (ui: React.ReactElement) => {
     return render(
-      <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+      </MemoryRouter>
     )
   }
 
@@ -153,38 +156,67 @@ describe('GroceryItem', () => {
   })
 
   describe('What the item is for', () => {
-    it('names the recipe a planned meal added it for', () => {
-      const item = createMockItem({ source: 'meal_plan', recipe_name: 'Gochujang Shrimp Fried Rice' })
+    it('names the recipe a planned meal added it for, shortened, linking to it', () => {
+      const item = createMockItem({
+        source: 'meal_plan',
+        recipes: [{ id: 'recipe-1', name: 'Cajun-Spiced Chickpea Power Bowls with Brussels Sprouts' }],
+      })
       renderWithProviders(<GroceryItem item={item} />)
 
-      expect(screen.getByLabelText('For Gochujang Shrimp Fried Rice')).toHaveTextContent(
-        'Gochujang Shrimp Fried Rice'
-      )
+      const chip = screen.getByRole('link', { name: /^For Cajun-Spiced Chickpea Power Bowls with Brussels Sprouts/ })
+      expect(chip).toHaveAttribute('href', '/recipes/recipe-1')
+      expect(chip).toHaveTextContent('Cajun-Spiced Chickpea…')
       expect(screen.queryByText('meal plan')).not.toBeInTheDocument()
     })
 
+    it('falls back to the single linked recipe', () => {
+      const item = createMockItem({ source: 'meal_plan', linked_recipe: 'recipe-2', recipe_name: 'Fried Rice' })
+      renderWithProviders(<GroceryItem item={item} />)
+
+      expect(screen.getByRole('link', { name: /For Fried Rice/ })).toHaveAttribute('href', '/recipes/recipe-2')
+    })
+
     it('leaves the recipe out when the list is already grouped under it', () => {
-      const item = createMockItem({ source: 'meal_plan', recipe_name: 'Gochujang Shrimp Fried Rice' })
+      const item = createMockItem({ source: 'meal_plan', recipes: [{ id: 'r', name: 'Gochujang Shrimp Fried Rice' }] })
       renderWithProviders(<GroceryItem item={item} hideRecipe />)
 
-      expect(screen.queryByText('Gochujang Shrimp Fried Rice')).not.toBeInTheDocument()
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
     })
 
     it('names the first of several recipes and counts the rest', () => {
-      const item = createMockItem({ source: 'meal_plan', recipe_names: ['Fried Rice', 'Tofu Bowl', 'Stew'] })
+      const item = createMockItem({
+        source: 'meal_plan',
+        recipes: [
+          { id: 'a', name: 'Fried Rice' },
+          { id: 'b', name: 'Tofu Bowl' },
+          { id: 'c', name: 'Stew' },
+        ],
+      })
       renderWithProviders(<GroceryItem item={item} />)
 
-      const chip = screen.getByLabelText('For Fried Rice and Tofu Bowl and Stew')
-      expect(chip).toHaveTextContent('Fried Rice +2')
+      expect(screen.getByRole('link', { name: /^For Fried Rice and Tofu Bowl and Stew/ })).toHaveTextContent('Fried Rice')
+      expect(screen.getByText('+2')).toBeInTheDocument()
     })
 
-    it('writes the amount plainly: no "count", "to taste" for seasoning', () => {
-      const { unmount } = renderWithProviders(<GroceryItem item={createMockItem({ quantity: 3, unit: 'count' })} />)
-      expect(screen.getByText('(3)')).toBeInTheDocument()
+    it('shows who added it beneath the chip', () => {
+      renderWithProviders(<GroceryItem item={createMockItem()} addedBy="Sarah" />)
+
+      expect(screen.getByText('Added by Sarah')).toBeInTheDocument()
+    })
+
+    it('puts the amount in its own column, with short units and no "count"', () => {
+      const { unmount } = renderWithProviders(
+        <GroceryItem item={createMockItem({ quantity: 2, unit: 'teaspoon' })} />
+      )
+      expect(screen.getByTestId('grocery-amount')).toHaveTextContent('2 tsp')
       unmount()
 
+      const second = renderWithProviders(<GroceryItem item={createMockItem({ quantity: 3, unit: 'count' })} />)
+      expect(screen.getByTestId('grocery-amount')).toHaveTextContent(/^3$/)
+      second.unmount()
+
       renderWithProviders(<GroceryItem item={createMockItem({ item_name: 'Salt', quantity: 0.001, unit: '' })} />)
-      expect(screen.getByText('(to taste)')).toBeInTheDocument()
+      expect(screen.getByTestId('grocery-amount')).toHaveTextContent('to taste')
     })
 
     it('says "meal plan" for a planned item whose recipe is not known', () => {
@@ -564,7 +596,7 @@ describe('GroceryItem', () => {
   })
 
   describe('Item Name Formatting', () => {
-    it('displays item name and quantity inline', () => {
+    it('displays item name and quantity', () => {
       const item = createMockItem({
         item_name: 'Tomatoes',
         quantity: 3,
@@ -573,8 +605,8 @@ describe('GroceryItem', () => {
       renderWithProviders(<GroceryItem item={item} />)
 
       // Both should be present
-      expect(screen.getByText(/Tomatoes/)).toBeInTheDocument()
-      expect(screen.getByText(/3 lbs/)).toBeInTheDocument()
+      expect(screen.getByText('Tomatoes')).toBeInTheDocument()
+      expect(screen.getByTestId('grocery-amount')).toHaveTextContent('3 lb')
     })
 
     it('handles decimal quantities', () => {
@@ -585,7 +617,7 @@ describe('GroceryItem', () => {
       })
       renderWithProviders(<GroceryItem item={item} />)
 
-      expect(screen.getByText(/2.5 cups/)).toBeInTheDocument()
+      expect(screen.getByTestId('grocery-amount')).toHaveTextContent('2.5 cup')
     })
   })
 })

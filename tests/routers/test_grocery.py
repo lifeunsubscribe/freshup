@@ -1473,6 +1473,8 @@ def test_list_says_which_recipe_and_planned_day_an_item_is_for(
     assert by_name["Shrimp"]["recipe_name"] == "Gochujang Shrimp Fried Rice"
     assert by_name["Shrimp"]["plan_date"] == "2026-11-21"
     assert by_name["Shrimp"]["linked_meal_plan_entry"] == str(entry.id)
+    assert by_name["Shrimp"]["recipes"] == [{"id": str(recipe.id), "name": "Gochujang Shrimp Fried Rice"}]
+    assert by_name["Milk"]["recipes"] == []
     assert by_name["Milk"]["recipe_name"] is None
     assert by_name["Milk"]["plan_date"] is None
 

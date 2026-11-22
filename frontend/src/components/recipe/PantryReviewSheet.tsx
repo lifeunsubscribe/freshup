@@ -5,6 +5,7 @@ import { batchPromises } from '../../utils/batchPromises'
 import { isUnparseableQuantity } from '../../constants/recipe'
 import type { PantryCheckResult, IngredientStockStatus } from '../../utils/pantryMatcher'
 import type { RecipeIngredientResponse } from '../../api/types'
+import { shortUnit } from '../../utils/amount'
 
 function formatQuantity(quantity: number, multiplier: number = 1): string {
   if (isUnparseableQuantity(quantity, multiplier)) {
@@ -200,9 +201,8 @@ export default function PantryReviewSheet({
           const failed = failedIds.has(id)
           const scaledQty = ingredient.quantity * servingsMultiplier
           const formattedQty = formatQuantity(scaledQty, servingsMultiplier)
-          const amountText = formattedQty
-            ? `${formattedQty} ${ingredient.unit}`.trim()
-            : ingredient.unit || ''
+          const unit = shortUnit(ingredient.unit)
+          const amountText = formattedQty ? `${formattedQty} ${unit}`.trim() : unit
           const label = inStockIds.has(id) ? 'In the pantry' : 'Needed'
 
           return (
@@ -216,6 +216,13 @@ export default function PantryReviewSheet({
                 onChange={() => toggleCheck(id)}
                 className="mt-0.5 h-4 w-4 rounded border-warm-border text-olive focus:ring-olive flex-shrink-0"
               />
+              {/* Amount: its own column, so amounts line up down the list */}
+              <span
+                data-testid="pantry-review-amount"
+                className="flex-shrink-0 w-[68px] text-sm text-text-secondary tabular-nums"
+              >
+                {amountText}
+              </span>
               <div className="flex-1 min-w-0">
                 <span className="text-sm text-text-primary">
                   {ingredient.ingredient_name}
@@ -223,9 +230,6 @@ export default function PantryReviewSheet({
                     <span className="ml-1 text-text-secondary">(optional)</span>
                   )}
                 </span>
-                {amountText && (
-                  <span className="ml-2 text-sm text-text-secondary">{amountText}</span>
-                )}
               </div>
               <span className={`text-xs flex-shrink-0 ${failed ? 'text-mocha font-medium' : 'text-text-secondary'}`}>
                 {failed ? 'Failed' : label}

@@ -1,6 +1,7 @@
 import { useAuth } from '../../contexts/AuthContext'
 import { UserRole } from '../../api/types'
 import { useFeedbackList } from '../../api/hooks/useFeedback'
+import { feedbackKindLabel } from '../../utils/feedbackKinds'
 
 /** Notes sent from the account menu's "Send feedback", newest first. Coordinators only. */
 export default function FeedbackSection() {
@@ -39,6 +40,9 @@ function FeedbackContent() {
         <ul className="space-y-3">
           {notes.map((note) => (
             <li key={note.id} className="rounded-card border border-warm-border p-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-olive-dark mb-1">
+                {feedbackKindLabel(note.kind)}
+              </p>
               <p className="text-[14px] text-text-primary whitespace-pre-wrap">{note.message}</p>
               <p className="mt-1.5 text-[12px] text-text-tertiary">
                 {[note.user_name, when(note.created_at), note.page].filter(Boolean).join(' · ')}

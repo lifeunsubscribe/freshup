@@ -93,6 +93,13 @@ class GroceryItemUpdate(BaseModel):
         return validate_name_not_empty(v)
 
 
+class GroceryRecipeRef(BaseModel):
+    """A recipe a grocery item is for."""
+
+    id: UUID
+    name: str
+
+
 class GroceryItemResponse(BaseModel):
     """Response schema for grocery item data (includes all fields)."""
 
@@ -115,6 +122,8 @@ class GroceryItemResponse(BaseModel):
     plan_date: Optional[date] = None
     # Every recipe the item is for; more than one when dinners share an ingredient.
     recipe_names: list[str] = []
+    # The same recipes with their ids, so the list can link to them.
+    recipes: list[GroceryRecipeRef] = []
 
 
 class StoreGroupedItems(BaseModel):

@@ -82,6 +82,13 @@ beforeEach(() => {
 
 describe('PantryReviewSheet', () => {
   describe('initial row state', () => {
+    it('puts each amount in its own column, with short units', () => {
+      renderSheet()
+
+      const amounts = screen.getAllByTestId('pantry-review-amount').map((el) => el.textContent)
+      expect(amounts).toEqual(expect.arrayContaining(['2 cup', '1 cup', '1 tsp']))
+    })
+
     it('renders a checkbox row for each ingredient', () => {
       renderSheet({ stockStatus: allFour() })
       const checkboxes = screen.getAllByRole('checkbox')

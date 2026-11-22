@@ -136,7 +136,7 @@ export default function Grocery() {
 
   return (
     <PageContainer>
-      <div className="py-6 pb-32">
+      <div className="py-6 pb-32 mx-auto w-full max-w-[640px]">
         <PageTitle>Grocery List</PageTitle>
         <p className="text-text-secondary mb-6">
           Shared shopping list for the household
@@ -322,11 +322,8 @@ export default function Grocery() {
                       <GroceryItem
                         item={item}
                         purchaserName={item.purchased_by ? getUserName(item.purchased_by) : undefined}
+                        addedBy={getUserName(item.added_by)}
                       />
-                      {/* Attribution line in flat view */}
-                      <p className="text-xs text-text-secondary mt-1 mb-2">
-                        Added by {getUserName(item.added_by)}
-                      </p>
                     </div>
                   </div>
                 ))}
@@ -338,7 +335,7 @@ export default function Grocery() {
       {/* Bottom Action Bar - Fixed at bottom */}
       {!showAddForm && (
         <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-warm-border">
-          <div className="max-w-screen-lg mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="max-w-[640px] mx-auto px-4 py-3 flex items-center justify-between">
             <div className="text-sm text-text-secondary">
               {totalItems} {totalItems === 1 ? 'item' : 'items'} · {checkedItems} checked
             </div>
@@ -355,7 +352,7 @@ export default function Grocery() {
       {/* Add Item Form - Fixed at bottom */}
       {showAddForm && (
         <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-warm-border shadow-lg">
-          <div className="max-w-screen-lg mx-auto px-4 py-4">
+          <div className="max-w-[640px] mx-auto px-4 py-4">
             <form onSubmit={handleAddItem} className="space-y-3">
               {/* Error banner */}
               <ErrorBanner message={errorMessage} />
