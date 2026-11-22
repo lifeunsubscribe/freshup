@@ -102,10 +102,10 @@ describe('MixedRow', () => {
     expect(screen.getByText('Based on your taste')).toBeInTheDocument()
   })
 
-  it('wraps each item in a 160px container', () => {
+  it('wraps each item in a 184px container', () => {
     const { container } = renderRow([makeCard('c1'), makeRecipe('r1')])
     const listitems = container.querySelectorAll('[role="listitem"]')
     expect(listitems).toHaveLength(2)
-    listitems.forEach((el) => expect(el.classList).toContain('w-[160px]'))
+    listitems.forEach((el) => expect(el.classList).toContain('w-[184px]'))
   })
 })

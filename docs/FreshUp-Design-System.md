@@ -156,16 +156,16 @@ Used in: recipe browse grid, carousels, search results, "ready to eat" horizonta
 │  ♥ (top-right)  │  ← Favorite heart overlay (mocha fill if favorited)
 │  [source badge]  │  ← "HelloFresh", "My recipe" (top-left, optional)
 │  [avail badge]   │  ← "All ingredients in stock" (bottom-left, optional, olive bg)
+│  [cooked badge]  │  ← chef hat + times cooked (bottom-right), only once cooked
 ├─────────────────┤
 │  Recipe name     │  ← 13px/500 (12px in carousel variant)
 │  25 min · 4 srv · mexican │  ← Metadata line with cuisine tag
-│  ✓ Cooked 12x   │  ← Household context (green) OR "Never cooked" (mocha)
 └─────────────────┘
 ```
 
 **Variants:**
 - Grid card: `min-width` auto (fills 2-col grid)
-- Carousel card: `min-width: 150px`, flex-shrink-0
+- Carousel card: 184px wide, flex-shrink-0
 - Last card in carousel: `opacity: 0.7` to hint scrollability
 
 **Conditional elements:**

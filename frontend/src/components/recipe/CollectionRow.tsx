@@ -170,7 +170,7 @@ export default function CollectionRow({ collection, onCountChange, minCount = 0 
             aria-label={`${collection.name} carousel`}
           >
             {cards.map((card) => (
-              <div key={card.id} role="listitem" className="flex-shrink-0 w-[160px]">
+              <div key={card.id} role="listitem" className="flex-shrink-0 w-[184px]">
                 <CatalogCard card={card} collectionSlug={collection.slug} />
               </div>
             ))}

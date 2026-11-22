@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Bookmark, Heart } from 'lucide-react'
+import { Bookmark, ChefHat, Heart } from 'lucide-react'
 import { useState } from 'react'
 import Pill from '../ui/Pill'
 import { sourceName } from '../../utils/sourceNames'
@@ -29,6 +29,8 @@ export interface RecipeCardProps {
     tags: string[]
     is_bookmarked?: boolean
     source_image?: string | null
+    /** How many times the household has cooked it (GET /recipes carries it). */
+    times_cooked?: number
   }
   variant?: 'grid' | 'carousel'
   isLastVisible?: boolean
@@ -43,6 +45,7 @@ export interface RecipeCardProps {
   /** "Save for later" — private to the user. Renders the bookmark. */
   isBookmarked?: boolean
   onBookmarkToggle?: () => void
+  /** Overrides recipe.times_cooked when the caller knows better. */
   householdContext?: {
     timesCooked: number
   }
@@ -62,7 +65,7 @@ export interface RecipeCardProps {
  * - Metadata: cook time, servings, cuisine tag with " · " separator
  * - Household context: "✓ Cooked Nx" (olive) or "Never cooked" (mocha)
  * - Grid variant: fills container width (use in 2-column grid)
- * - Carousel variant: fixed 160px wide (same as CatalogCard rows), flex-shrink-0
+ * - Carousel variant: fixed 184px wide (same as CatalogCard rows), flex-shrink-0
  * - Fills its row's height with the saved-state line pinned to the bottom, so
  *   cards with short titles or missing metadata line up with their neighbours
  * - Last-visible variant: opacity 0.7 for carousel fade effect
@@ -99,19 +102,12 @@ export default function RecipeCard({
     return label !== normalized ? label : null
   })()
 
-  // Household context display
-  const getHouseholdContextDisplay = () => {
-    if (!householdContext) return { text: 'Never cooked', variant: 'warning' as const }
-    const { timesCooked } = householdContext
-    if (timesCooked === 0) return { text: 'Never cooked', variant: 'warning' as const }
-    return { text: `✓ Cooked ${timesCooked}x`, variant: 'success' as const }
-  }
-
-  const householdDisplay = getHouseholdContextDisplay()
+  // Shown as a small badge on the photo, and only once it has been cooked.
+  const timesCooked = householdContext?.timesCooked ?? recipe.times_cooked ?? 0
 
   // Variant-specific classes
   const containerClasses = `
-    ${variant === 'carousel' ? 'w-[160px] flex-shrink-0' : ''}
+    ${variant === 'carousel' ? 'w-[184px] flex-shrink-0' : ''}
     ${isLastVisible ? 'opacity-70' : ''}
   `.trim()
 
@@ -142,10 +138,27 @@ export default function RecipeCard({
 
         {/* Saved pill + source badge stacked at top-left of photo */}
         {(isBookmarked || sourceBadgeLabel) && (
-          <div className="absolute top-2 left-2 flex flex-col gap-1">
+          <div className="absolute top-2 left-2 flex flex-col items-start gap-1">
             {isBookmarked && <Pill variant="success">Saved</Pill>}
-            {sourceBadgeLabel && <Pill variant="default">{sourceBadgeLabel}</Pill>}
+            {sourceBadgeLabel && (
+              // Tighter than a Pill: it shares the top edge with two buttons.
+              <span className="inline-block px-1.5 py-0.5 text-tiny font-medium leading-tight rounded-pill bg-cream/95 text-text-primary">
+                {sourceBadgeLabel}
+              </span>
+            )}
           </div>
+        )}
+
+        {/* Times cooked (bottom-right), only once it has been cooked */}
+        {timesCooked > 0 && (
+          <span
+            aria-label={`Cooked ${timesCooked} ${timesCooked === 1 ? 'time' : 'times'}`}
+            title={`Cooked ${timesCooked} ${timesCooked === 1 ? 'time' : 'times'}`}
+            className="absolute bottom-2 right-2 flex items-center gap-1 px-1.5 py-0.5 rounded-pill bg-white/90 text-olive-dark text-[11px] font-medium"
+          >
+            <ChefHat size={12} aria-hidden="true" />
+            {timesCooked}
+          </span>
         )}
 
         {/* "All in stock" badge (bottom-left) */}
@@ -205,19 +218,6 @@ export default function RecipeCard({
           {servings && <span>{servings} srv</span>}
           {(totalTime > 0 || servings) && cuisineTag && <span> · </span>}
           {cuisineTag && <span className="lowercase">{cuisineTag}</span>}
-        </div>
-
-        {/* Household context line */}
-        <div className="text-xs mb-1.5">
-          <span
-            className={
-              householdDisplay.variant === 'success'
-                ? 'text-olive font-medium'
-                : 'text-mocha'
-            }
-          >
-            {householdDisplay.text}
-          </span>
         </div>
 
         {/* Saved state — identical classes and copy to CatalogCard */}

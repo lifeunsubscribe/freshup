@@ -92,7 +92,7 @@ export default function MixedRow({ title, subtitle, items }: MixedRowProps) {
             <div
               key={item.kind === 'card' ? item.card.id : item.recipe.id}
               role="listitem"
-              className="flex-shrink-0 w-[160px]"
+              className="flex-shrink-0 w-[184px]"
             >
               {item.kind === 'card' ? (
                 // collectionSlug is used only for cache invalidation after open;

@@ -268,45 +268,24 @@ describe('RecipeCard', () => {
     })
   })
 
-  describe('household context', () => {
-    it('displays "Never cooked" when no household context provided', () => {
+  describe('Times cooked', () => {
+    it('shows nothing about cooking when it has never been cooked', () => {
       renderWithRouter(<RecipeCard recipe={mockRecipe} />)
-      expect(screen.getByText('Never cooked')).toBeInTheDocument()
+
+      expect(screen.queryByText(/Never cooked/)).not.toBeInTheDocument()
+      expect(screen.queryByLabelText(/^Cooked/)).not.toBeInTheDocument()
     })
 
-    it('displays "Never cooked" when timesCooked is 0', () => {
-      renderWithRouter(
-        <RecipeCard recipe={mockRecipe} householdContext={{ timesCooked: 0 }} />
-      )
-      expect(screen.getByText('Never cooked')).toBeInTheDocument()
+    it('shows the count as a badge on the photo once cooked', () => {
+      renderWithRouter(<RecipeCard recipe={{ ...mockRecipe, times_cooked: 3 }} />)
+
+      expect(screen.getByLabelText('Cooked 3 times')).toHaveTextContent('3')
     })
 
-    it('displays "✓ Cooked 1x" when cooked once', () => {
-      renderWithRouter(
-        <RecipeCard recipe={mockRecipe} householdContext={{ timesCooked: 1 }} />
-      )
-      expect(screen.getByText('✓ Cooked 1x')).toBeInTheDocument()
-    })
+    it('says "time" for once, and takes a count the caller passes', () => {
+      renderWithRouter(<RecipeCard recipe={mockRecipe} householdContext={{ timesCooked: 1 }} />)
 
-    it('displays "✓ Cooked 12x" when cooked multiple times', () => {
-      renderWithRouter(
-        <RecipeCard recipe={mockRecipe} householdContext={{ timesCooked: 12 }} />
-      )
-      expect(screen.getByText('✓ Cooked 12x')).toBeInTheDocument()
-    })
-
-    it('applies olive color class to cooked recipes', () => {
-      renderWithRouter(
-        <RecipeCard recipe={mockRecipe} householdContext={{ timesCooked: 5 }} />
-      )
-      const contextText = screen.getByText('✓ Cooked 5x')
-      expect(contextText.className).toContain('text-olive')
-    })
-
-    it('applies mocha color class to never cooked recipes', () => {
-      renderWithRouter(<RecipeCard recipe={mockRecipe} />)
-      const contextText = screen.getByText('Never cooked')
-      expect(contextText.className).toContain('text-mocha')
+      expect(screen.getByLabelText('Cooked 1 time')).toHaveTextContent('1')
     })
   })
 
@@ -314,7 +293,7 @@ describe('RecipeCard', () => {
     it('renders grid variant by default', () => {
       const { container } = renderWithRouter(<RecipeCard recipe={mockRecipe} />)
       const link = container.querySelector('a')
-      expect(link?.className).not.toContain('w-[160px]')
+      expect(link?.className).not.toContain('w-[184px]')
       expect(link?.className).not.toContain('flex-shrink-0')
     })
 
@@ -323,7 +302,7 @@ describe('RecipeCard', () => {
         <RecipeCard recipe={mockRecipe} variant="carousel" />
       )
       const link = container.querySelector('a')
-      expect(link?.className).toContain('w-[160px]')
+      expect(link?.className).toContain('w-[184px]')
       expect(link?.className).toContain('flex-shrink-0')
     })
 
@@ -348,7 +327,7 @@ describe('RecipeCard', () => {
         <RecipeCard recipe={mockRecipe} variant="carousel" isLastVisible={true} />
       )
       const link = container.querySelector('a')
-      expect(link?.className).toContain('w-[160px]')
+      expect(link?.className).toContain('w-[184px]')
       expect(link?.className).toContain('flex-shrink-0')
       expect(link?.className).toContain('opacity-70')
     })

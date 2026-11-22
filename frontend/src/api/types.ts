@@ -326,6 +326,7 @@ export interface RecipeListResponse {
   source_url?: string | null;
   source_image?: string | null;
   variation_of?: string | null;
+  times_cooked?: number;
 }
 
 /** One ingredient of a user's version of a recipe. */
