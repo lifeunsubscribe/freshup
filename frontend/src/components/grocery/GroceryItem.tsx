@@ -100,9 +100,28 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false, a
     }
   }
 
+  const showContext = recipes.length > 0 ? !hideRecipe : true
+  const context = !showContext ? null : recipes.length > 0 ? (
+    <span className="flex items-center gap-1 max-w-full min-w-0">
+      <Link
+        to={`/recipes/${recipes[0].id}`}
+        title={`For ${recipes.map((r) => r.name).join(', ')}`}
+        aria-label={`For ${recipes.map((r) => r.name).join(' and ')}: open ${recipes[0].name}`}
+        className="inline-block max-w-full truncate px-2.5 py-1 text-tiny font-medium rounded-pill bg-olive text-cream hover:bg-olive-dark"
+      >
+        {shortRecipeName(recipes[0].name)}
+      </Link>
+      {recipes.length > 1 && (
+        <span className="text-tiny font-medium text-olive-dark">+{recipes.length - 1}</span>
+      )}
+    </span>
+  ) : (
+    <Pill variant={getSourceVariant()}>{getSourceLabel()}</Pill>
+  )
+
   return (
     <div>
-      <div className="flex items-start gap-3 py-2 min-h-[44px]">
+      <div className="flex flex-wrap sm:flex-nowrap items-start gap-x-3 gap-y-1 py-2 min-h-[44px]">
         {/* Checkbox with touch target */}
         <button
           onClick={handleCheckboxClick}
@@ -191,29 +210,15 @@ export default function GroceryItem({ item, purchaserName, hideRecipe = false, a
           </button>
         )}
 
-        {/* Right column: what the item is for, and who added it beneath */}
-        <div className="flex-shrink-0 flex flex-col items-end gap-1 max-w-[42%]">
-          {recipes.length > 0 ? (
-            !hideRecipe && (
-              <span className="flex items-center gap-1 max-w-full">
-                <Link
-                  to={`/recipes/${recipes[0].id}`}
-                  title={`For ${recipes.map((r) => r.name).join(', ')}`}
-                  aria-label={`For ${recipes.map((r) => r.name).join(' and ')}: open ${recipes[0].name}`}
-                  className="inline-block max-w-full truncate px-2.5 py-1 text-tiny font-medium rounded-pill bg-olive text-cream hover:bg-olive-dark"
-                >
-                  {shortRecipeName(recipes[0].name)}
-                </Link>
-                {recipes.length > 1 && (
-                  <span className="text-tiny font-medium text-olive-dark">+{recipes.length - 1}</span>
-                )}
-              </span>
-            )
-          ) : (
-            <Pill variant={getSourceVariant()}>{getSourceLabel()}</Pill>
-          )}
-          {addedBy && <span className="text-xs text-text-secondary">Added by {addedBy}</span>}
-        </div>
+        {/* What it is for, and who added it. Laptop and up: a column on the
+            right, "Added by" beneath the chip. Phones: a line of its own under
+            the name (the indent is the checkbox, the amount and two gaps). */}
+        {(showContext || addedBy) && (
+          <div className="basis-full pl-[111px] flex flex-wrap items-center gap-x-2 gap-y-1 sm:basis-auto sm:pl-0 sm:flex-shrink-0 sm:flex-col sm:flex-nowrap sm:items-end sm:gap-1 sm:max-w-[42%]">
+            {context}
+            {addedBy && <span className="text-xs text-text-secondary">Added by {addedBy}</span>}
+          </div>
+        )}
       </div>
 
       {/* Error message banner */}
