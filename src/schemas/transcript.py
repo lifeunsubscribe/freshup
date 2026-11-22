@@ -55,6 +55,7 @@ class RecipeDraft(BaseModel):
     )
     servings: Optional[int] = Field(
         default=None,
+        ge=1,
         description="Number of servings, or null when not determinable",
     )
     steps: list[str] = Field(
