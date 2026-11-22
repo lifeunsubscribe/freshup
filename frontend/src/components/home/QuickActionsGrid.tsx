@@ -3,7 +3,8 @@ import { ShoppingBag, Snowflake, Cookie, UtensilsCrossed } from 'lucide-react'
 import QuickActionCard from './QuickActionCard'
 
 /**
- * QuickActionsGrid displays a 2x2 grid of quick action buttons on the home screen
+ * QuickActionsGrid displays the quick action buttons on the home screen:
+ * a 2x2 grid on a phone, a single row of four on a laptop or desktop
  *
  * Actions:
  * - "I shopped": Navigate to /shopped (bulk purchase flow)
@@ -15,7 +16,7 @@ export default function QuickActionsGrid() {
   const navigate = useNavigate()
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <QuickActionCard
         icon={<ShoppingBag size={18} className="stroke-olive" strokeWidth={2} />}
         title="I shopped"

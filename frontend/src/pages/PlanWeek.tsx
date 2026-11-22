@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Check, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Plus, RefreshCw, Shuffle } from 'lucide-react'
 import PageContainer from '../components/layout/PageContainer'
+import AddDinnerBand from '../components/plan/AddDinnerBand'
 import PlanSummary from '../components/plan/PlanSummary'
 import { usePlanWeek } from '../components/plan/usePlanWeek'
 import { useAuth } from '../contexts/AuthContext'
@@ -42,6 +43,8 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
   const today = todayStr()
   const isPastWeek = weekStart < thisWeek
   const plan = usePlanWeek(weekStart, { autoFill: !isPastWeek })
+  // The empty day an "Add something" band is open for, if any.
+  const [addingFor, setAddingFor] = useState<string | null>(null)
 
   return (
     <PageContainer>
@@ -80,7 +83,8 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
         />
 
         <div className="flex flex-wrap items-center gap-2">
-          {plan.stats.suggested > 0 && (
+          {/* Not for the week in progress, where days are decided one by one. */}
+          {weekStart !== thisWeek && plan.stats.suggested > 0 && (
             <button
               onClick={plan.acceptAll}
               disabled={plan.acceptingAll}
@@ -88,6 +92,17 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
             >
               <Check size={14} />
               {plan.acceptingAll ? 'Accepting...' : `Accept all ${plan.stats.suggested}`}
+            </button>
+          )}
+          {plan.remixable > 0 && (
+            <button
+              onClick={plan.remix}
+              disabled={plan.remixing}
+              aria-label="Remix this week's suggestions"
+              className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium disabled:opacity-50"
+            >
+              <Shuffle size={14} />
+              {plan.remixing ? 'Remixing...' : 'Remix'}
             </button>
           )}
           {plan.openDays > 0 && (
@@ -161,7 +176,27 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
                 onOpen={plan.open}
                 onAccept={plan.accept}
                 onSwap={plan.swap}
-              />
+                addOpen={addingFor === date}
+                onToggleAdd={() => {
+                  plan.clearAddError()
+                  setAddingFor((current) => (current === date ? null : date))
+                }}
+              >
+                {addingFor === date && (
+                  <AddDinnerBand
+                    date={date}
+                    taken={plan.taken}
+                    adding={plan.addingDate === date}
+                    error={plan.addError}
+                    onAdd={(pick) => {
+                      void plan.add(date, pick).then((added) => {
+                        if (added) setAddingFor(null)
+                      })
+                    }}
+                    onClose={() => setAddingFor(null)}
+                  />
+                )}
+              </DayRow>
             ))}
           </ul>
         )}
@@ -179,9 +214,26 @@ interface DayRowProps {
   onOpen: (entry: MealPlanEntryDisplay) => void
   onAccept: (entry: MealPlanEntryDisplay) => void
   onSwap: (entry: MealPlanEntryDisplay) => void
+  /** The add band is open for this day. */
+  addOpen: boolean
+  onToggleAdd: () => void
+  /** The add band itself, rendered under the day when open. */
+  children?: ReactNode
 }
 
-function DayRow({ date, isToday, entry, busy, error, onOpen, onAccept, onSwap }: DayRowProps) {
+function DayRow({
+  date,
+  isToday,
+  entry,
+  busy,
+  error,
+  onOpen,
+  onAccept,
+  onSwap,
+  addOpen,
+  onToggleAdd,
+  children,
+}: DayRowProps) {
   const [imageError, setImageError] = useState(false)
   const day = weekdayName(date)
   const isDraft = entry?.status === 'draft'
@@ -214,7 +266,18 @@ function DayRow({ date, isToday, entry, busy, error, onOpen, onAccept, onSwap }:
       </div>
 
       {!entry || !display ? (
-        <p className="px-3 pt-1 pb-3 text-[13px] text-text-tertiary">Nothing planned</p>
+        <div className="px-3 pt-1 pb-3 flex items-center justify-between gap-3">
+          <p className="text-[13px] text-text-tertiary">Nothing planned</p>
+          <button
+            onClick={onToggleAdd}
+            aria-label={`Add something for ${day}`}
+            aria-expanded={addOpen}
+            className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium"
+          >
+            <Plus size={14} />
+            Add something
+          </button>
+        </div>
       ) : (
         <div className="p-3 pt-2 flex gap-3">
           <button
@@ -285,6 +348,8 @@ function DayRow({ date, isToday, entry, busy, error, onOpen, onAccept, onSwap }:
           {error}
         </p>
       )}
+
+      {children && <div className="px-3 pb-3">{children}</div>}
     </li>
   )
 }

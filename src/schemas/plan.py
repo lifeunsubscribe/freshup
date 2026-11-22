@@ -105,6 +105,10 @@ class DraftGenerateRequest(BaseModel):
         return v
 
 
+class RemixWeekRequest(DraftGenerateRequest):
+    """Request schema for remixing a week's suggestions: the same week and optional from_date."""
+
+
 class DraftGenerateResponse(BaseModel):
     """Response schema for draft generation."""
 
@@ -127,6 +131,12 @@ class WeekViewResponse(BaseModel):
     )
 
 
+class RemixWeekResponse(WeekViewResponse):
+    """The week after a remix, and how many suggestions changed."""
+
+    changed: int = Field(..., description="Number of suggestions that were replaced")
+
+
 class ConfirmEntryResponse(BaseModel):
     """Response schema for confirming a draft entry."""
 
@@ -147,14 +157,27 @@ class SwapEntryResponse(BaseModel):
 
 
 class CreateEntryRequest(BaseModel):
-    """Request schema for POST /plan/entries — place a recipe into a meal slot."""
+    """
+    Request schema for POST /plan/entries — place a dinner into a meal slot.
+
+    Exactly one of recipe_id and catalog_card_id: a recipe already in the
+    library, or a catalog card that has not been imported yet (it is imported
+    when the entry is confirmed, as with a suggested card).
+    """
 
     date: date_type = Field(..., description="Date of the meal (YYYY-MM-DD)")
     meal_type: MealType = Field(..., description="Meal slot (breakfast, lunch, dinner, snack)")
-    recipe_id: UUID = Field(..., description="Recipe to add to the meal plan")
+    recipe_id: Optional[UUID] = Field(None, description="Recipe to add to the meal plan")
+    catalog_card_id: Optional[UUID] = Field(None, description="Catalog card to add to the meal plan")
     planned_servings: Optional[int] = Field(
         None,
         ge=1,
         description="Number of servings (defaults to recipe's base_servings when omitted)",
     )
     notes: Optional[str] = Field(None, description="Optional free-text notes for this entry")
+
+    @model_validator(mode='after')
+    def _one_of_recipe_or_card(self):
+        if (self.recipe_id is None) == (self.catalog_card_id is None):
+            raise ValueError('give exactly one of recipe_id and catalog_card_id')
+        return self

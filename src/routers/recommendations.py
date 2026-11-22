@@ -6,6 +6,7 @@ recipes scored by the user's taste blended with popularity.
 """
 
 import logging
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -19,7 +20,7 @@ from src.schemas.catalog import CardResponse
 from src.schemas.recipe import RecipeListResponse
 from src.schemas.recommendation import RecommendedItem
 from src.services.card_tags import overlap_tags, tags_from_text
-from src.services.recommendation_service import rank_candidates
+from src.services.recommendation_service import dinner_first, rank_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 @router.get("", response_model=list[RecommendedItem])
 def get_recommendations(
     limit: int = Query(default=20, ge=1, le=100),
+    meal: Optional[Literal["dinner"]] = Query(
+        default=None,
+        description="dinner = list what suits a dinner first (when choosing for a dinner slot)",
+    ),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[RecommendedItem]:
@@ -44,6 +49,9 @@ def get_recommendations(
     # Build card overlap and recipe bookmark lookups in one pass each
     card_ids = [item.card.id for item in ranked if item.kind == "card"]
     card_overlap = overlap_tags(db, card_ids) if card_ids else {}
+
+    if meal == "dinner":
+        ranked = dinner_first(ranked, card_overlap)
 
     recipe_ids = [item.recipe.id for item in ranked if item.kind == "recipe"]
     bookmarked: set[UUID] = set()

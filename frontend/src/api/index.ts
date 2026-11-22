@@ -150,6 +150,7 @@ export {
   useConfirmEntry,
   useSwapEntry,
   useCreatePlanEntry,
+  useRemixWeek,
   planKeys,
 } from './hooks/usePlan';
 

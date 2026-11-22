@@ -6,7 +6,10 @@ import {
   useConfirmEntry,
   useSwapEntry,
   useOpenCard,
+  useCreatePlanEntry,
+  useRemixWeek,
 } from '../../api'
+import type { DinnerPick } from './AddDinnerBand'
 import type { MealPlanEntryDisplay } from '../../api/types'
 import { todayStr, weekDates } from '../../utils/week'
 
@@ -37,12 +40,17 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
   const confirm = useConfirmEntry()
   const swap = useSwapEntry()
   const openCard = useOpenCard()
+  const create = useCreatePlanEntry()
+  const remixWeek = useRemixWeek()
 
   // What the last accept did, shown once near the week's header.
   const [notice, setNotice] = useState<string | null>(null)
   // The entry whose accept, swap or open failed, and why.
   const [rowError, setRowError] = useState<{ entryId: string; message: string } | null>(null)
   const [acceptingAll, setAcceptingAll] = useState(false)
+  // Adding a dinner by hand: which day is in flight, and why the last try failed.
+  const [addingDate, setAddingDate] = useState<string | null>(null)
+  const [addError, setAddError] = useState<string | null>(null)
 
   const isEmpty =
     week !== undefined && week.confirmed_entries.length === 0 && week.draft_entries.length === 0
@@ -126,6 +134,58 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
     }
   }
 
+  /**
+   * Put a chosen dinner on a day and accept it. Resolves true once the dinner
+   * is on the day. If only the accept fails (a catalog recipe that could not
+   * be fetched), the dinner stays on the day as a suggestion with the reason.
+   */
+  async function add(date: string, pick: DinnerPick): Promise<boolean> {
+    setNotice(null)
+    setRowError(null)
+    setAddError(null)
+    setAddingDate(date)
+    try {
+      const entry = await create.mutateAsync({
+        date,
+        meal_type: 'dinner',
+        ...('recipeId' in pick ? { recipe_id: pick.recipeId } : { catalog_card_id: pick.cardId }),
+      })
+      try {
+        const result = await confirm.mutateAsync(entry.id)
+        setNotice(groceryNotice('Added.', result.grocery_items_added))
+      } catch (error) {
+        failure(entry.id, 'Added as a suggestion. Could not accept it yet.')(error)
+        void refetch()
+      }
+      return true
+    } catch (error) {
+      setAddError(
+        error instanceof Error && error.message ? error.message : 'Could not add this one. Try again.'
+      )
+      return false
+    } finally {
+      setAddingDate(null)
+    }
+  }
+
+  /**
+   * Draw a fresh set of suggestions for the week. Accepted dinners stay, and so
+   * do suggestions on days already past.
+   */
+  function remix() {
+    setNotice(null)
+    setRowError(null)
+    remixWeek.mutate(
+      { weekStart, fromDate: today },
+      {
+        onSuccess: (result) => {
+          if (result.changed === 0) setNotice('Nothing else to suggest for this week right now.')
+        },
+        onError: () => setNotice('Could not remix this week. Try again.'),
+      }
+    )
+  }
+
   function swapEntry(entry: MealPlanEntryDisplay) {
     setNotice(null)
     setRowError(null)
@@ -174,12 +234,25 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
       entry && rowError?.entryId === entry.id ? rowError.message : null,
     /** True while this entry is being accepted or swapped, or all are being accepted. */
     isBusy: (entry: MealPlanEntryDisplay | undefined) =>
-      acceptingAll || (entry !== undefined && entry.id === busyEntryId),
+      acceptingAll || remixWeek.isPending || (entry !== undefined && entry.id === busyEntryId),
+    remix,
+    remixing: remixWeek.isPending,
+    /** Suggestions a remix would redraw: those from today on. */
+    remixable: suggestions.filter((e) => e.date >= today).length,
     acceptingAll,
     accept,
     acceptAll: () => void acceptAll(),
     swap: swapEntry,
     open,
+    add,
+    addingDate,
+    addError,
+    clearAddError: () => setAddError(null),
+    /** What the week already holds, so the add band does not offer it again. */
+    taken: {
+      recipeIds: new Set(shown.flatMap((e) => (e.recipe_id ? [e.recipe_id] : []))),
+      cardIds: new Set(shown.flatMap((e) => (e.catalog_card_id ? [e.catalog_card_id] : []))),
+    },
     suggesting: generate.isPending,
     suggestFailed: generate.isError,
     /** The automatic fill has started (or was never due), so "nothing planned" can be said. */

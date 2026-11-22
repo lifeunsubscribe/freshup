@@ -3,7 +3,13 @@ import { screen, fireEvent, within, act } from '@testing-library/react'
 import { Routes, Route } from 'react-router-dom'
 import PlanWeek from './PlanWeek'
 import { renderWithProviders } from '../test/renderWithProviders'
-import { planEntry as entry, planMocks, resetPlanMocks, setupPlanMocks as setup } from '../test/planWeekMocks'
+import {
+  planEntry as entry,
+  planMocks,
+  resetPlanMocks,
+  setupPlanMocks as setup,
+  suggestedCard,
+} from '../test/planWeekMocks'
 import { useWeekPlan } from '../api'
 
 vi.mock('../api', () => ({
@@ -12,6 +18,12 @@ vi.mock('../api', () => ({
   useConfirmEntry: vi.fn(),
   useSwapEntry: vi.fn(),
   useOpenCard: vi.fn(),
+  useCreatePlanEntry: vi.fn(),
+  useRemixWeek: vi.fn(),
+}))
+
+vi.mock('../api/hooks/useRecipes', () => ({
+  useRecommendations: vi.fn(),
 }))
 
 vi.mock('../contexts/AuthContext', () => ({
@@ -287,20 +299,29 @@ describe('Week editor', () => {
       expect(rowFor('Monday').queryByRole('alert')).not.toBeInTheDocument()
     })
 
-    it('accepts all of them in order and adds up the grocery items', async () => {
+    it('does not offer "Accept all" for the week in progress', () => {
+      setup()
+
+      renderWeek()
+
+      expect(screen.queryByRole('button', { name: /Accept all/ })).not.toBeInTheDocument()
+    })
+
+    it('accepts all of a later week in order and adds up the grocery items', async () => {
+      planMocks.weeks['2026-11-22'] = { draft_entries: [entry('2026-11-23'), entry('2026-11-24')] }
       planMocks.confirmMutateAsync
         .mockResolvedValueOnce({ grocery_items_added: 8 })
         .mockResolvedValueOnce({ grocery_items_added: 5 })
       setup()
 
-      renderWeek()
+      renderWeek('2026-11-22')
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'Accept all 2' }))
       })
 
       expect(planMocks.confirmMutateAsync.mock.calls.map(([id]) => id)).toEqual([
-        'entry-2026-11-16',
-        'entry-2026-11-17',
+        'entry-2026-11-23',
+        'entry-2026-11-24',
       ])
       expect(screen.getByRole('status')).toHaveTextContent(
         'Accepted 2 dinners. Added 13 items to your grocery list.'
@@ -308,12 +329,13 @@ describe('Week editor', () => {
     })
 
     it('stops accepting all at the first failure and says which day', async () => {
+      planMocks.weeks['2026-11-22'] = { draft_entries: [entry('2026-11-23'), entry('2026-11-24')] }
       planMocks.confirmMutateAsync
         .mockResolvedValueOnce({ grocery_items_added: 8 })
         .mockRejectedValueOnce(new Error('Could not bring this recipe in. Try again.'))
       setup()
 
-      renderWeek()
+      renderWeek('2026-11-22')
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'Accept all 2' }))
       })
@@ -322,6 +344,67 @@ describe('Week editor', () => {
       expect(rowFor('Tuesday').getByRole('alert')).toHaveTextContent(
         'Could not bring this recipe in. Try again.'
       )
+    })
+
+    it('adds something to an empty day from a band under that day', async () => {
+      planMocks.recommendations = [suggestedCard('card-1', 'Lemon Chicken')]
+      planMocks.createMutateAsync.mockResolvedValue({ id: 'new-entry' })
+      planMocks.confirmMutateAsync.mockResolvedValue({ grocery_items_added: 3 })
+      setup()
+
+      renderWeek()
+      const wednesday = screen.getByText('Today · Wednesday').closest('li')
+      fireEvent.click(screen.getByRole('button', { name: 'Add something for Wednesday' }))
+      // The band opens inside that day's row, not elsewhere on the page.
+      expect(screen.getByRole('region', { name: 'Add a dinner for Wednesday' }).closest('li')).toBe(
+        wednesday
+      )
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Add Lemon Chicken' }))
+      })
+
+      expect(planMocks.createMutateAsync).toHaveBeenCalledWith({
+        date: '2026-11-18',
+        meal_type: 'dinner',
+        catalog_card_id: 'card-1',
+      })
+      expect(planMocks.confirmMutateAsync).toHaveBeenCalledWith('new-entry')
+      expect(screen.queryByRole('region', { name: 'Add a dinner for Wednesday' })).not.toBeInTheDocument()
+    })
+
+    it('leaves a dinner that could not be accepted on the day as a suggestion', async () => {
+      planMocks.recommendations = [suggestedCard('card-1', 'Lemon Chicken')]
+      planMocks.createMutateAsync.mockResolvedValue({ id: 'entry-2026-11-17' })
+      planMocks.confirmMutateAsync.mockRejectedValue(
+        new Error('Could not bring this recipe in. Try again.')
+      )
+      setup()
+
+      renderWeek()
+      fireEvent.click(screen.getByRole('button', { name: 'Add something for Wednesday' }))
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Add Lemon Chicken' }))
+      })
+
+      // The mocked week still shows Tuesday's suggestion under the same id.
+      expect(rowFor('Tuesday').getByRole('alert')).toHaveTextContent(
+        'Could not bring this recipe in. Try again.'
+      )
+    })
+
+    it('remixes the week from today on', () => {
+      // Today is Wednesday the 18th; give the week a suggestion that is still ahead.
+      planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16'), entry('2026-11-20')] }
+      setup()
+
+      renderWeek()
+      fireEvent.click(screen.getByRole('button', { name: "Remix this week's suggestions" }))
+
+      expect(planMocks.remixMutate).toHaveBeenCalledWith(
+        { weekStart: THIS_WEEK, fromDate: '2026-11-18' },
+        expect.anything()
+      )
+      expect(screen.getByLabelText('Meals in this plan: dinner')).toBeInTheDocument()
     })
 
     it('swaps one', () => {

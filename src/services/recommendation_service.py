@@ -62,6 +62,48 @@ class _Candidate:
     source: str  # source_type, used for diversity rule
 
 
+# meal_type theme values (src/services/recipe_themes.py) that are not a dinner.
+# A candidate carrying one of these, and not also "main-course", is offered for
+# a dinner slot only after everything else.
+_NOT_DINNER_MEAL_TYPES = frozenset({
+    "meal_type:breakfast-brunch",
+    "meal_type:desserts",
+    "meal_type:snacks",
+    "meal_type:sides",
+    "meal_type:appetizers",
+})
+
+
+def suits_dinner(item, card_overlap: dict) -> bool:
+    """
+    False when the existing meal-type classification says the item is something
+    other than a dinner: a card that sits in a breakfast, dessert or snack
+    collection, or a recipe tagged that way.  Unclassified items are dinners.
+    """
+    from src.services.recipe_themes import TAG_INDEX, normalize_tag
+
+    if item.kind == "card":
+        keys = set(card_overlap.get(item.card.id, set()))
+    else:
+        keys = set()
+        for raw_tag in item.recipe.tags or []:
+            if not isinstance(raw_tag, str):
+                continue
+            classified = TAG_INDEX.get(normalize_tag(raw_tag))
+            if classified:
+                keys.add(f"{classified[0]}:{classified[1]}")
+    if "meal_type:main-course" in keys:
+        return True
+    return not (keys & _NOT_DINNER_MEAL_TYPES)
+
+
+def dinner_first(items: list, card_overlap: dict) -> list:
+    """The same items, dinners before non-dinners, each group in its ranked order."""
+    dinners = [item for item in items if suits_dinner(item, card_overlap)]
+    others = [item for item in items if not suits_dinner(item, card_overlap)]
+    return dinners + others
+
+
 def rank_candidates(
     user,
     db: Session,

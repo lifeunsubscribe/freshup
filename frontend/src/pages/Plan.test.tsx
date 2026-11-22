@@ -2,7 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, fireEvent, within, act } from '@testing-library/react'
 import Plan from './Plan'
 import { renderWithProviders } from '../test/renderWithProviders'
-import { planEntry as entry, planMocks, resetPlanMocks, setupPlanMocks as setup } from '../test/planWeekMocks'
+import {
+  planEntry as entry,
+  planMocks,
+  resetPlanMocks,
+  setupPlanMocks as setup,
+  suggestedCard,
+  suggestedRecipe,
+} from '../test/planWeekMocks'
 import { useWeekPlan } from '../api'
 
 vi.mock('../api', () => ({
@@ -11,6 +18,12 @@ vi.mock('../api', () => ({
   useConfirmEntry: vi.fn(),
   useSwapEntry: vi.fn(),
   useOpenCard: vi.fn(),
+  useCreatePlanEntry: vi.fn(),
+  useRemixWeek: vi.fn(),
+}))
+
+vi.mock('../api/hooks/useRecipes', () => ({
+  useRecommendations: vi.fn(),
 }))
 
 vi.mock('../contexts/AuthContext', () => ({
@@ -147,19 +160,166 @@ describe('Plan page', () => {
     })
   })
 
-  it('accepts a whole week from its card', async () => {
+  it('accepts a whole sample week from its card, but not the week in progress', async () => {
     planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16'), entry('2026-11-17')] }
+    planMocks.weeks['2026-11-22'] = { draft_entries: [entry('2026-11-23'), entry('2026-11-24')] }
     planMocks.confirmMutateAsync.mockResolvedValue({ grocery_items_added: 4 })
     setup()
 
     renderWithProviders(<Plan />)
+    expect(card('This week').queryByRole('button', { name: /Accept all/ })).not.toBeInTheDocument()
     await act(async () => {
-      fireEvent.click(card('This week').getByRole('button', { name: 'Accept all 2' }))
+      fireEvent.click(card('Next week').getByRole('button', { name: 'Accept all 2' }))
     })
 
-    expect(planMocks.confirmMutateAsync).toHaveBeenCalledTimes(2)
-    expect(card('This week').getByRole('status')).toHaveTextContent(
+    expect(planMocks.confirmMutateAsync.mock.calls.map(([id]) => id)).toEqual([
+      'entry-2026-11-23',
+      'entry-2026-11-24',
+    ])
+    expect(card('Next week').getByRole('status')).toHaveTextContent(
       'Accepted 2 dinners. Added 8 items to your grocery list.'
     )
+  })
+
+  it('remixes a week\'s suggestions from today on, and says when nothing changed', () => {
+    // Today is Wednesday the 18th.
+    planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16'), entry('2026-11-19')] }
+    planMocks.weeks['2026-11-22'] = { draft_entries: [entry('2026-11-23')] }
+    planMocks.remixMutate.mockImplementation((_vars, options) => options.onSuccess({ changed: 0 }))
+    setup()
+
+    renderWithProviders(<Plan />)
+    fireEvent.click(card('This week').getByRole('button', { name: 'Remix this week' }))
+
+    expect(planMocks.remixMutate).toHaveBeenCalledWith(
+      { weekStart: THIS_WEEK, fromDate: '2026-11-18' },
+      expect.anything()
+    )
+    expect(card('This week').getByRole('status')).toHaveTextContent(
+      'Nothing else to suggest for this week right now.'
+    )
+    expect(card('Next week').getByRole('button', { name: 'Remix next week' })).toBeInTheDocument()
+  })
+
+  it('offers no remix when a week has no suggestion left to change', () => {
+    planMocks.weeks[THIS_WEEK] = {
+      // One suggestion, on a day already past; the rest accepted.
+      draft_entries: [entry('2026-11-16')],
+      confirmed_entries: [entry('2026-11-19', { status: 'approved', recipe_id: 'recipe-1' })],
+    }
+    setup()
+
+    renderWithProviders(<Plan />)
+
+    expect(card('This week').queryByRole('button', { name: /Remix/ })).not.toBeInTheDocument()
+  })
+
+  it('says which meal the plan covers', () => {
+    planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
+    setup()
+
+    renderWithProviders(<Plan />)
+
+    expect(card('This week').getByLabelText('Meals in this plan: dinner')).toHaveTextContent('Dinner')
+  })
+
+  describe('adding something to an empty day', () => {
+    beforeEach(() => {
+      planMocks.weeks[THIS_WEEK] = {
+        draft_entries: [entry('2026-11-16', { catalog_card_id: 'card-held' })],
+      }
+      planMocks.recommendations = [
+        suggestedCard('card-held', 'Already on Monday'),
+        suggestedCard('card-1', 'Lemon Chicken'),
+        suggestedRecipe('recipe-1', 'Roast Vegetables'),
+      ]
+    })
+
+    it('opens a band of suggestions under the week, without what the week already holds', () => {
+      setup()
+
+      renderWithProviders(<Plan />)
+      expect(screen.queryByRole('region', { name: 'Add a dinner for Sunday' })).not.toBeInTheDocument()
+      fireEvent.click(card('This week').getByRole('button', { name: 'Add something for Sunday' }))
+
+      const band = within(card('This week').getByRole('region', { name: 'Add a dinner for Sunday' }))
+      const suggestions = within(band.getByRole('list', { name: 'Suggestions for Sunday' }))
+      expect(suggestions.getAllByRole('listitem')).toHaveLength(2)
+      expect(suggestions.getByText('Lemon Chicken')).toBeInTheDocument()
+      expect(suggestions.getByText('Home Chef · 30 min')).toBeInTheDocument()
+      expect(suggestions.getByText('Roast Vegetables')).toBeInTheDocument()
+      expect(suggestions.queryByText('Already on Monday')).not.toBeInTheDocument()
+      expect(band.getByRole('link', { name: /Browse all recipes/ })).toHaveAttribute('href', '/recipes')
+    })
+
+    it('puts the chosen catalog card on that day, accepts it and closes the band', async () => {
+      planMocks.createMutateAsync.mockResolvedValue({ id: 'new-entry' })
+      planMocks.confirmMutateAsync.mockResolvedValue({ grocery_items_added: 6 })
+      setup()
+
+      renderWithProviders(<Plan />)
+      fireEvent.click(card('This week').getByRole('button', { name: 'Add something for Sunday' }))
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Add Lemon Chicken' }))
+      })
+
+      expect(planMocks.createMutateAsync).toHaveBeenCalledWith({
+        date: '2026-11-15',
+        meal_type: 'dinner',
+        catalog_card_id: 'card-1',
+      })
+      expect(planMocks.confirmMutateAsync).toHaveBeenCalledWith('new-entry')
+      expect(card('This week').getByRole('status')).toHaveTextContent(
+        'Added. Added 6 items to your grocery list.'
+      )
+      expect(screen.queryByRole('region', { name: 'Add a dinner for Sunday' })).not.toBeInTheDocument()
+    })
+
+    it('adds a library recipe by its recipe id', async () => {
+      planMocks.createMutateAsync.mockResolvedValue({ id: 'new-entry' })
+      planMocks.confirmMutateAsync.mockResolvedValue({ grocery_items_added: 0 })
+      setup()
+
+      renderWithProviders(<Plan />)
+      fireEvent.click(card('This week').getByRole('button', { name: 'Add something for Tuesday' }))
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Add Roast Vegetables' }))
+      })
+
+      expect(planMocks.createMutateAsync).toHaveBeenCalledWith({
+        date: '2026-11-17',
+        meal_type: 'dinner',
+        recipe_id: 'recipe-1',
+      })
+    })
+
+    it('keeps the band open and says why when the dinner cannot be added', async () => {
+      planMocks.createMutateAsync.mockRejectedValue(new Error('Catalog card not found'))
+      setup()
+
+      renderWithProviders(<Plan />)
+      fireEvent.click(card('This week').getByRole('button', { name: 'Add something for Sunday' }))
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Add Lemon Chicken' }))
+      })
+
+      const band = within(screen.getByRole('region', { name: 'Add a dinner for Sunday' }))
+      expect(band.getByRole('alert')).toHaveTextContent('Catalog card not found')
+      expect(planMocks.confirmMutateAsync).not.toHaveBeenCalled()
+    })
+
+    it('closes the band from its close button, or by pressing the day again', () => {
+      setup()
+
+      renderWithProviders(<Plan />)
+      const addSunday = card('This week').getByRole('button', { name: 'Add something for Sunday' })
+      fireEvent.click(addSunday)
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      expect(screen.queryByRole('region', { name: 'Add a dinner for Sunday' })).not.toBeInTheDocument()
+
+      fireEvent.click(addSunday)
+      fireEvent.click(addSunday)
+      expect(screen.queryByRole('region', { name: 'Add a dinner for Sunday' })).not.toBeInTheDocument()
+    })
   })
 })

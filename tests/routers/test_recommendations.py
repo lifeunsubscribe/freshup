@@ -231,3 +231,51 @@ class TestRecommendationsResponse:
         response = client.get("/recommendations", headers=auth_headers)
         assert response.status_code == 200
         assert len(response.json()) == 20
+
+
+class TestRecommendationsForDinner:
+    """meal=dinner lists what suits a dinner first, using the meal-type classification."""
+
+    def _cards(self, db_session, prefix, count, rating, collection_slug):
+        collection = SourceCollection(
+            id=uuid4(), source_type="homechef_web", slug=collection_slug,
+            name=collection_slug.title(), url=f"https://example.com/{collection_slug}",
+            parent_slug=None,
+        )
+        db_session.add(collection)
+        db_session.flush()
+        cards = []
+        for i in range(count):
+            card = SourceRecipeCard(
+                id=uuid4(), source_type="homechef_web", external_id=f"{prefix}-{i}",
+                name=f"{prefix.title()} Dish {i}", recipe_url=f"https://example.com/{prefix}/{i}",
+                ingredient_keys=[f"{prefix}{i}"], rating=rating, rating_count=200,
+            )
+            db_session.add(card)
+            db_session.flush()
+            db_session.add(SourceCollectionCard(
+                collection_id=collection.id, card_id=card.id, position=i,
+            ))
+            cards.append(card)
+        db_session.commit()
+        return {str(card.id) for card in cards}
+
+    def test_dinners_come_before_desserts_and_nothing_is_dropped(
+        self, client, db_session, auth_headers
+    ):
+        dessert_ids = self._cards(db_session, "cake", 3, rating=5.0, collection_slug="dessert")
+        self._cards(db_session, "supper", 4, rating=3.0, collection_slug="staff-picks")
+
+        plain = client.get("/recommendations?limit=10", headers=auth_headers).json()
+        for_dinner = client.get(
+            "/recommendations?limit=10&meal=dinner", headers=auth_headers
+        ).json()
+
+        assert plain[0]["card"]["id"] in dessert_ids  # the best-rated card leads by default
+        assert {i["card"]["id"] for i in for_dinner} == {i["card"]["id"] for i in plain}
+        assert [i["card"]["id"] in dessert_ids for i in for_dinner] == [False] * 4 + [True] * 3
+
+    def test_an_unknown_meal_is_rejected(self, client, auth_headers):
+        response = client.get("/recommendations?meal=brunch", headers=auth_headers)
+
+        assert response.status_code == 422

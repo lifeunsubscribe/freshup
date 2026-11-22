@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { createElement } from 'react'
-import { useCreatePlanEntry, useGenerateDraft, planKeys } from './usePlan'
+import { useCreatePlanEntry, useGenerateDraft, useRemixWeek, planKeys } from './usePlan'
 
 vi.mock('../client', () => ({
   apiClient: vi.fn().mockResolvedValue({
@@ -102,6 +102,29 @@ describe('useGenerateDraft', () => {
     })
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({ queryKey: planKeys.week('2026-11-15') })
+    })
+  })
+})
+
+describe('useRemixWeek', () => {
+  it('asks for a week to be remixed from a date on, and refreshes every week', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children)
+    const { apiClient } = await import('../client')
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+    const { result } = renderHook(() => useRemixWeek(), { wrapper })
+
+    await result.current.mutateAsync({ weekStart: '2026-11-15', fromDate: '2026-11-18' })
+
+    expect(vi.mocked(apiClient)).toHaveBeenLastCalledWith('/plan/week/remix', {
+      method: 'POST',
+      body: JSON.stringify({ week_start: '2026-11-15', from_date: '2026-11-18' }),
+    })
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: planKeys.all })
     })
   })
 })

@@ -1899,3 +1899,205 @@ def test_generation_from_a_date_leaves_earlier_days_alone(
     assert sorted(e["date"] for e in response.json()["entries"]) == [
         "2025-06-05", "2025-06-06", "2025-06-07",
     ]
+
+
+# ---------------------------------------------------------------------------
+# Adding a dinner by hand: a recipe or a catalog card
+# ---------------------------------------------------------------------------
+
+
+def test_create_entry_with_a_catalog_card(client, auth_headers, card_draft_entry):
+    """A card that is not imported yet can be planned; it shows with the card's details."""
+    card = card_draft_entry["card"]
+
+    response = client.post(
+        "/plan/entries",
+        json={"date": "2025-06-04", "meal_type": "dinner", "catalog_card_id": str(card.id)},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["catalog_card_id"] == str(card.id)
+    assert body["recipe_id"] is None
+    assert body["status"] == MealPlanStatus.draft.value
+    assert body["planned_servings"] == 2
+    assert body["display"]["name"] == card.name
+    assert body["display"]["image_url"] == card.image_url
+
+    week = client.get("/plan/week?week_start=2025-06-01", headers=auth_headers).json()
+    assert "2025-06-04" in {e["date"] for e in week["draft_entries"]}
+
+
+def test_a_card_added_by_hand_confirms_like_a_suggested_one(
+    client, auth_headers, card_draft_entry, imported_recipe_for_card, monkeypatch
+):
+    card = card_draft_entry["card"]
+    created = client.post(
+        "/plan/entries",
+        json={"date": "2025-06-04", "meal_type": "dinner", "catalog_card_id": str(card.id)},
+        headers=auth_headers,
+    ).json()
+
+    entry = _confirm_with_import(
+        client, auth_headers, monkeypatch, type("E", (), {"id": created["id"]}), imported_recipe_for_card
+    )
+
+    assert entry["status"] == MealPlanStatus.approved.value
+    assert entry["recipe_id"] == str(imported_recipe_for_card.id)
+
+
+def test_create_entry_unknown_card_returns_404(client, auth_headers):
+    response = client.post(
+        "/plan/entries",
+        json={"date": "2025-06-04", "meal_type": "dinner", "catalog_card_id": str(uuid4())},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("extra", [
+    {},
+    {"recipe_id": "11111111-1111-1111-1111-111111111111",
+     "catalog_card_id": "22222222-2222-2222-2222-222222222222"},
+])
+def test_create_entry_needs_exactly_one_of_recipe_and_card(client, auth_headers, extra):
+    response = client.post(
+        "/plan/entries",
+        json={"date": "2025-06-04", "meal_type": "dinner", **extra},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Dinner slots take dinners first; remixing a week
+# ---------------------------------------------------------------------------
+
+
+def _add_collection(db_session, slug, cards, source_type="homechef_web"):
+    """Put cards in a top-level collection with the given slug."""
+    collection = SourceCollection(
+        id=uuid4(), source_type=source_type, slug=slug, name=slug.title(),
+        url=f"https://example.com/{slug}", parent_slug=None,
+    )
+    db_session.add(collection)
+    db_session.flush()
+    for position, card in enumerate(cards):
+        db_session.add(SourceCollectionCard(
+            collection_id=collection.id, card_id=card.id, position=position,
+        ))
+
+
+def _plain_cards(db_session, prefix, count, source_type="homechef_web", rating=4.0):
+    cards = []
+    for i in range(count):
+        card = SourceRecipeCard(
+            id=uuid4(), source_type=source_type, external_id=f"{prefix}-{i}",
+            name=f"{prefix.title()} Dish {i}", recipe_url=f"https://example.com/{prefix}/{i}",
+            ingredient_keys=[f"{prefix}{i}"], prep_time_minutes=30,
+            rating=rating, rating_count=200,
+        )
+        db_session.add(card)
+        cards.append(card)
+    db_session.flush()
+    return cards
+
+
+def test_a_dinner_draft_leaves_breakfast_cards_until_the_dinners_run_out(
+    client, db_session, auth_headers
+):
+    """Breakfast cards outrank the dinners here, and are still not chosen for dinner."""
+    breakfasts = _plain_cards(db_session, "oatmeal", 5, rating=5.0)
+    dinners = _plain_cards(db_session, "supper", 9, rating=3.0)
+    _add_collection(db_session, "breakfast", breakfasts)
+    _add_collection(db_session, "staff-picks", dinners)
+    db_session.commit()
+
+    response = client.post(
+        "/plan/draft/generate", json={"week_start": "2025-06-01"}, headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    chosen = {e["catalog_card_id"] for e in response.json()["entries"]}
+    assert len(chosen) == 7
+    assert chosen.isdisjoint({str(c.id) for c in breakfasts})
+
+
+def test_a_dinner_draft_falls_back_to_other_cards_when_dinners_run_out(
+    client, db_session, auth_headers
+):
+    breakfasts = _plain_cards(db_session, "oatmeal", 5)
+    dinners = _plain_cards(db_session, "supper", 4)
+    _add_collection(db_session, "breakfast", breakfasts)
+    _add_collection(db_session, "staff-picks", dinners)
+    db_session.commit()
+
+    response = client.post(
+        "/plan/draft/generate", json={"week_start": "2025-06-01"}, headers=auth_headers
+    )
+
+    chosen = {e["catalog_card_id"] for e in response.json()["entries"]}
+    assert len(chosen) == 7
+    assert {str(c.id) for c in dinners} <= chosen
+
+
+def test_remix_replaces_every_suggestion_and_keeps_accepted_dinners(
+    client, db_session, auth_headers, two_source_draft_pool, recipes_pool
+):
+    week_start = date(2025, 6, 1)
+    first = client.post(
+        "/plan/draft/generate", json={"week_start": week_start.isoformat()}, headers=auth_headers
+    ).json()["entries"]
+    accepted = first[0]
+    db_session.query(MealPlanEntry).filter(MealPlanEntry.id == UUID(accepted["id"])).update(
+        {"status": MealPlanStatus.approved.value}
+    )
+    db_session.commit()
+
+    response = client.post(
+        "/plan/week/remix", json={"week_start": week_start.isoformat()}, headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["changed"] == 6
+    assert [e["id"] for e in body["confirmed_entries"]] == [accepted["id"]]
+    before = {e["date"]: (e["recipe_id"], e["catalog_card_id"]) for e in first}
+    after = {e["date"]: (e["recipe_id"], e["catalog_card_id"]) for e in body["draft_entries"]}
+    assert len(after) == 6
+    # New dinners, not the old ones moved to other days.
+    assert set(after.values()).isdisjoint(set(before.values()))
+    assert len(set(after.values())) == 6
+
+
+def test_remix_from_a_date_leaves_earlier_suggestions_alone(
+    client, auth_headers, two_source_draft_pool
+):
+    first = client.post(
+        "/plan/draft/generate", json={"week_start": "2025-06-01"}, headers=auth_headers
+    ).json()["entries"]
+    before = {e["date"]: (e["recipe_id"], e["catalog_card_id"]) for e in first}
+
+    body = client.post(
+        "/plan/week/remix",
+        json={"week_start": "2025-06-01", "from_date": "2025-06-05"},
+        headers=auth_headers,
+    ).json()
+
+    after = {e["date"]: (e["recipe_id"], e["catalog_card_id"]) for e in body["draft_entries"]}
+    assert body["changed"] == 3
+    for day in ("2025-06-01", "2025-06-02", "2025-06-03", "2025-06-04"):
+        assert after[day] == before[day]
+    for day in ("2025-06-05", "2025-06-06", "2025-06-07"):
+        assert after[day] not in before.values()
+
+
+def test_remix_requires_a_sunday(client, auth_headers):
+    response = client.post(
+        "/plan/week/remix", json={"week_start": "2025-06-02"}, headers=auth_headers
+    )
+
+    assert response.status_code == 422

@@ -7,6 +7,7 @@ import Login from './pages/Login'
 import Home from './pages/Home'
 import Plan from './pages/Plan'
 import PlanWeek from './pages/PlanWeek'
+import ProfileMenu from './components/layout/ProfileMenu'
 import Recipes from './pages/Recipes'
 import AddRecipe from './pages/AddRecipe'
 import RecipeDetail from './pages/RecipeDetail'
@@ -47,7 +48,8 @@ function AppContent() {
   }, [isLoading, isAuthenticated, currentUser?.onboarded_at, isWelcomePage, isLoginPage, navigate])
 
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="relative min-h-screen bg-cream">
+      {!isLoginPage && !isWelcomePage && isAuthenticated && <ProfileMenu />}
       <Routes>
         {/* Public route */}
         <Route path="/login" element={<Login />} />

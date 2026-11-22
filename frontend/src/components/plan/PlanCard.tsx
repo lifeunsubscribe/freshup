@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, ChevronRight, RefreshCw } from 'lucide-react'
+import { Check, ChevronRight, Plus, RefreshCw, Shuffle } from 'lucide-react'
 import type { MealPlanEntryDisplay } from '../../api/types'
 import { ownOrSourceName } from '../../utils/sourceNames'
 import { weekdayName } from '../../utils/week'
+import AddDinnerBand from './AddDinnerBand'
 import PlanSummary from './PlanSummary'
 import { usePlanWeek } from './usePlanWeek'
 
@@ -16,6 +17,8 @@ interface PlanCardProps {
   size: 'large' | 'compact'
   /** Fill the week with suggestions when it has nothing. */
   autoFill: boolean
+  /** Offer "Accept all". Off for the week in progress, where days are decided one by one. */
+  offerAcceptAll: boolean
 }
 
 /**
@@ -23,9 +26,19 @@ interface PlanCardProps {
  * dinners as a carousel inside it. Quick decisions (accept, swap) happen here;
  * the week editor at /plan/:weekStart shows the whole week at once.
  */
-export default function PlanCard({ weekStart, title, ownerName, today, size, autoFill }: PlanCardProps) {
+export default function PlanCard({
+  weekStart,
+  title,
+  ownerName,
+  today,
+  size,
+  autoFill,
+  offerAcceptAll,
+}: PlanCardProps) {
   const plan = usePlanWeek(weekStart, { autoFill })
   const large = size === 'large'
+  // The empty day an "Add something" band is open for, if any.
+  const [addingFor, setAddingFor] = useState<string | null>(null)
 
   // Open the current week's carousel at today, not at the start of the week.
   const listRef = useRef<HTMLUListElement>(null)
@@ -55,7 +68,7 @@ export default function PlanCard({ weekStart, title, ownerName, today, size, aut
         />
 
         <div className="flex flex-wrap items-center gap-2">
-          {plan.stats.suggested > 0 && (
+          {offerAcceptAll && plan.stats.suggested > 0 && (
             <button
               onClick={plan.acceptAll}
               disabled={plan.acceptingAll}
@@ -63,6 +76,17 @@ export default function PlanCard({ weekStart, title, ownerName, today, size, aut
             >
               <Check size={14} />
               {plan.acceptingAll ? 'Accepting...' : `Accept all ${plan.stats.suggested}`}
+            </button>
+          )}
+          {plan.remixable > 0 && (
+            <button
+              onClick={plan.remix}
+              disabled={plan.remixing}
+              aria-label={`Remix ${title.toLowerCase()}`}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium disabled:opacity-50"
+            >
+              <Shuffle size={14} />
+              {plan.remixing ? 'Remixing...' : 'Remix'}
             </button>
           )}
           {plan.openDays > 0 && (
@@ -137,9 +161,31 @@ export default function PlanCard({ weekStart, title, ownerName, today, size, aut
               onOpen={plan.open}
               onAccept={plan.accept}
               onSwap={plan.swap}
+              addOpen={addingFor === date}
+              onToggleAdd={() => {
+                plan.clearAddError()
+                setAddingFor((current) => (current === date ? null : date))
+              }}
             />
           ))}
         </ul>
+      )}
+
+      {showsDinners && addingFor && (
+        <div className="px-4 pb-4">
+          <AddDinnerBand
+            date={addingFor}
+            taken={plan.taken}
+            adding={plan.addingDate === addingFor}
+            error={plan.addError}
+            onAdd={(pick) => {
+              void plan.add(addingFor, pick).then((added) => {
+                if (added) setAddingFor(null)
+              })
+            }}
+            onClose={() => setAddingFor(null)}
+          />
+        </div>
       )}
     </section>
   )
@@ -155,9 +201,24 @@ interface MealCardProps {
   onOpen: (entry: MealPlanEntryDisplay) => void
   onAccept: (entry: MealPlanEntryDisplay) => void
   onSwap: (entry: MealPlanEntryDisplay) => void
+  /** The add band is open for this day. */
+  addOpen: boolean
+  onToggleAdd: () => void
 }
 
-function MealCard({ date, isToday, entry, large, busy, error, onOpen, onAccept, onSwap }: MealCardProps) {
+function MealCard({
+  date,
+  isToday,
+  entry,
+  large,
+  busy,
+  error,
+  onOpen,
+  onAccept,
+  onSwap,
+  addOpen,
+  onToggleAdd,
+}: MealCardProps) {
   const [imageError, setImageError] = useState(false)
   const day = weekdayName(date)
   const display = entry?.display
@@ -183,10 +244,19 @@ function MealCard({ date, isToday, entry, large, busy, error, onOpen, onAccept, 
       <li
         data-today={isToday}
         aria-label={`${day}: nothing planned`}
-        className={`relative flex-shrink-0 ${width} rounded-card border border-dashed border-warm flex items-center justify-center min-h-[160px]`}
+        className={`relative flex-shrink-0 ${width} rounded-card border border-dashed border-warm flex flex-col items-center justify-center gap-3 min-h-[160px]`}
       >
         {dayBadge}
         <p className="text-[13px] text-text-tertiary">Nothing planned</p>
+        <button
+          onClick={onToggleAdd}
+          aria-label={`Add something for ${day}`}
+          aria-expanded={addOpen}
+          className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium"
+        >
+          <Plus size={14} />
+          Add something
+        </button>
       </li>
     )
   }

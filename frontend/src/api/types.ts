@@ -722,10 +722,12 @@ export interface CookEventResponse {
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
+/** Exactly one of recipe_id and catalog_card_id. */
 export interface CreateEntryRequest {
   date: string;
   meal_type: MealType;
-  recipe_id: string;
+  recipe_id?: string;
+  catalog_card_id?: string;
   planned_servings?: number;
 }
 
@@ -764,6 +766,11 @@ export interface WeekViewResponse {
   week_start: string;
   confirmed_entries: MealPlanEntryDisplay[];
   draft_entries: MealPlanEntryDisplay[];
+}
+
+export interface RemixWeekResponse extends WeekViewResponse {
+  /** How many suggestions were replaced. */
+  changed: number;
 }
 
 export interface DraftGenerateResponse {

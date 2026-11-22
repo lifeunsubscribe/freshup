@@ -33,6 +33,7 @@ export default function Plan() {
           today={today}
           size="large"
           autoFill
+          offerAcceptAll={false}
         />
 
         <div className="pt-2">
@@ -50,6 +51,7 @@ export default function Plan() {
             today={today}
             size="compact"
             autoFill
+            offerAcceptAll
           />
         ))}
 

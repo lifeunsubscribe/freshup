@@ -191,8 +191,11 @@ def select_week(
       additionally filters for every other member).
     - Nothing already on the plan within `_VARIETY_WEEKS` weeks either side is
       suggested again, unless too few other candidates remain to fill the week.
+    - These are dinner slots: candidates the meal-type classification marks as
+      breakfast, dessert, snack, side or appetizer are used only when the
+      dinners run out.
     """
-    from src.services.recommendation_service import rank_candidates
+    from src.services.recommendation_service import rank_candidates, suits_dinner
     from src.services.taste_service import card_keys, is_blocked, is_card_blocked
     from src.services.card_tags import overlap_tags
 
@@ -234,10 +237,12 @@ def select_week(
         return False
 
     eligible = [c for c in candidates if not _blocked_by_household(c)]
-    multi_source = len({_item_source(c) for c in eligible}) >= 2
+    dinners = [c for c in eligible if suits_dinner(c, card_overlap)]
+    not_dinners = [c for c in eligible if not suits_dinner(c, card_overlap)]
+    multi_source = len({_item_source(c) for c in dinners}) >= 2
 
     week: list[WeekChoice] = []
-    unplaced = list(eligible)
+    unplaced = dinners
     prev_cuisine: frozenset = frozenset()
     ing_counts: dict = {}
     explore_placed = 0
@@ -247,6 +252,9 @@ def select_week(
         days = week_days(week_start)
 
     for position, day in enumerate(days):
+        if not unplaced:
+            # Out of dinners: fall back to the rest rather than leave days empty.
+            unplaced, not_dinners = not_dinners, []
         if not unplaced:
             break
         # By the calendar, not by position: the week starts on Sunday.
@@ -670,6 +678,8 @@ def swap_entry(
     entry_id: UUID,
     user_id: UUID,
     db: Session,
+    also_exclude_card_ids: frozenset = frozenset(),
+    also_exclude_recipe_ids: frozenset = frozenset(),
 ) -> MealPlanEntry:
     """
     Replace a suggested (draft) dinner with the next best candidate for that day.
@@ -692,7 +702,7 @@ def swap_entry(
         ValidationError: If the entry is not in draft status, or no suitable
                          candidate can be found.
     """
-    from src.services.recommendation_service import rank_candidates
+    from src.services.recommendation_service import rank_candidates, suits_dinner
     from src.services.taste_service import is_blocked, is_card_blocked, card_keys
     from src.services.card_tags import overlap_tags
 
@@ -746,6 +756,10 @@ def swap_entry(
     if entry.recipe_id:
         exclude_recipe_ids.add(entry.recipe_id)
 
+    # Whatever else the caller rules out (a remix rules out the week as it was)
+    exclude_card_ids |= set(also_exclude_card_ids)
+    exclude_recipe_ids |= set(also_exclude_recipe_ids)
+
     # Exclude items already offered to the user for this slot in prior swaps
     variations = entry.user_variations or {}
     swap_history = variations.get("swap_history", {})
@@ -781,6 +795,9 @@ def swap_entry(
     eligible = [c for c in candidates if not _household_blocked(c)]
     if not eligible:
         raise ValidationError("No alternative candidates available for this entry after allergy filtering.")
+    if entry.meal_type == MealType.dinner.value:
+        # A dinner slot takes a dinner while one is left.
+        eligible = [c for c in eligible if suits_dinner(c, card_overlap)] or eligible
 
     # Apply weeknight time rule (Mon–Thu: prefer ≤40 min candidates)
     is_weeknight = entry.date.weekday() <= 3
@@ -851,20 +868,68 @@ def swap_entry(
     return swapped
 
 
-def create_entry(
+def _create_card_entry(
     request_date: date,
     meal_type: str,
-    recipe_id: UUID,
+    catalog_card_id: UUID,
     planned_servings: int | None,
     notes: str | None,
     current_user: User,
     db: Session,
 ) -> MealPlanEntry:
+    """A draft entry pointing at a catalog card; see create_entry."""
+    from src.db.models.source_catalog import SourceRecipeCard
+
+    card = db.query(SourceRecipeCard).filter(SourceRecipeCard.id == catalog_card_id).first()
+    if not card:
+        raise NotFoundError(f"Catalog card {catalog_card_id} not found")
+
+    # A card already imported is planned as its recipe, so the entry opens and
+    # confirms without another fetch. Servings are unknown until then: 2, as
+    # for a suggested card.
+    servings = planned_servings if planned_servings is not None else 2
+    if servings < 1:
+        raise ValidationError("planned_servings must be greater than 0")
+
+    entry = MealPlanEntry(
+        date=request_date,
+        meal_type=meal_type,
+        catalog_card_id=card.id,
+        recipe_id=card.recipe_id,
+        planned_servings=servings,
+        status=MealPlanStatus.draft.value,
+        notes=notes,
+    )
+    db.add(entry)
+    db.flush()
+    entry.user_opt_ins.append(current_user)
+    try:
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error while planning card {catalog_card_id}: {e}")
+        raise ValidationError("Failed to create meal plan entry")
+    db.refresh(entry)
+    return entry
+
+
+def create_entry(
+    request_date: date,
+    meal_type: str,
+    recipe_id: UUID | None,
+    planned_servings: int | None,
+    notes: str | None,
+    current_user: User,
+    db: Session,
+    catalog_card_id: UUID | None = None,
+) -> MealPlanEntry:
     """
     Create a single draft meal plan entry for a given date and meal slot.
 
     Places a recipe into the household meal plan for the specified date and
-    meal type. Multiple entries for the same date/meal slot are permitted
+    meal type, or a catalog card that has not been imported yet (its recipe is
+    imported when the entry is confirmed, exactly as for a suggested card).
+    Multiple entries for the same date/meal slot are permitted
     (e.g. two different dinners for different household members).
 
     Side effects:
@@ -874,7 +939,8 @@ def create_entry(
     Args:
         request_date: Calendar date for the meal.
         meal_type: One of 'breakfast', 'lunch', 'dinner', 'snack'.
-        recipe_id: ID of the recipe to plan.
+        recipe_id: ID of the recipe to plan, or None when a card is given.
+        catalog_card_id: ID of the catalog card to plan, or None when a recipe is given.
         planned_servings: Serving count; defaults to recipe.base_servings when None.
         notes: Optional free-text annotation.
         current_user: The authenticated user making the request.
@@ -884,9 +950,14 @@ def create_entry(
         The newly created MealPlanEntry with user_opt_ins loaded.
 
     Raises:
-        NotFoundError: If the recipe does not exist.
+        NotFoundError: If the recipe or the card does not exist.
         ValidationError: If planned_servings is not positive.
     """
+    if catalog_card_id is not None:
+        return _create_card_entry(
+            request_date, meal_type, catalog_card_id, planned_servings, notes, current_user, db
+        )
+
     # Look up the recipe — 404 if it doesn't exist
     recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
     if not recipe:
@@ -949,3 +1020,47 @@ def create_entry(
         f"recipe={recipe_id}, date={request_date}, meal_type={meal_type}"
     )
     return entry_with_opts
+
+
+def remix_week(
+    week_start: date,
+    user_id: UUID,
+    db: Session,
+    from_date: Optional[date] = None,
+) -> int:
+    """
+    Replace every suggested (draft) dinner of the week with a different one.
+
+    Accepted dinners are left alone, and with from_date so are suggestions on
+    days before it.  Each suggestion is swapped as swap_entry does it (same
+    rules, and nothing a slot has already shown comes back), with one addition:
+    nothing the week held before the remix, and nothing on the weeks around it,
+    is brought in, so a remix is new dinners and not the same ones on other
+    days.  A slot with nothing fresh to offer keeps what it has.
+
+    Returns the number of suggestions that changed.
+    """
+    week_end = week_start + timedelta(days=6)
+    draft_ids = [
+        entry_id
+        for (entry_id, entry_date) in db.query(MealPlanEntry.id, MealPlanEntry.date)
+        .filter(MealPlanEntry.date >= week_start)
+        .filter(MealPlanEntry.date <= week_end)
+        .filter(MealPlanEntry.status == MealPlanStatus.draft.value)
+        .order_by(MealPlanEntry.date)
+        .all()
+        if from_date is None or entry_date >= from_date
+    ]
+    held_cards, held_recipes = _planned_nearby(db, week_start)
+    changed = 0
+    for entry_id in draft_ids:
+        try:
+            swap_entry(
+                entry_id, user_id, db,
+                also_exclude_card_ids=frozenset(held_cards),
+                also_exclude_recipe_ids=frozenset(held_recipes),
+            )
+            changed += 1
+        except ValidationError as exc:
+            logger.info("remix_week: kept entry %s as it was: %s", entry_id, exc)
+    return changed

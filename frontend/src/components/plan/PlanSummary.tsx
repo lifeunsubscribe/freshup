@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react'
+import { Check, UtensilsCrossed } from 'lucide-react'
 import type { PlanDay, PlanStats } from './usePlanWeek'
 import { formatDuration, formatWeekRange, weekdayName } from '../../utils/week'
 
@@ -46,6 +46,16 @@ export default function PlanSummary({
         </div>
         <People ownerName={ownerName} />
       </div>
+
+      {/* The meals this plan covers. Dinner is the only one so far; breakfast,
+          lunch and the rest will sit beside it when they can be planned. */}
+      <p
+        aria-label="Meals in this plan: dinner"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill bg-cream-pill text-[11px] font-medium uppercase tracking-wide text-text-secondary"
+      >
+        <UtensilsCrossed size={12} aria-hidden="true" />
+        Dinner
+      </p>
 
       <DayStrip days={days} today={today} />
 

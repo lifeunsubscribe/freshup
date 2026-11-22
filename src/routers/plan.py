@@ -26,6 +26,8 @@ from src.schemas.plan import (
     SwapEntryResponse,
     MealPlanEntrySchema,
     CreateEntryRequest,
+    RemixWeekRequest,
+    RemixWeekResponse,
 )
 from src.exceptions import NotFoundError, ValidationError
 
@@ -77,6 +79,47 @@ def generate_draft(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate draft meal plan",
+        )
+
+
+@router.post("/week/remix", response_model=RemixWeekResponse)
+def remix_week(
+    request: RemixWeekRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> RemixWeekResponse:
+    """
+    Replace every suggested dinner of a week with a different suggestion.
+
+    Accepted dinners stay. With from_date, suggestions on earlier days stay too.
+    A suggestion with nothing else to offer is kept. Returns the week as it is
+    afterwards and how many suggestions changed.
+
+    **Auth:** Required
+    """
+    try:
+        changed = meal_plan_service.remix_week(
+            week_start=request.week_start,
+            user_id=current_user.id,
+            db=db,
+            from_date=request.from_date,
+        )
+        confirmed, draft = meal_plan_service.get_week_plan(
+            week_start=request.week_start,
+            user_id=current_user.id,
+            db=db,
+        )
+        return RemixWeekResponse(
+            week_start=request.week_start,
+            confirmed_entries=[MealPlanEntrySchema.model_validate(e) for e in confirmed],
+            draft_entries=[MealPlanEntrySchema.model_validate(e) for e in draft],
+            changed=changed,
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during week remix: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to remix the week",
         )
 
 
@@ -258,7 +301,8 @@ def create_entry(
     db: Annotated[Session, Depends(get_db)],
 ) -> MealPlanEntrySchema:
     """
-    Add a recipe to the meal plan for a specific date and meal slot.
+    Add a recipe, or a catalog card not yet imported, to the meal plan for a
+    specific date and meal slot.
 
     Creates a draft entry that appears in GET /plan/week. The calling user is
     automatically opted in. Multiple entries per date/meal slot are allowed.
@@ -271,6 +315,7 @@ def create_entry(
             request_date=request.date,
             meal_type=request.meal_type.value,
             recipe_id=request.recipe_id,
+            catalog_card_id=request.catalog_card_id,
             planned_servings=request.planned_servings,
             notes=request.notes,
             current_user=current_user,
@@ -278,7 +323,7 @@ def create_entry(
         )
         return MealPlanEntrySchema.model_validate(entry)
     except NotFoundError as e:
-        logger.warning(f"Recipe not found during entry creation: {e}")
+        logger.warning(f"Recipe or card not found during entry creation: {e}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),

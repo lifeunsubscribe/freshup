@@ -7,6 +7,7 @@ import type {
   DraftGenerateResponse,
   ConfirmEntryResponse,
   SwapEntryResponse,
+  RemixWeekResponse,
 } from '../types'
 
 export const planKeys = {
@@ -73,6 +74,24 @@ export function useSwapEntry() {
         `/plan/entries/${encodeURIComponent(entryId)}/swap`,
         { method: 'POST' }
       ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: planKeys.all })
+    },
+  })
+}
+
+/**
+ * Replace every suggested dinner of a week with a different suggestion.
+ * Accepted dinners stay; with `fromDate`, so do suggestions on earlier days.
+ */
+export function useRemixWeek() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ weekStart, fromDate }: { weekStart: string; fromDate?: string }) =>
+      apiClient<RemixWeekResponse>('/plan/week/remix', {
+        method: 'POST',
+        body: JSON.stringify({ week_start: weekStart, ...(fromDate ? { from_date: fromDate } : {}) }),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: planKeys.all })
     },

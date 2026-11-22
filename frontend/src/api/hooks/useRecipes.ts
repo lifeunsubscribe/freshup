@@ -438,11 +438,15 @@ export function useRecipeOutcomes(
  * Keyed under recipeKeys.lists() so bookmark and view invalidations also
  * refresh the "For you" row.
  */
-export function useRecommendations(limit: number = 20) {
+export function useRecommendations(limit: number = 20, meal?: 'dinner') {
   return useQuery({
-    queryKey: [...recipeKeys.lists(), 'recommendations', limit] as const,
+    // `meal` lists what suits that meal first; used when choosing for a dinner slot.
+    queryKey: [...recipeKeys.lists(), 'recommendations', limit, meal ?? 'any'] as const,
     queryFn: async () =>
-      apiClient<RecommendedItem[]>(`/recommendations?limit=${limit}`, { method: 'GET' }),
+      apiClient<RecommendedItem[]>(
+        `/recommendations?limit=${limit}${meal ? `&meal=${meal}` : ''}`,
+        { method: 'GET' }
+      ),
     staleTime: 5 * 60 * 1000,
   });
 }
