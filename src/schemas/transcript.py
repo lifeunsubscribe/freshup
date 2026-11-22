@@ -44,3 +44,24 @@ class NotesResult(BaseModel):
         default=0,
         description="Number of chunks that raised LLMResponseError and were skipped",
     )
+
+
+class RecipeDraft(BaseModel):
+    """LLM output for the merge step: title, servings, steps, and tags."""
+
+    title: Optional[str] = Field(
+        default=None,
+        description="Recipe title suggested by the model, or null",
+    )
+    servings: Optional[int] = Field(
+        default=None,
+        description="Number of servings, or null when not determinable",
+    )
+    steps: list[str] = Field(
+        default_factory=list,
+        description="Cooking instructions, one per step, in order, at most 30",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Recipe tags from the allowed vocabulary",
+    )
