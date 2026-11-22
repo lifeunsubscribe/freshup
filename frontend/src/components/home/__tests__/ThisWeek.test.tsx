@@ -121,7 +121,9 @@ describe('ThisWeek', () => {
 
       renderWithProviders(<ThisWeek />)
 
-      for (const label of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) {
+      // The clock is Monday: its tile reads "Today · Mon".
+      expect(screen.getByText('Today · Mon')).toBeInTheDocument()
+      for (const label of ['Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) {
         expect(screen.getByText(label)).toBeInTheDocument()
       }
     })
@@ -183,6 +185,32 @@ describe('ThisWeek', () => {
       renderWithProviders(<ThisWeek />)
 
       expect(screen.getByText('This week')).toBeInTheDocument()
+    })
+  })
+
+  describe('days with nothing planned', () => {
+    it('show no picture box, and offer to plan a day still ahead', () => {
+      // The clock is Monday the 16th: Sunday is past, Tuesday is ahead.
+      setupMocks({ draftEntries: [makeDraftEntry(1)] })
+
+      renderWithProviders(<ThisWeek />)
+
+      const sunday = screen.getByRole('listitem', { name: 'Sun: nothing planned' })
+      expect(sunday.querySelector('img')).toBeNull()
+      expect(sunday).toHaveTextContent('Nothing planned')
+      expect(sunday).not.toHaveTextContent('Add something')
+
+      const tuesday = screen.getByRole('listitem', { name: 'Tue: nothing planned' })
+      expect(tuesday.querySelector('a')).toHaveAttribute('href', `/plan/${WEEK_START}`)
+      expect(tuesday).toHaveTextContent('Add something')
+    })
+
+    it('marks today', () => {
+      setupMocks({ draftEntries: [makeDraftEntry(1)] })
+
+      renderWithProviders(<ThisWeek />)
+
+      expect(screen.getByText('Today · Mon')).toBeInTheDocument()
     })
   })
 

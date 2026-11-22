@@ -2396,3 +2396,70 @@ def test_removing_an_entry_requires_authentication(client, db_session, recipes_p
 
     assert response.status_code in (401, 403)
     assert db_session.query(MealPlanEntry).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Choosing a dinner for a day replaces the suggestion there
+# ---------------------------------------------------------------------------
+
+
+def test_adding_a_recipe_to_a_day_replaces_its_suggestion(
+    client, db_session, auth_headers, recipes_pool
+):
+    day = date(2025, 6, 2)
+    suggestion = _dinner(db_session, recipes_pool[1], day, MealPlanStatus.draft.value)
+    lunch = MealPlanEntry(
+        id=uuid4(), date=day, meal_type=MealType.lunch.value, recipe_id=recipes_pool[2].id,
+        planned_servings=2, status=MealPlanStatus.draft.value,
+    )
+    db_session.add(lunch)
+    db_session.commit()
+    suggestion_id, lunch_id = suggestion.id, lunch.id
+
+    response = client.post(
+        "/plan/entries",
+        json={"date": day.isoformat(), "meal_type": "dinner", "recipe_id": str(recipes_pool[0].id)},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+    db_session.expire_all()
+    dinners = db_session.query(MealPlanEntry).filter(
+        MealPlanEntry.date == day, MealPlanEntry.meal_type == MealType.dinner.value
+    ).all()
+    assert [d.recipe_id for d in dinners] == [recipes_pool[0].id]
+    assert db_session.get(MealPlanEntry, suggestion_id) is None
+    # Another meal slot on the same day is not touched.
+    assert db_session.get(MealPlanEntry, lunch_id) is not None
+
+
+def test_adding_a_card_to_a_day_replaces_its_suggestion(
+    client, db_session, auth_headers, card_draft_entry, recipes_pool
+):
+    suggestion = _dinner(db_session, recipes_pool[1], date(2025, 6, 4), MealPlanStatus.draft.value)
+    suggestion_id = suggestion.id
+
+    response = client.post(
+        "/plan/entries",
+        json={"date": "2025-06-04", "meal_type": "dinner", "catalog_card_id": str(card_draft_entry["card"].id)},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 201
+    db_session.expire_all()
+    assert db_session.get(MealPlanEntry, suggestion_id) is None
+
+
+def test_adding_to_a_day_keeps_an_accepted_dinner(client, db_session, auth_headers, recipes_pool):
+    day = date(2025, 6, 2)
+    accepted = _dinner(db_session, recipes_pool[1], day)
+    accepted_id = accepted.id
+
+    client.post(
+        "/plan/entries",
+        json={"date": day.isoformat(), "meal_type": "dinner", "recipe_id": str(recipes_pool[0].id)},
+        headers=auth_headers,
+    )
+
+    db_session.expire_all()
+    assert db_session.get(MealPlanEntry, accepted_id) is not None

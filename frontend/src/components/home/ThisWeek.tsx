@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Check, RefreshCw } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Check, Plus, RefreshCw } from 'lucide-react'
 import SectionHeader from '../ui/SectionHeader'
 import {
   useWeekPlan,
@@ -12,7 +12,7 @@ import {
 } from '../../api'
 import type { MealPlanEntryDisplay } from '../../api/types'
 import { ownOrSourceName } from '../../utils/sourceNames'
-import { weekDates, weekStartOf, weekdayName } from '../../utils/week'
+import { todayStr, weekDates, weekStartOf, weekdayName } from '../../utils/week'
 
 export default function ThisWeek() {
   const weekStart = weekStartOf(new Date())
@@ -50,6 +50,17 @@ export default function ThisWeek() {
   }
 
   const dayDates = weekDates(weekStart)
+  const today = todayStr()
+
+  // Open the strip at today, not at Sunday.
+  const stripRef = useRef<HTMLDivElement>(null)
+  const loaded = !isLoading
+  useEffect(() => {
+    const strip = stripRef.current
+    const todayTile = strip?.querySelector<HTMLElement>('[data-today="true"]')
+    if (!loaded || !strip || !todayTile) return
+    strip.scrollLeft += todayTile.getBoundingClientRect().left - strip.getBoundingClientRect().left - 16
+  }, [loaded])
 
   function handleTileTap(entry: MealPlanEntryDisplay) {
     if (entry.recipe_id) {
@@ -98,6 +109,7 @@ export default function ThisWeek() {
 
         {!isLoading && (
           <div
+            ref={stripRef}
             className="flex gap-[10px] overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide"
             role="list"
             aria-label="This week dinners"
@@ -108,6 +120,9 @@ export default function ThisWeek() {
                 <DayTile
                   key={date}
                   dayLabel={weekdayName(date).slice(0, 3)}
+                  isToday={date === today}
+                  isPast={date < today}
+                  planLink={`/plan/${weekStart}`}
                   entry={entry}
                   onTap={handleTileTap}
                   onConfirm={handleConfirm}
@@ -124,19 +139,57 @@ export default function ThisWeek() {
 
 interface DayTileProps {
   dayLabel: string
+  isToday: boolean
+  isPast: boolean
+  /** Where "Add something" goes: this week in the plan editor. */
+  planLink: string
   entry: MealPlanEntryDisplay | undefined
   onTap: (entry: MealPlanEntryDisplay) => void
   onConfirm: (e: React.MouseEvent, entryId: string) => void
   onSwap: (e: React.MouseEvent, entryId: string) => void
 }
 
-function DayTile({ dayLabel, entry, onTap, onConfirm, onSwap }: DayTileProps) {
+function DayTile({ dayLabel, isToday, isPast, planLink, entry, onTap, onConfirm, onSwap }: DayTileProps) {
   const isDraft = entry?.status === 'draft'
   const [imageError, setImageError] = useState(false)
+
+  if (!entry) {
+    // No picture box for a day with nothing on it: an outline, and a way to
+    // plan it while it is still ahead.
+    return (
+      <div
+        role="listitem"
+        data-today={isToday}
+        aria-label={`${dayLabel}: nothing planned`}
+        className="flex-shrink-0 w-[168px] rounded-[12px] border border-dashed border-warm flex flex-col"
+      >
+        <p
+          className={`px-3 pt-2 text-[11px] font-medium uppercase tracking-wide ${
+            isToday ? 'text-olive' : 'text-text-secondary'
+          }`}
+        >
+          {isToday ? `Today · ${dayLabel}` : dayLabel}
+        </p>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-3 py-6">
+          <p className="text-[12px] text-text-tertiary">Nothing planned</p>
+          {!isPast && (
+            <Link
+              to={planLink}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-button-sm border border-warm-btn-border bg-white text-text-secondary text-[13px] font-medium"
+            >
+              <Plus size={14} />
+              Add something
+            </Link>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
       role="listitem"
+      data-today={isToday}
       className={`flex-shrink-0 w-[168px] bg-white rounded-[12px] border border-warm-border overflow-hidden${
         isDraft ? ' opacity-70' : ''
       }${entry ? ' cursor-pointer' : ''}`}
@@ -144,8 +197,12 @@ function DayTile({ dayLabel, entry, onTap, onConfirm, onSwap }: DayTileProps) {
     >
       {/* Day label */}
       <div className="px-3 pt-2 pb-0.5">
-        <p className="text-[11px] font-medium text-text-secondary uppercase tracking-wide">
-          {dayLabel}
+        <p
+          className={`text-[11px] font-medium uppercase tracking-wide ${
+            isToday ? 'text-olive' : 'text-text-secondary'
+          }`}
+        >
+          {isToday ? `Today · ${dayLabel}` : dayLabel}
         </p>
       </div>
 
@@ -160,14 +217,14 @@ function DayTile({ dayLabel, entry, onTap, onConfirm, onSwap }: DayTileProps) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-text-tertiary text-xs">
-            {entry ? 'No image' : '—'}
+            No image
           </div>
         )}
       </div>
 
       {/* Content */}
       <div className="px-3 py-2 space-y-1">
-        {entry?.display ? (
+        {entry.display && (
           <>
             <p className="text-[13px] font-medium text-text-primary line-clamp-2 leading-tight">
               {entry.display.name}
@@ -176,8 +233,6 @@ function DayTile({ dayLabel, entry, onTap, onConfirm, onSwap }: DayTileProps) {
               {ownOrSourceName(entry.display.source_type)}
             </p>
           </>
-        ) : (
-          <p className="text-[12px] text-text-tertiary">Not planned</p>
         )}
       </div>
 

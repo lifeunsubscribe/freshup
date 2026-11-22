@@ -27,7 +27,7 @@ vi.mock('../contexts/AuthContext', () => ({
 
 const mockCookMutateAsync = vi.fn().mockResolvedValue({})
 const mockRateMutateAsync = vi.fn().mockResolvedValue({})
-const mockCreateEntryMutateAsync = vi.fn().mockResolvedValue({})
+const mockCreateEntryMutateAsync = vi.fn().mockResolvedValue({ id: 'entry-new' })
 
 vi.mock('../api/hooks/useRecipes', () => ({
   useRateRecipe: vi.fn(() => ({ mutateAsync: mockRateMutateAsync })),
@@ -90,8 +90,10 @@ vi.mock('../api/hooks/useRecipeEngagement', () => ({
   useRecordView: () => ({ mutate: mockRecordViewMutate }),
 }))
 
+const mockConfirmEntryMutateAsync = vi.fn().mockResolvedValue({})
 vi.mock('../api/hooks/usePlan', () => ({
   useCreatePlanEntry: () => ({ mutateAsync: mockCreateEntryMutateAsync }),
+  useConfirmEntry: () => ({ mutateAsync: mockConfirmEntryMutateAsync }),
 }))
 
 vi.mock('../api/hooks/useInventory', () => ({
@@ -130,7 +132,8 @@ beforeEach(() => {
   })
   mockCookMutateAsync.mockReset().mockResolvedValue({})
   mockRateMutateAsync.mockReset().mockResolvedValue({})
-  mockCreateEntryMutateAsync.mockReset().mockResolvedValue({})
+  mockCreateEntryMutateAsync.mockReset().mockResolvedValue({ id: 'entry-new' })
+  mockConfirmEntryMutateAsync.mockReset().mockResolvedValue({})
   mockRecordViewMutate.mockReset()
 })
 
@@ -192,6 +195,15 @@ describe('RecipeDetail', () => {
       expect(call.recipe_id).toBe('recipe-1')
       expect(call.meal_type).toBe('dinner')
       expect(typeof call.date).toBe('string')
+    })
+
+    it('counts a dinner added from the recipe as planned, not a suggestion', async () => {
+      renderPage()
+      await userEvent.click(screen.getByRole('button', { name: /add to plan/i }))
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+      await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
+
+      await waitFor(() => expect(mockConfirmEntryMutateAsync).toHaveBeenCalledWith('entry-new'))
     })
 
     it('says where it was added, with a link to that week of the plan', async () => {

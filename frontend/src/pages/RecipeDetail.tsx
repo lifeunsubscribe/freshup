@@ -29,7 +29,7 @@ import {
   useCookHistory,
   useRecordView,
 } from '../api/hooks/useRecipeEngagement'
-import { useCreatePlanEntry } from '../api/hooks/usePlan'
+import { useConfirmEntry, useCreatePlanEntry } from '../api/hooks/usePlan'
 import { useInventoryList } from '../api/hooks/useInventory'
 import { checkIngredientAvailability } from '../utils/pantryMatcher'
 import { useCookTimers } from '../hooks/useCookTimers'
@@ -104,6 +104,7 @@ export default function RecipeDetail() {
   const cookRecipe = useCookRecipe()
   const rateRecipe = useRateRecipe()
   const createPlanEntry = useCreatePlanEntry()
+  const confirmPlanEntry = useConfirmEntry()
   const recordView = useRecordView()
 
   // Track the recipe ID for which a view was already posted so re-renders
@@ -221,12 +222,20 @@ export default function RecipeDetail() {
   const handleAddToPlan = async (date: string, mealType: MealType, servings: number) => {
     if (!id) return
 
-    await createPlanEntry.mutateAsync({
+    const entry = await createPlanEntry.mutateAsync({
       date,
       meal_type: mealType,
       recipe_id: id,
       planned_servings: servings,
     })
+    // Chosen on purpose, so it is planned, not a suggestion. It replaces the
+    // day's suggestion (the API does that); if accepting fails it stays on
+    // the plan as a suggestion, which the plan page can still accept.
+    try {
+      await confirmPlanEntry.mutateAsync(entry.id)
+    } catch {
+      // Left as a suggestion.
+    }
 
     setIsPlanSheetOpen(false)
 

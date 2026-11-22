@@ -399,7 +399,8 @@ def create_entry(
     specific date and meal slot.
 
     Creates a draft entry that appears in GET /plan/week. The calling user is
-    automatically opted in. Multiple entries per date/meal slot are allowed.
+    automatically opted in. Unaccepted suggestions in that slot are replaced;
+    accepted meals there stay.
 
     **Auth:** Required
     **Scope:** Phase 2.5E - Add-to-plan quick action

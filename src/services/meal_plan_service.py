@@ -837,6 +837,29 @@ def swap_entry(
     return swapped
 
 
+def _replace_suggestions(db: Session, request_date: date, meal_type: str) -> int:
+    """
+    Take unaccepted suggestions off a day's meal slot: what the user chooses
+    for it replaces them. Accepted meals stay. The caller commits.
+    """
+    from src.services.week_shopping import release_entry
+
+    suggestions = (
+        db.query(MealPlanEntry)
+        .filter(MealPlanEntry.date == request_date)
+        .filter(MealPlanEntry.meal_type == meal_type)
+        .filter(MealPlanEntry.status == MealPlanStatus.draft.value)
+        .all()
+    )
+    for suggestion in suggestions:
+        release_entry(db, suggestion.id)
+        suggestion.user_opt_ins.clear()
+        db.delete(suggestion)
+    if suggestions:
+        db.flush()
+    return len(suggestions)
+
+
 def _create_card_entry(
     request_date: date,
     meal_type: str,
@@ -860,6 +883,7 @@ def _create_card_entry(
     if servings < 1:
         raise ValidationError("planned_servings must be greater than 0")
 
+    _replace_suggestions(db, request_date, meal_type)
     entry = MealPlanEntry(
         date=request_date,
         meal_type=meal_type,
@@ -898,8 +922,9 @@ def create_entry(
     Places a recipe into the household meal plan for the specified date and
     meal type, or a catalog card that has not been imported yet (its recipe is
     imported when the entry is confirmed, exactly as for a suggested card).
-    Multiple entries for the same date/meal slot are permitted
-    (e.g. two different dinners for different household members).
+    Unaccepted suggestions in that slot are removed: the user's pick replaces
+    them. Accepted meals in the slot stay (e.g. two dinners for different
+    household members).
 
     Side effects:
     - Appends the calling user to the entry's user_opt_ins association.
@@ -940,6 +965,9 @@ def create_entry(
     # Also handles None (recipe.base_servings not set) to avoid TypeError.
     if servings is None or servings < 1:
         raise ValidationError("planned_servings must be greater than 0")
+
+    # What the user picks for a slot replaces the suggestions shown there.
+    _replace_suggestions(db, request_date, meal_type)
 
     # Build the entry; status is always draft for user-created entries
     entry = MealPlanEntry(
