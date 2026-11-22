@@ -24,8 +24,8 @@ NUMBER_WORDS: list[tuple[str, str]] = [
     ("two and a half", "2 1/2"),
     ("three and a half", "3 1/2"),
     ("four and a half", "4 1/2"),
-    ("half a", "1/2"),
     ("half an", "1/2"),
+    ("half a", "1/2"),
     # teens
     ("nineteen", "19"),
     ("eighteen", "18"),
@@ -84,16 +84,10 @@ def normalise_amount(amount: str) -> str:
     m = _A_MEASURE_RE.match(result)
     if m:
         result = "1 " + result[m.start(1):]
-        return result
 
     # Replace multi-word and single-word number phrases (longest first).
-    lower = result.lower()
     for word, digit in NUMBER_WORDS:
-        idx = lower.find(word)
-        if idx != -1:
-            result = result[:idx] + digit + result[idx + len(word):]
-            # Re-lowercase for any subsequent replacements on the same string.
-            lower = result.lower()
+        result = re.sub(rf'\b{re.escape(word)}\b', digit, result, flags=re.IGNORECASE)
 
     return result
 
