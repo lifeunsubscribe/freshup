@@ -5,6 +5,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import ProtectedRoute from '../components/auth/ProtectedRoute'
 import { AuthProvider, useAuth } from './AuthContext'
 import { devLoginCredentials } from '../api/devLogin'
+import { ApiException } from '../api/client'
 
 // The session the mocked hooks report. Tests change it to stand in for the
 // token store and the /auth/me result.
@@ -28,7 +29,13 @@ vi.mock('../api/hooks/useAuth', () => ({
 
 vi.mock('../api/client', () => ({
   isAuthenticated: () => session.hasToken,
-  ApiException: class ApiException extends Error {},
+  ApiException: class ApiException extends Error {
+    status: number
+    constructor(message: string, status: number) {
+      super(message)
+      this.status = status
+    }
+  },
 }))
 
 function LogoutButton() {
@@ -137,6 +144,28 @@ describe('development automatic login', () => {
     expect(await screen.findByText('Login Page')).toBeInTheDocument()
     expect(loginMutateAsync).toHaveBeenCalledTimes(1)
     expect(refetch).not.toHaveBeenCalled()
+  })
+
+  it('waits for an API that is not answering yet, then signs in', async () => {
+    configureDevLogin()
+    let calls = 0
+    loginMutateAsync.mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) throw new ApiException('Network error: Unable to connect to server', 0)
+      session.hasToken = true
+    })
+    refetch.mockImplementation(async () => {
+      session.user = { id: 'user-1' }
+      return { isError: false }
+    })
+
+    renderApp()
+
+    // Still "Loading", not the login page, while it waits to try again.
+    expect(screen.getByText('Loading...')).toBeInTheDocument()
+    expect(await screen.findByText('Protected Content', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(loginMutateAsync).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText('Login Page')).not.toBeInTheDocument()
   })
 
   it('falls back to the login page when the user cannot be loaded after login', async () => {

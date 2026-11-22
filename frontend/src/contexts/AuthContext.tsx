@@ -18,7 +18,7 @@
 import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useCurrentUser, useLogin, useLogout, useSwitchUser } from '../api/hooks/useAuth';
-import { isAuthenticated as checkIsAuthenticated } from '../api/client';
+import { ApiException, isAuthenticated as checkIsAuthenticated } from '../api/client';
 import { devLoginCredentials } from '../api/devLogin';
 import type { LoginRequest, UserResponse, SwitchUserRequest } from '../api/types';
 
@@ -35,6 +35,18 @@ interface AuthContextType {
 // failed: the attempt did not work, so the login page shows as usual.
 // off: the user logged out on purpose; stays off until the page reloads.
 type DevLoginState = 'idle' | 'pending' | 'failed' | 'off';
+
+// The API is often briefly down in development (a container restart, a
+// migration on start). The dev login waits for it instead of giving up.
+export const DEV_LOGIN_RETRY_MS = 2000;
+export const DEV_LOGIN_ATTEMPTS = 15;
+
+/** True for a failure that waiting can fix: no server, or a server error. */
+function isTransient(error: unknown): boolean {
+  return error instanceof ApiException && (error.status === 0 || error.status >= 500);
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -91,17 +103,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setDevLogin('pending');
     void (async () => {
       let next: DevLoginState = 'failed';
-      try {
-        await deps.loginMutation.mutateAsync(credentials);
-        const result = await deps.refetch();
-        if (!result.isError) {
-          next = 'idle';
-          if (devLoginDeps.current.location.pathname === '/login') {
-            deps.navigate('/', { replace: true });
+      for (let attempt = 1; attempt <= DEV_LOGIN_ATTEMPTS; attempt++) {
+        try {
+          await deps.loginMutation.mutateAsync(credentials);
+          const result = await deps.refetch();
+          if (!result.isError) {
+            next = 'idle';
+            if (devLoginDeps.current.location.pathname === '/login') {
+              deps.navigate('/', { replace: true });
+            }
+            break;
           }
+          if (!isTransient(result.error)) break;
+        } catch (error) {
+          // Wrong credentials: show the login page. The API not answering yet:
+          // wait and try again, still showing "Loading".
+          if (!isTransient(error)) break;
         }
-      } catch {
-        // Wrong credentials or the API is down: show the login page.
+        if (attempt < DEV_LOGIN_ATTEMPTS) await sleep(DEV_LOGIN_RETRY_MS);
       }
       devLoginStarted.current = false;
       setDevLogin(next);

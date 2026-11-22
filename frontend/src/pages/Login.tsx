@@ -11,13 +11,16 @@
 import { useState, FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ApiException } from '../api/client';
+import { devLoginCredentials } from '../api/devLogin';
 
 export default function Login() {
   const { login } = useAuth();
+  // On the dev server with a dev login configured: shown, and filled in.
+  const devLogin = devLoginCredentials();
 
   // Form state
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(devLogin?.email ?? '');
+  const [password, setPassword] = useState(devLogin?.password ?? '');
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -69,6 +72,22 @@ export default function Login() {
           <h1 className="text-4xl font-bold text-text-primary mb-2">FreshUp</h1>
           <p className="text-text-secondary">Sign in to your account</p>
         </div>
+
+        {devLogin && (
+          <div
+            aria-label="Development login"
+            className="mb-4 rounded-card border border-warm-border bg-cream-surface p-4 text-sm text-text-secondary"
+          >
+            <p className="font-medium text-text-primary mb-1">Development login</p>
+            <p>
+              Email: <span className="font-mono text-text-primary select-all">{devLogin.email}</span>
+            </p>
+            <p>
+              Password: <span className="font-mono text-text-primary select-all">{devLogin.password}</span>
+            </p>
+            <p className="mt-1 text-xs text-text-tertiary">Filled in below. Shown only on the dev server.</p>
+          </div>
+        )}
 
         {/* Login Form Card */}
         <div className="bg-white rounded-card border border-warm-border p-8">
