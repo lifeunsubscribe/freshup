@@ -241,6 +241,26 @@ HOMECHEF_SOURCE = "homechef_web"
 
 
 class TestSeedHomechefCollections:
+    def test_gives_a_blanked_collection_its_name_back(self, db_session):
+        """Fetches used to overwrite Home Chef names with an empty string."""
+        catalog_service.seed_homechef_collections(db_session)
+        for slug in ("chicken", "this-week"):
+            db_session.query(SourceCollection).filter_by(
+                source_type=HOMECHEF_SOURCE, slug=slug
+            ).update({"name": ""})
+        db_session.commit()
+
+        added = catalog_service.seed_homechef_collections(db_session)
+
+        assert added == 0
+        names = {
+            row.slug: row.name
+            for row in db_session.query(SourceCollection).filter_by(source_type=HOMECHEF_SOURCE)
+        }
+        assert names["chicken"] == "Chicken"
+        assert names["this-week"] == "This week at Home Chef"
+        assert "" not in names.values()
+
     def test_inserts_27_rows(self, db_session):
         count = catalog_service.seed_homechef_collections(db_session)
         assert count == 27
@@ -402,6 +422,47 @@ class TestUpsertCollectionPage:
         collection = db_session.query(SourceCollection).filter_by(slug="vegetarian-recipes").first()
         assert collection.name == "Vegetarian Recipes"
         assert collection.last_fetched_at is not None
+
+    def test_a_page_without_a_name_keeps_the_stored_name(self, db_session):
+        """Home Chef listings carry no name of their own; the seeded one must survive a fetch."""
+        _seed_collection(db_session)
+        page = _make_page(n_cards=0, n_children=0)
+        page.name = ""
+        catalog_service.upsert_collection_page(db_session, page)
+
+        collection = db_session.query(SourceCollection).filter_by(slug="vegetarian-recipes").first()
+        assert collection.name == "Vegetarian recipes"
+        assert collection.last_fetched_at is not None
+
+    def test_a_refetch_does_not_wipe_what_enrichment_filled_in(self, db_session):
+        """A listing that states no photo, time or rating leaves the card's own alone."""
+        _seed_collection(db_session)
+        catalog_service.upsert_collection_page(db_session, _make_page(n_cards=1, n_children=0))
+        card = db_session.query(SourceRecipeCard).one()
+        filled = (card.image_url, card.prep_time_minutes, card.rating, card.rating_count)
+        assert None not in filled
+
+        bare = _make_page(n_cards=1, n_children=0)
+        bare.cards[0].image_url = None
+        bare.cards[0].prep_time_minutes = None
+        bare.cards[0].rating = None
+        bare.cards[0].rating_count = None
+        bare.cards[0].name = "Renamed"
+        catalog_service.upsert_collection_page(db_session, bare)
+
+        db_session.refresh(card)
+        assert (card.image_url, card.prep_time_minutes, card.rating, card.rating_count) == filled
+        assert card.name == "Renamed"
+
+    def test_a_refetch_takes_a_new_photo_the_listing_does_state(self, db_session):
+        _seed_collection(db_session)
+        catalog_service.upsert_collection_page(db_session, _make_page(n_cards=1, n_children=0))
+
+        newer = _make_page(n_cards=1, n_children=0)
+        newer.cards[0].image_url = "https://img.hellofresh.com/image/reshoot.jpg"
+        catalog_service.upsert_collection_page(db_session, newer)
+
+        assert db_session.query(SourceRecipeCard).one().image_url == "https://img.hellofresh.com/image/reshoot.jpg"
 
     def test_duplicate_card_in_page_creates_one_row(self, db_session):
         """A page listing the same recipe_url twice inserts one SourceRecipeCard, not two."""

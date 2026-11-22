@@ -58,6 +58,15 @@ _H2_RE = re.compile(r'<h2[^>]*>([^<]+)</h2>')
 # Extracts text from first <p> inside a card body.
 _P_RE = re.compile(r'<p>([^<]+)</p>')
 
+# The card's photo: a lazy-loaded <img> whose data-srcset lists the same picture
+# at several widths ("https://... 275w, https://... 550w, https://... 1100w").
+# The URLs themselves contain commas, so candidates are matched, not split.
+_SRCSET_RE = re.compile(r'data-srcset="([^"]+)"')
+_SRCSET_CANDIDATE_RE = re.compile(r'(https?://\S+)\s+(\d+)w')
+
+# The narrowest listed width that still looks sharp on a card.
+_CARD_IMAGE_WIDTH = 550
+
 # Extracts href from a ?page=N pagination link.
 _PAGINATION_NEXT_RE = re.compile(
     r'href="(/recipes/[^"]+\?page=(\d+))"'
@@ -74,6 +83,22 @@ def _split_title(full_title: str) -> tuple[str, Optional[str]]:
         return name.strip(), ("with " + rest.strip())
     return full_title.strip(), None
 
+
+
+def _card_image(inner: str) -> Optional[str]:
+    """The listing's photo for a card, from the <img> inside its link; None when it has none."""
+    srcset = _SRCSET_RE.search(inner)
+    if not srcset:
+        return None
+    candidates = [
+        (int(width), image_url)
+        for image_url, width in _SRCSET_CANDIDATE_RE.findall(_unescape_html(srcset.group(1)))
+    ]
+    if not candidates:
+        return None
+    wide_enough = [c for c in candidates if c[0] >= _CARD_IMAGE_WIDTH]
+    _, image_url = min(wide_enough) if wide_enough else max(candidates)
+    return image_url
 
 
 def parse_homechef_listing(html: str, url: str) -> CollectionPage:
@@ -138,7 +163,7 @@ def parse_homechef_listing(html: str, url: str) -> CollectionPage:
                 external_id=external_id,
                 name=name,
                 headline=headline,
-                image_url=None,
+                image_url=_card_image(inner),
                 prep_time_minutes=None,
                 rating=None,
                 rating_count=None,

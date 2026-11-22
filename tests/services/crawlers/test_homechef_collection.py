@@ -102,11 +102,22 @@ class TestParseHomechefListingCategoryFixture:
         for card in page.cards:
             assert card.recipe_url.startswith(HOMECHEF_BASE_URL)
 
-    def test_image_url_is_none(self):
+    def test_every_card_carries_the_listings_photo(self):
         html = _load(CATEGORY_FIXTURE)
         page = parse_homechef_listing(html, f"{HOMECHEF_BASE_URL}/recipes/customer-favorites")
         for card in page.cards:
-            assert card.image_url is None
+            assert card.image_url is not None, card.name
+            assert card.image_url.startswith("https://asset.homechef.com/")
+
+    def test_photo_is_the_550_wide_one_with_its_commas_intact(self):
+        """The image URLs contain commas, and the srcset lists 275w, 550w and 1100w."""
+        html = _load(CATEGORY_FIXTURE)
+        page = parse_homechef_listing(html, f"{HOMECHEF_BASE_URL}/recipes/customer-favorites")
+        first = page.cards[0]
+        assert first.image_url.startswith(
+            "https://asset.homechef.com/cdn-cgi/image/w=550,f=auto,q=75/uploads/meal/plated/3429/"
+        )
+        assert first.image_url.endswith(".jpg")
 
     def test_rating_and_time_are_none(self):
         html = _load(CATEGORY_FIXTURE)
@@ -148,6 +159,37 @@ class TestParseHomechefListingMenuFixture:
         page = parse_homechef_listing(html, f"{HOMECHEF_BASE_URL}/menu")
         ids = [c.external_id for c in page.cards]
         assert len(ids) == len(set(ids))
+
+
+class TestCardImage:
+    def test_menu_cards_carry_a_photo_too(self):
+        html = _load(MENU_FIXTURE)
+        page = parse_homechef_listing(html, f"{HOMECHEF_BASE_URL}/menu")
+        with_photo = [c for c in page.cards if c.image_url]
+        assert len(with_photo) == len(page.cards)
+
+    def test_a_card_without_a_photo_has_none(self):
+        html = '<a href="/meals/plain-toast"><h2>Plain Toast</h2><p>with butter</p></a>'
+        page = parse_homechef_listing(html, f"{HOMECHEF_BASE_URL}/recipes/breakfast")
+        assert page.cards[0].image_url is None
+
+    def test_falls_back_to_the_widest_when_none_is_wide_enough(self):
+        html = (
+            '<a href="/meals/small-photo">'
+            '<img data-srcset="https://asset.homechef.com/a,b/small.jpg 100w, '
+            'https://asset.homechef.com/a,b/medium.jpg 275w">'
+            '<h2>Small Photo</h2></a>'
+        )
+        page = parse_homechef_listing(html, f"{HOMECHEF_BASE_URL}/recipes/breakfast")
+        assert page.cards[0].image_url == "https://asset.homechef.com/a,b/medium.jpg"
+
+    def test_ignores_a_srcset_that_is_not_a_web_address(self):
+        html = (
+            '<a href="/meals/odd"><img data-srcset="javascript:alert(1) 550w">'
+            '<h2>Odd</h2></a>'
+        )
+        page = parse_homechef_listing(html, f"{HOMECHEF_BASE_URL}/recipes/breakfast")
+        assert page.cards[0].image_url is None
 
 
 class TestParseHomechefListingErrors:

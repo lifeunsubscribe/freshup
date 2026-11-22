@@ -217,6 +217,7 @@ def seed_homechef_collections(db: Session) -> int:
 
     Inserts a row for each category slug not already in the database, plus
     the weekly menu collection ("this-week").  No network request is made.
+    A row whose name is empty gets its name back (fetches used to blank it).
 
     Args:
         db: Database session.
@@ -228,6 +229,17 @@ def seed_homechef_collections(db: Session) -> int:
         row[0]
         for row in db.query(SourceCollection.slug).filter_by(source_type=HOMECHEF_SOURCE).all()
     }
+
+    seed_names = {**dict(_HOMECHEF_CATEGORY_SLUGS), MENU_SLUG: "This week at Home Chef"}
+    unnamed = (
+        db.query(SourceCollection)
+        .filter_by(source_type=HOMECHEF_SOURCE)
+        .filter(SourceCollection.name == "")
+        .all()
+    )
+    for row in unnamed:
+        if row.slug in seed_names:
+            row.name = seed_names[row.slug]
 
     new_rows: list[SourceCollection] = []
     for slug, name in _HOMECHEF_CATEGORY_SLUGS:
@@ -260,8 +272,11 @@ def seed_homechef_collections(db: Session) -> int:
 
     if new_rows:
         db.add_all(new_rows)
+    if new_rows or unnamed:
         db.commit()
-        logger.info("Seeded %d Home Chef collections", len(new_rows))
+        logger.info(
+            "Seeded %d Home Chef collections, restored %d names", len(new_rows), len(unnamed)
+        )
 
     return len(new_rows)
 
@@ -292,7 +307,10 @@ def upsert_collection_page(db: Session, page: CollectionPage, source_type: str =
         )
         db.add(collection)
 
-    collection.name = page.name
+    # A crawler that takes its names from the seed list returns none (Home
+    # Chef): keep the stored name rather than blanking it.
+    if page.name:
+        collection.name = page.name
     collection.url = page.url
     collection.last_fetched_at = datetime.now(timezone.utc)
 
@@ -312,10 +330,17 @@ def upsert_collection_page(db: Session, page: CollectionPage, source_type: str =
         card.external_id = card_data.external_id
         card.name = card_data.name
         card.headline = card_data.headline
-        card.image_url = card_data.image_url
-        card.prep_time_minutes = card_data.prep_time_minutes
-        card.rating = card_data.rating
-        card.rating_count = card_data.rating_count
+        # What a listing does not state stays as it is: background enrichment
+        # may already have filled it from the recipe page, and a refetch of the
+        # listing must not wipe that.
+        if card_data.image_url is not None:
+            card.image_url = card_data.image_url
+        if card_data.prep_time_minutes is not None:
+            card.prep_time_minutes = card_data.prep_time_minutes
+        if card_data.rating is not None:
+            card.rating = card_data.rating
+        if card_data.rating_count is not None:
+            card.rating_count = card_data.rating_count
         upserted_cards.append(card)
 
     # Upsert children as SourceCollection rows with parent_slug = slug
