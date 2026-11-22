@@ -32,6 +32,7 @@ from src.db.models.user_cook_event import UserCookEvent
 from src.db.models.user_recipe_view import UserRecipeView
 from src.db.models.source_catalog import SourceCollection, SourceRecipeCard, SourceCollectionCard
 from src.db.models.source_health import SourceHealthCheck
+from src.db.models.feedback import Feedback
 
 __all__ = [
     "User",
@@ -74,4 +75,5 @@ __all__ = [
     "SourceRecipeCard",
     "SourceCollectionCard",
     "SourceHealthCheck",
+    "Feedback",
 ]

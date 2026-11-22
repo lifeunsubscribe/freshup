@@ -438,6 +438,12 @@ export interface GroceryItemResponse {
   purchased_by: string | null;
   purchased_date: string | null;
   target_store: string | null;
+  /** Set when the item was put on the list by accepting a planned meal. */
+  linked_recipe?: string | null;
+  linked_meal_plan_entry?: string | null;
+  recipe_name?: string | null;
+  /** The day of that planned meal, YYYY-MM-DD. */
+  plan_date?: string | null;
 }
 
 export interface BulkPurchaseRequest {
@@ -613,6 +619,19 @@ export type RecommendedItem =
   | { kind: 'recipe'; recipe: RecipeListResponse }
 
 // ============================================================================
+// Feedback Types
+// ============================================================================
+
+/** A note sent to the developer from the account menu. */
+export interface FeedbackResponse {
+  id: string;
+  message: string;
+  page: string | null;
+  created_at: string;
+  user_name: string;
+}
+
+// ============================================================================
 // Source Health Types
 // ============================================================================
 
@@ -766,6 +785,11 @@ export interface WeekViewResponse {
   week_start: string;
   confirmed_entries: MealPlanEntryDisplay[];
   draft_entries: MealPlanEntryDisplay[];
+}
+
+export interface RemoveEntryResponse {
+  /** Unpurchased grocery items that came off the list with the meal. */
+  grocery_items_removed: number;
 }
 
 export interface RemixWeekResponse extends WeekViewResponse {

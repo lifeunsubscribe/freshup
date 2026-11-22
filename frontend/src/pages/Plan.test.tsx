@@ -20,6 +20,7 @@ vi.mock('../api', () => ({
   useOpenCard: vi.fn(),
   useCreatePlanEntry: vi.fn(),
   useRemixWeek: vi.fn(),
+  useRemovePlanEntry: vi.fn(),
 }))
 
 vi.mock('../api/hooks/useRecipes', () => ({
@@ -212,6 +213,16 @@ describe('Plan page', () => {
     renderWithProviders(<Plan />)
 
     expect(card('This week').queryByRole('button', { name: /Remix/ })).not.toBeInTheDocument()
+  })
+
+  it('removes a dinner from its card', () => {
+    planMocks.weeks[THIS_WEEK] = { draft_entries: [entry('2026-11-16')] }
+    setup()
+
+    renderWithProviders(<Plan />)
+    fireEvent.click(card('This week').getByRole('button', { name: 'Remove Monday dinner' }))
+
+    expect(planMocks.removeMutate).toHaveBeenCalledWith('entry-2026-11-16', expect.anything())
   })
 
   it('says which meal the plan covers', () => {

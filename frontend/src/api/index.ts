@@ -90,6 +90,7 @@ export {
   useCreateGroceryItem,
   useUpdateGroceryItem,
   useDeleteGroceryItem,
+  useHaveGroceryItem,
   usePurchaseGroceryItem,
   useUnpurchaseGroceryItem,
   useBulkPurchaseGroceryItems,
@@ -151,6 +152,7 @@ export {
   useSwapEntry,
   useCreatePlanEntry,
   useRemixWeek,
+  useRemovePlanEntry,
   planKeys,
 } from './hooks/usePlan';
 

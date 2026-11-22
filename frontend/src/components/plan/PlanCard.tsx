@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, ChevronRight, Plus, RefreshCw, Shuffle } from 'lucide-react'
+import { Check, ChevronRight, Plus, RefreshCw, Shuffle, Trash2 } from 'lucide-react'
 import type { MealPlanEntryDisplay } from '../../api/types'
 import { ownOrSourceName } from '../../utils/sourceNames'
 import { weekdayName } from '../../utils/week'
@@ -161,6 +161,7 @@ export default function PlanCard({
               onOpen={plan.open}
               onAccept={plan.accept}
               onSwap={plan.swap}
+              onRemove={plan.remove}
               addOpen={addingFor === date}
               onToggleAdd={() => {
                 plan.clearAddError()
@@ -201,6 +202,7 @@ interface MealCardProps {
   onOpen: (entry: MealPlanEntryDisplay) => void
   onAccept: (entry: MealPlanEntryDisplay) => void
   onSwap: (entry: MealPlanEntryDisplay) => void
+  onRemove: (entry: MealPlanEntryDisplay) => void
   /** The add band is open for this day. */
   addOpen: boolean
   onToggleAdd: () => void
@@ -216,6 +218,7 @@ function MealCard({
   onOpen,
   onAccept,
   onSwap,
+  onRemove,
   addOpen,
   onToggleAdd,
 }: MealCardProps) {
@@ -334,9 +337,27 @@ function MealCard({
               <RefreshCw size={14} />
               {large && 'Swap'}
             </button>
+            <button
+              onClick={() => onRemove(entry)}
+              disabled={busy}
+              aria-label={`Remove ${day} dinner`}
+              className="flex items-center justify-center w-9 h-9 flex-shrink-0 rounded-button-sm border border-warm-btn-border text-text-secondary disabled:opacity-50"
+            >
+              <Trash2 size={14} />
+            </button>
           </div>
         ) : (
-          <p className="mt-auto text-[12px] text-olive-dark">Planned</p>
+          <div className="mt-auto flex items-center justify-between gap-2">
+            <p className="text-[12px] text-olive-dark">Planned</p>
+            <button
+              onClick={() => onRemove(entry)}
+              disabled={busy}
+              aria-label={`Remove ${day} dinner`}
+              className="flex items-center justify-center w-9 h-9 flex-shrink-0 rounded-button-sm border border-warm-btn-border text-text-secondary disabled:opacity-50"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
         )}
 
         {error && (

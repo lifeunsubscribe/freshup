@@ -28,6 +28,7 @@ from src.schemas.plan import (
     CreateEntryRequest,
     RemixWeekRequest,
     RemixWeekResponse,
+    RemoveEntryResponse,
 )
 from src.exceptions import NotFoundError, ValidationError
 
@@ -250,6 +251,29 @@ def opt_out_entry(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to opt out of meal plan entry",
         )
+
+
+@router.delete("/entries/{entry_id}", response_model=RemoveEntryResponse)
+def remove_entry(
+    entry_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> RemoveEntryResponse:
+    """
+    Take a dinner off the plan, suggested or accepted.
+
+    Grocery items that were added for it and are not yet purchased come off the
+    grocery list; purchased ones stay.
+
+    **Auth:** Required
+    """
+    try:
+        removed = meal_plan_service.remove_entry(entry_id, db)
+        return RemoveEntryResponse(grocery_items_removed=removed)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post("/entries/{entry_id}/swap", response_model=SwapEntryResponse)

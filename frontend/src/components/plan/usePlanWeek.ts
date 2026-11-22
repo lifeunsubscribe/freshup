@@ -8,6 +8,7 @@ import {
   useOpenCard,
   useCreatePlanEntry,
   useRemixWeek,
+  useRemovePlanEntry,
 } from '../../api'
 import type { DinnerPick } from './AddDinnerBand'
 import type { MealPlanEntryDisplay } from '../../api/types'
@@ -42,6 +43,7 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
   const openCard = useOpenCard()
   const create = useCreatePlanEntry()
   const remixWeek = useRemixWeek()
+  const removeEntry = useRemovePlanEntry()
 
   // What the last accept did, shown once near the week's header.
   const [notice, setNotice] = useState<string | null>(null)
@@ -186,6 +188,23 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
     )
   }
 
+  /** Take a dinner off the plan; its unpurchased grocery items go with it. */
+  function remove(entry: MealPlanEntryDisplay) {
+    setNotice(null)
+    setRowError(null)
+    removeEntry.mutate(entry.id, {
+      onSuccess: (result) => {
+        const gone = result.grocery_items_removed
+        setNotice(
+          gone > 0
+            ? `Removed. Took ${gone} ${gone === 1 ? 'item' : 'items'} off your grocery list.`
+            : 'Removed.'
+        )
+      },
+      onError: failure(entry.id, 'Could not remove this one. Try again.'),
+    })
+  }
+
   function swapEntry(entry: MealPlanEntryDisplay) {
     setNotice(null)
     setRowError(null)
@@ -219,7 +238,9 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
     ? confirm.variables
     : swap.isPending
       ? swap.variables
-      : undefined
+      : removeEntry.isPending
+        ? removeEntry.variables
+        : undefined
 
   return {
     isLoading,
@@ -243,6 +264,7 @@ export function usePlanWeek(weekStart: string, { autoFill }: { autoFill: boolean
     accept,
     acceptAll: () => void acceptAll(),
     swap: swapEntry,
+    remove,
     open,
     add,
     addingDate,

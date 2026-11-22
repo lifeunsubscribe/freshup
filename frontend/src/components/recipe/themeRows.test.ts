@@ -52,6 +52,24 @@ describe('matchesValue', () => {
 })
 
 describe('YOUR_ROWS recently-viewed row', () => {
+  it('comes first, on the main page, on a theme page and on a filtered page', () => {
+    const themes: Theme[] = [
+      {
+        key: 'cuisine',
+        label: 'Cuisine',
+        values: [value({ value: 'italian', library_tag: 'italian', library_count: 3 })],
+      },
+    ]
+
+    expect(buildPageRows(themes, null, []).rows[0].id).toBe('recently-viewed')
+    expect(buildPageRows(themes, 'cuisine', []).rows[0].id).toBe('recently-viewed')
+    const filtered = buildPageRows(themes, null, [{ theme: 'cuisine', value: 'italian' }]).rows
+    expect(filtered[0].id).toBe('recently-viewed')
+    // Anchored means unfiltered: it carries no show-if rule on a filtered page.
+    expect(filtered[0].kind === 'library' && filtered[0].showIf).toBeFalsy()
+    expect(filtered.filter((r) => r.id === 'recently-viewed')).toHaveLength(1)
+  })
+
   it('has id recently-viewed, title Recently viewed, and viewed: true filter', () => {
     const row = YOUR_ROWS.find((r) => r.id === 'recently-viewed')
     expect(row).toBeDefined()
@@ -80,7 +98,11 @@ describe('buildPageRows', () => {
     const themes: Theme[] = [
       { key: 'source', label: 'Source', values: [value({ value: 'a', collections: [shared] }), value({ value: 'b', collections: [shared] })] },
     ]
-    expect(buildPageRows(themes, 'source', []).rows.map((r) => r.id)).toEqual(['hellofresh_web-x'])
+    // Recently viewed is anchored first on every page; then the collection, once.
+    expect(buildPageRows(themes, 'source', []).rows.map((r) => r.id)).toEqual([
+      'recently-viewed',
+      'hellofresh_web-x',
+    ])
   })
 
   describe('combined filters', () => {

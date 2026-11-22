@@ -269,6 +269,30 @@ def delete_grocery_item(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+@router.post("/{item_id}/have", status_code=status.HTTP_204_NO_CONTENT)
+def have_item(
+    item_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    "I have this": take an item off the list because it is already in the house.
+
+    Any authenticated user may do this for any item, as with purchasing.
+
+    Raises:
+        HTTPException(404): If item doesn't exist
+        HTTPException(500): If database error occurs
+    """
+    try:
+        grocery_service.mark_have(item_id, current_user, db)
+    except DomainException as e:
+        raise HTTPException(status_code=e.http_status_code, detail=e.message)
+    except RuntimeError as e:
+        logger.error(f"Runtime error in have_item: user_id={current_user.id}, item_id={item_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 @router.put("/{item_id}/purchase", response_model=GroceryItemResponse)
 def purchase_item(
     item_id: UUID,

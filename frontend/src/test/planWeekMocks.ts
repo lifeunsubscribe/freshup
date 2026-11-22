@@ -7,13 +7,14 @@ import {
   useOpenCard,
   useCreatePlanEntry,
   useRemixWeek,
+  useRemovePlanEntry,
 } from '../api'
 import { useRecommendations } from '../api/hooks/useRecipes'
 import type { MealPlanEntryDisplay, RecommendedItem, WeekViewResponse } from '../api/types'
 
 /**
  * Shared stand-ins for the plan hooks, for tests of the Plan page and the week
- * editor. The test file must itself call vi.mock('../api', ...) for the seven
+ * editor. The test file must itself call vi.mock('../api', ...) for the eight
  * plan hooks and vi.mock('../api/hooks/useRecipes', ...) for useRecommendations;
  * this module only fills those mocks in.
  */
@@ -51,6 +52,7 @@ export const planMocks = {
   openCardMutate: vi.fn(),
   createMutateAsync: vi.fn(),
   remixMutate: vi.fn(),
+  removeMutate: vi.fn(),
   /** What GET /recommendations returns for the add band. */
   recommendations: [] as RecommendedItem[],
   /** Weeks the mocked GET /plan/week knows about; any other week is empty. */
@@ -109,6 +111,10 @@ export function setupPlanMocks({
     mutate: planMocks.remixMutate,
     isPending: false,
   } as unknown as ReturnType<typeof useRemixWeek>)
+  vi.mocked(useRemovePlanEntry).mockReturnValue({
+    mutate: planMocks.removeMutate,
+    isPending: false,
+  } as unknown as ReturnType<typeof useRemovePlanEntry>)
   vi.mocked(useRecommendations).mockReturnValue({
     data: planMocks.recommendations,
     isLoading: false,

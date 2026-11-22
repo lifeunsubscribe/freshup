@@ -11,21 +11,26 @@ import {
 import { useMutationErrorHandler } from '../utils/mutationErrorUtils'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import type { GroceryItemResponse, UserListResponse } from '../api/types'
+import { defaultGroceryView, groupByRecipe, type GroceryView } from '../components/grocery/groupByRecipe'
+import { formatMonthDay, weekdayName } from '../utils/week'
 
-type ViewMode = 'by-store' | 'flat'
+type ViewMode = GroceryView
 
 /**
  * Grocery page - Shared household shopping list
  *
  * Features:
- * - Two view modes: by-store (default) and flat list
+ * - Three views: by recipe (what each item is for), by store, and a flat list.
+ *   It opens by store once an item has a store, else by recipe once a planned
+ *   meal has put something on the list, else as the flat list.
  * - 30-second polling for real-time shared updates
  * - Add item form in bottom action bar
  * - Per-user attribution display
  * - Optimistic checkbox updates via GroceryItem component
  */
 export default function Grocery() {
-  const [viewMode, setViewMode] = useState<ViewMode>('by-store')
+  // The view the user picked; until they pick, the list chooses (see below).
+  const [chosenView, setChosenView] = useState<ViewMode | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [itemName, setItemName] = useState('')
   const [quantity, setQuantity] = useState('1')
@@ -51,6 +56,10 @@ export default function Grocery() {
       refetchInterval: 30000, // 30 second polling
     }
   )
+
+  const viewMode = chosenView ?? defaultGroceryView(flatListData)
+  const setViewMode = setChosenView
+  const recipeGroups = useMemo(() => groupByRecipe(flatListData), [flatListData])
 
   // Fetch users for name lookup
   const { data: users = [] } = useUsers()
@@ -136,8 +145,20 @@ export default function Grocery() {
         {/* View toggle */}
         <div className="flex gap-2 mb-6">
           <button
+            onClick={() => setViewMode('by-recipe')}
+            aria-pressed={viewMode === 'by-recipe'}
+            className={`flex-1 py-2 px-3 rounded-lg font-medium text-sm transition-colors ${
+              viewMode === 'by-recipe'
+                ? 'bg-olive text-cream'
+                : 'bg-white text-text-secondary border border-warm-border'
+            }`}
+          >
+            By Recipe
+          </button>
+          <button
             onClick={() => setViewMode('by-store')}
-            className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-colors ${
+            aria-pressed={viewMode === 'by-store'}
+            className={`flex-1 py-2 px-3 rounded-lg font-medium text-sm transition-colors ${
               viewMode === 'by-store'
                 ? 'bg-olive text-cream'
                 : 'bg-white text-text-secondary border border-warm-border'
@@ -147,7 +168,8 @@ export default function Grocery() {
           </button>
           <button
             onClick={() => setViewMode('flat')}
-            className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-colors ${
+            aria-pressed={viewMode === 'flat'}
+            className={`flex-1 py-2 px-3 rounded-lg font-medium text-sm transition-colors ${
               viewMode === 'flat'
                 ? 'bg-olive text-cream'
                 : 'bg-white text-text-secondary border border-warm-border'
@@ -248,6 +270,44 @@ export default function Grocery() {
               )}
             </div>
           )}
+
+        {/* By-Recipe View: each planned meal's items together, then the rest */}
+        {!isLoading && !error && viewMode === 'by-recipe' && flatListData.length > 0 && (
+          <div className="space-y-6">
+            {recipeGroups.map((group) => (
+              <section
+                key={group.key}
+                aria-label={group.recipeName ?? 'Other items'}
+                className="bg-white rounded-card border border-warm-border"
+              >
+                <div className="px-4 py-3 border-b border-warm-border">
+                  <h3 className="text-[15px] font-medium text-text-primary">
+                    {group.recipeName ?? 'Other items'}
+                    <span className="ml-2 text-sm text-text-secondary font-normal">
+                      ({group.items.length} {group.items.length === 1 ? 'item' : 'items'})
+                    </span>
+                  </h3>
+                  {group.planDate && (
+                    <p className="text-xs text-text-secondary mt-0.5">
+                      {weekdayName(group.planDate)} dinner · {formatMonthDay(group.planDate)}
+                    </p>
+                  )}
+                </div>
+                <div className="divide-y divide-warm-border">
+                  {group.items.map((item) => (
+                    <div key={item.id} className="px-4">
+                      <GroceryItem
+                        item={item}
+                        hideRecipe
+                        purchaserName={item.purchased_by ? getUserName(item.purchased_by) : undefined}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
 
         {/* Flat View */}
         {!isLoading &&

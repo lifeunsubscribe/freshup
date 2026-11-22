@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Check, ChevronLeft, ChevronRight, Plus, RefreshCw, Shuffle } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Plus, RefreshCw, Shuffle, Trash2 } from 'lucide-react'
 import PageContainer from '../components/layout/PageContainer'
 import AddDinnerBand from '../components/plan/AddDinnerBand'
 import PlanSummary from '../components/plan/PlanSummary'
@@ -176,6 +176,7 @@ function WeekEditor({ weekStart }: { weekStart: string }) {
                 onOpen={plan.open}
                 onAccept={plan.accept}
                 onSwap={plan.swap}
+                onRemove={plan.remove}
                 addOpen={addingFor === date}
                 onToggleAdd={() => {
                   plan.clearAddError()
@@ -214,6 +215,7 @@ interface DayRowProps {
   onOpen: (entry: MealPlanEntryDisplay) => void
   onAccept: (entry: MealPlanEntryDisplay) => void
   onSwap: (entry: MealPlanEntryDisplay) => void
+  onRemove: (entry: MealPlanEntryDisplay) => void
   /** The add band is open for this day. */
   addOpen: boolean
   onToggleAdd: () => void
@@ -230,6 +232,7 @@ function DayRow({
   onOpen,
   onAccept,
   onSwap,
+  onRemove,
   addOpen,
   onToggleAdd,
   children,
@@ -332,12 +335,30 @@ function DayRow({
                   <RefreshCw size={14} />
                   Swap
                 </button>
+                <button
+                  onClick={() => onRemove(entry)}
+                  disabled={busy}
+                  aria-label={`Remove ${day} dinner`}
+                  className="flex items-center justify-center w-9 h-9 flex-shrink-0 rounded-button-sm border border-warm-btn-border text-text-secondary disabled:opacity-50"
+                >
+                  <Trash2 size={14} />
+                </button>
               </div>
             ) : (
-              <p className="mt-auto pt-2 flex items-center gap-1 text-[12px] text-olive-dark">
-                <Check size={13} />
-                Planned
-              </p>
+              <div className="mt-auto pt-2 flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1 text-[12px] text-olive-dark">
+                  <Check size={13} />
+                  Planned
+                </p>
+                <button
+                  onClick={() => onRemove(entry)}
+                  disabled={busy}
+                  aria-label={`Remove ${day} dinner`}
+                  className="flex items-center justify-center w-9 h-9 flex-shrink-0 rounded-button-sm border border-warm-btn-border text-text-secondary disabled:opacity-50"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             )}
           </div>
         </div>

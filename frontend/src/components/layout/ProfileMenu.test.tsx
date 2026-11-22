@@ -10,6 +10,12 @@ vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ currentUser, logout }),
 }))
 
+const sendMutate = vi.fn()
+let sendState = { isPending: false, isError: false }
+vi.mock('../../api/hooks/useFeedback', () => ({
+  useSendFeedback: () => ({ mutate: sendMutate, reset: vi.fn(), ...sendState }),
+}))
+
 function openMenu() {
   fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
 }
@@ -19,6 +25,7 @@ describe('ProfileMenu', () => {
     vi.clearAllMocks()
     currentUser = { name: 'Sarah', email: 'sarah@example.test' }
     logout.mockResolvedValue(undefined)
+    sendState = { isPending: false, isError: false }
   })
 
   it('shows the signed-in person\'s initial, with the menu closed', () => {
@@ -72,6 +79,52 @@ describe('ProfileMenu', () => {
     fireEvent.mouseDown(screen.getByText('sarah@example.test'))
 
     expect(screen.getByRole('menu')).toBeInTheDocument()
+  })
+
+  describe('send feedback', () => {
+    function openFeedback() {
+      openMenu()
+      fireEvent.click(screen.getByRole('menuitem', { name: /Send feedback/ }))
+    }
+
+    it('opens a sheet for a note to the developer and closes the menu', () => {
+      renderWithProviders(<ProfileMenu />, { route: '/plan/2026-11-15' })
+      openFeedback()
+
+      expect(screen.getByRole('dialog', { name: 'Send feedback to the developer' })).toBeInTheDocument()
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+    })
+
+    it('sends the note with the page it was written on, then says it is saved', () => {
+      sendMutate.mockImplementation((_note, options) => options.onSuccess())
+      renderWithProviders(<ProfileMenu />, { route: '/plan/2026-11-15' })
+      openFeedback()
+      fireEvent.change(screen.getByRole('textbox'), {
+        target: { value: '  The swap button is hard to find.  ' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+      expect(sendMutate).toHaveBeenCalledWith(
+        { message: 'The swap button is hard to find.', page: '/plan/2026-11-15' },
+        expect.anything()
+      )
+      expect(screen.getByRole('status')).toHaveTextContent('Your note is saved for review.')
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('keeps the note and says so when it could not be sent', () => {
+      sendState = { isPending: false, isError: true }
+      renderWithProviders(<ProfileMenu />)
+      openFeedback()
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'A note' } })
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Could not send that. Try again.')
+      expect(screen.getByRole('textbox')).toHaveValue('A note')
+    })
   })
 
   it('renders nothing when nobody is signed in', () => {

@@ -6,7 +6,7 @@ store-grouped responses for the by-store endpoint.
 """
 
 from uuid import UUID
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
@@ -108,6 +108,11 @@ class GroceryItemResponse(BaseModel):
     purchased_by: Optional[UUID]
     purchased_date: Optional[datetime]
     added_by: UUID
+    # Set when the item was put on the list by accepting a planned meal.
+    linked_recipe: Optional[UUID] = None
+    linked_meal_plan_entry: Optional[UUID] = None
+    recipe_name: Optional[str] = None
+    plan_date: Optional[date] = None
 
 
 class StoreGroupedItems(BaseModel):

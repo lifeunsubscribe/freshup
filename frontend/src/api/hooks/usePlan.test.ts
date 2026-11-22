@@ -3,7 +3,15 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { createElement } from 'react'
-import { useCreatePlanEntry, useGenerateDraft, useRemixWeek, planKeys } from './usePlan'
+import {
+  useConfirmEntry,
+  useCreatePlanEntry,
+  useGenerateDraft,
+  useRemixWeek,
+  useRemovePlanEntry,
+  planKeys,
+} from './usePlan'
+import { groceryKeys } from './useGrocery'
 
 vi.mock('../client', () => ({
   apiClient: vi.fn().mockResolvedValue({
@@ -124,6 +132,43 @@ describe('useRemixWeek', () => {
       body: JSON.stringify({ week_start: '2026-11-15', from_date: '2026-11-18' }),
     })
     await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: planKeys.all })
+    })
+  })
+})
+
+describe('the grocery list follows the plan', () => {
+  function setupClient() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children)
+    return { wrapper, spy: vi.spyOn(queryClient, 'invalidateQueries') }
+  }
+
+  it('refreshes the grocery list when a dinner is accepted', async () => {
+    const { wrapper, spy } = setupClient()
+    const { result } = renderHook(() => useConfirmEntry(), { wrapper })
+
+    await result.current.mutateAsync('entry-1')
+
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: groceryKeys.all })
+      expect(spy).toHaveBeenCalledWith({ queryKey: planKeys.all })
+    })
+  })
+
+  it('removes a dinner and refreshes both the plan and the grocery list', async () => {
+    const { apiClient } = await import('../client')
+    const { wrapper, spy } = setupClient()
+    const { result } = renderHook(() => useRemovePlanEntry(), { wrapper })
+
+    await result.current.mutateAsync('entry-1')
+
+    expect(vi.mocked(apiClient)).toHaveBeenLastCalledWith('/plan/entries/entry-1', { method: 'DELETE' })
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: groceryKeys.all })
       expect(spy).toHaveBeenCalledWith({ queryKey: planKeys.all })
     })
   })

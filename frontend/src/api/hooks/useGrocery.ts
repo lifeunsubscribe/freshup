@@ -185,6 +185,23 @@ export function useDeleteGroceryItem() {
 }
 
 /**
+ * "I have this": take an item off the list because it is already in the house.
+ */
+export function useHaveGroceryItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      return apiClient<void>(`/grocery/${id}/have`, { method: 'POST' });
+    },
+    onSuccess: (_, id) => {
+      queryClient.removeQueries({ queryKey: groceryKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: groceryKeys.all });
+    },
+  });
+}
+
+/**
  * Mark grocery item as purchased
  * Implements optimistic updates for responsive UI
  */

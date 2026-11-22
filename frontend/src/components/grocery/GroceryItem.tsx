@@ -1,4 +1,4 @@
-import { usePurchaseGroceryItem, useUnpurchaseGroceryItem } from '../../api'
+import { useHaveGroceryItem, usePurchaseGroceryItem, useUnpurchaseGroceryItem } from '../../api'
 import Pill from '../ui/Pill'
 import ErrorBanner from '../ui/ErrorBanner'
 import type { GroceryItemResponse } from '../../api/types'
@@ -7,6 +7,8 @@ import { useMutationErrorHandler } from '../../utils/mutationErrorUtils'
 export interface GroceryItemProps {
   item: GroceryItemResponse
   purchaserName?: string
+  /** Leave out the recipe chip, for a list already grouped under the recipe. */
+  hideRecipe?: boolean
 }
 
 /**
@@ -16,14 +18,16 @@ export interface GroceryItemProps {
  * - Checkbox (18-20px) with 5-6px border radius
  * - Checked state: olive fill, strikethrough item name with tertiary text
  * - Item name and quantity inline: "Olive oil (1 bottle)"
- * - Context chip on right: recipe name, "staple restock", or "manual" source
+ * - Context chip on right: the recipe the item is for, "staple restock", or "manual"
+ * - "Have it" on an unbought item takes it off the list: it is already in the house
  * - Shows purchaser name when checked: "Sarah" in secondary text
  * - Optimistic updates: immediate visual feedback, API call in background
  * - Touch target: minimum 44px for mobile usability
  */
-export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
+export default function GroceryItem({ item, purchaserName, hideRecipe = false }: GroceryItemProps) {
   const purchaseMutation = usePurchaseGroceryItem()
   const unpurchaseMutation = useUnpurchaseGroceryItem()
+  const haveMutation = useHaveGroceryItem()
   const { errorMessage, clearError, handleError } = useMutationErrorHandler()
 
   const handleCheckboxClick = () => {
@@ -44,8 +48,16 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
     }
   }
 
-  // Check if either mutation is pending to prevent double-clicks
-  const isPending = purchaseMutation.isPending || unpurchaseMutation.isPending
+  const handleHaveClick = () => {
+    clearError()
+    haveMutation.mutate(item.id, {
+      onError: (error) => handleError(error, 'Could not take this off the list. Please try again.'),
+    })
+  }
+
+  // Check if any mutation is pending to prevent double-clicks
+  const isPending =
+    purchaseMutation.isPending || unpurchaseMutation.isPending || haveMutation.isPending
 
   // Map source to readable label for context chip
   const getSourceLabel = (): string => {
@@ -54,6 +66,8 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
         return 'recipe'
       case 'low_stock':
         return 'staple restock'
+      case 'meal_plan':
+        return 'meal plan'
       case 'manual':
       default:
         return 'manual'
@@ -64,6 +78,7 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
   const getSourceVariant = (): 'default' | 'success' | 'warning' | 'alert' => {
     switch (item.source) {
       case 'recipe':
+      case 'meal_plan':
         return 'success' // Olive - from a recipe
       case 'low_stock':
         return 'warning' // Mocha - needs restocking
@@ -145,10 +160,35 @@ export default function GroceryItem({ item, purchaserName }: GroceryItemProps) {
           )}
         </div>
 
-        {/* Context chip on right */}
-        <div className="flex-shrink-0">
-          <Pill variant={getSourceVariant()}>{getSourceLabel()}</Pill>
-        </div>
+        {/* "I have this": not needed after all, it is already in the house */}
+        {!item.purchased && (
+          <button
+            onClick={handleHaveClick}
+            disabled={isPending}
+            aria-label={`I already have ${item.item_name}`}
+            type="button"
+            className="flex-shrink-0 px-2 min-h-[44px] text-[13px] text-olive disabled:opacity-50"
+          >
+            Have it
+          </button>
+        )}
+
+        {/* Context chip on right: the recipe this is for, else where it came from */}
+        {item.recipe_name ? (
+          !hideRecipe && (
+            <div
+              className="flex-shrink-0 max-w-[40%] truncate"
+              title={`For ${item.recipe_name}`}
+              aria-label={`For ${item.recipe_name}`}
+            >
+              <Pill variant="success">{item.recipe_name}</Pill>
+            </div>
+          )
+        ) : (
+          <div className="flex-shrink-0">
+            <Pill variant={getSourceVariant()}>{getSourceLabel()}</Pill>
+          </div>
+        )}
       </div>
 
       {/* Error message banner */}

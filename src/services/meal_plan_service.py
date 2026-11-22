@@ -557,6 +557,10 @@ def confirm_entry(
                 source="meal_plan",  # Tags items as coming from meal plan confirmation
                 current_user=current_user,
                 db=db,
+                # The list shows which recipe each item is for, and removing
+                # the meal takes its unpurchased items off the list again.
+                linked_recipe=recipe.id,
+                linked_meal_plan_entry=entry.id,
             )
             grocery_items_added += 1
         except ValidationError as e:
@@ -1020,6 +1024,53 @@ def create_entry(
         f"recipe={recipe_id}, date={request_date}, meal_type={meal_type}"
     )
     return entry_with_opts
+
+
+def remove_entry(entry_id: UUID, db: Session) -> int:
+    """
+    Take a dinner off the plan, suggested or accepted.
+
+    The grocery list follows the plan: items that were added for this meal and
+    are not yet purchased come off the list.  Purchased ones stay (the food is
+    in the house) and simply lose their link to the meal.
+
+    Returns the number of grocery items removed.
+
+    Raises:
+        NotFoundError: If the entry does not exist.
+    """
+    from src.db.models.grocery_list import GroceryListItem
+
+    entry = db.query(MealPlanEntry).filter(MealPlanEntry.id == entry_id).first()
+    if not entry:
+        raise NotFoundError(f"Meal plan entry {entry_id} not found")
+
+    linked = (
+        db.query(GroceryListItem)
+        .filter(GroceryListItem.linked_meal_plan_entry == entry_id)
+        .all()
+    )
+    removed = 0
+    for item in linked:
+        if item.purchased:
+            item.linked_meal_plan_entry = None
+        else:
+            db.delete(item)
+            removed += 1
+
+    try:
+        # Flush the grocery changes first: the items point at the entry.
+        db.flush()
+        entry.user_opt_ins.clear()
+        db.delete(entry)
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error while removing meal plan entry {entry_id}: {e}")
+        raise ValidationError("Failed to remove the meal from the plan")
+
+    logger.info(f"Removed meal plan entry {entry_id}: {removed} grocery items came off the list")
+    return removed
 
 
 def remix_week(

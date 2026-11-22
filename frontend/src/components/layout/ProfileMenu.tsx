@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LogOut, UserRound } from 'lucide-react'
+import { LogOut, MessageSquare, UserRound } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import FeedbackSheet from './FeedbackSheet'
 
 /**
  * The account button anchored at the top right of every signed-in page.
  * It opens a small menu: who is signed in, their profile (preferences,
- * allergies, household), and log out.
+ * allergies, household), a way to send feedback to the developer, and log out.
  */
 export default function ProfileMenu() {
   const { currentUser, logout } = useAuth()
   const [open, setOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const container = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
 
@@ -76,6 +78,20 @@ export default function ProfileMenu() {
             role="menuitem"
             onClick={() => {
               setOpen(false)
+              setFeedbackOpen(true)
+            }}
+            className="flex w-full items-start gap-3 px-4 py-3 border-t border-warm-divider text-left hover:bg-cream-surface"
+          >
+            <MessageSquare size={16} className="mt-0.5 text-text-secondary" />
+            <span>
+              <span className="block text-[14px] text-text-primary">Send feedback</span>
+              <span className="block text-[12px] text-text-secondary">A note to the developer</span>
+            </span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
               void logout()
             }}
             className="flex w-full items-center gap-3 px-4 py-3 border-t border-warm-divider text-left text-[14px] text-text-primary hover:bg-cream-surface"
@@ -85,6 +101,8 @@ export default function ProfileMenu() {
           </button>
         </div>
       )}
+
+      <FeedbackSheet open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </div>
   )
 }

@@ -9,14 +9,16 @@ import type { GroceryItemResponse } from '../../api/types'
 vi.mock('../../api', () => ({
   usePurchaseGroceryItem: vi.fn(),
   useUnpurchaseGroceryItem: vi.fn(),
+  useHaveGroceryItem: vi.fn(),
 }))
 
-import { usePurchaseGroceryItem, useUnpurchaseGroceryItem } from '../../api'
+import { useHaveGroceryItem, usePurchaseGroceryItem, useUnpurchaseGroceryItem } from '../../api'
 
 describe('GroceryItem', () => {
   let queryClient: QueryClient
   let purchaseMutate: ReturnType<typeof vi.fn>
   let unpurchaseMutate: ReturnType<typeof vi.fn>
+  let haveMutate: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     queryClient = new QueryClient({
@@ -35,6 +37,11 @@ describe('GroceryItem', () => {
 
     vi.mocked(useUnpurchaseGroceryItem).mockReturnValue({
       mutate: unpurchaseMutate,
+    } as any)
+
+    haveMutate = vi.fn()
+    vi.mocked(useHaveGroceryItem).mockReturnValue({
+      mutate: haveMutate,
     } as any)
   })
 
@@ -142,6 +149,60 @@ describe('GroceryItem', () => {
       renderWithProviders(<GroceryItem item={item} />)
 
       expect(screen.getByText('staple restock')).toBeInTheDocument()
+    })
+  })
+
+  describe('What the item is for', () => {
+    it('names the recipe a planned meal added it for', () => {
+      const item = createMockItem({ source: 'meal_plan', recipe_name: 'Gochujang Shrimp Fried Rice' })
+      renderWithProviders(<GroceryItem item={item} />)
+
+      expect(screen.getByLabelText('For Gochujang Shrimp Fried Rice')).toHaveTextContent(
+        'Gochujang Shrimp Fried Rice'
+      )
+      expect(screen.queryByText('meal plan')).not.toBeInTheDocument()
+    })
+
+    it('leaves the recipe out when the list is already grouped under it', () => {
+      const item = createMockItem({ source: 'meal_plan', recipe_name: 'Gochujang Shrimp Fried Rice' })
+      renderWithProviders(<GroceryItem item={item} hideRecipe />)
+
+      expect(screen.queryByText('Gochujang Shrimp Fried Rice')).not.toBeInTheDocument()
+    })
+
+    it('says "meal plan" for a planned item whose recipe is not known', () => {
+      const item = createMockItem({ source: 'meal_plan', recipe_name: null })
+      renderWithProviders(<GroceryItem item={item} />)
+
+      expect(screen.getByText('meal plan')).toBeInTheDocument()
+    })
+  })
+
+  describe('I have this', () => {
+    it('takes an unbought item off the list', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(<GroceryItem item={createMockItem()} />)
+
+      await user.click(screen.getByRole('button', { name: 'I already have Olive oil' }))
+
+      expect(haveMutate).toHaveBeenCalledWith('item-1', expect.anything())
+      expect(purchaseMutate).not.toHaveBeenCalled()
+    })
+
+    it('is not offered on an item already bought', () => {
+      renderWithProviders(<GroceryItem item={createMockItem({ purchased: true })} />)
+
+      expect(screen.queryByRole('button', { name: /I already have/ })).not.toBeInTheDocument()
+    })
+
+    it('says so when it fails', async () => {
+      haveMutate.mockImplementation((_id, options) => options.onError(new Error('nope')))
+      const user = userEvent.setup()
+      renderWithProviders(<GroceryItem item={createMockItem()} />)
+
+      await user.click(screen.getByRole('button', { name: 'I already have Olive oil' }))
+
+      expect(await screen.findByText(/Could not take this off the list|nope/)).toBeInTheDocument()
     })
   })
 
@@ -434,7 +495,7 @@ describe('GroceryItem', () => {
       const item = createMockItem()
       renderWithProviders(<GroceryItem item={item} />)
 
-      const checkbox = screen.getByRole('button')
+      const checkbox = screen.getByRole('button', { name: 'Mark Olive oil as purchased' })
       expect(checkbox).toHaveAttribute('type', 'button')
     })
   })

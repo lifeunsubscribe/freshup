@@ -131,6 +131,12 @@ class WeekViewResponse(BaseModel):
     )
 
 
+class RemoveEntryResponse(BaseModel):
+    """What removing a planned meal did to the grocery list."""
+
+    grocery_items_removed: int = Field(..., description="Unpurchased items taken off the grocery list")
+
+
 class RemixWeekResponse(WeekViewResponse):
     """The week after a remix, and how many suggestions changed."""
 

@@ -1436,3 +1436,72 @@ class TestGetGroceryItemsByStore:
         data = response.json()
         assert data["stores"] == []
         assert data["unassigned"] == []
+
+
+# ---------------------------------------------------------------------------
+# Where an item came from, and "I have this"
+# ---------------------------------------------------------------------------
+
+
+def test_list_says_which_recipe_and_planned_day_an_item_is_for(
+    client, db_session, auth_headers, test_user, test_grocery_item
+):
+    from datetime import date
+    from src.db.models.meal_plan import MealPlanEntry
+    from src.db.models.recipe import Recipe
+
+    recipe = Recipe(
+        id=uuid4(), name="Gochujang Shrimp Fried Rice", source_type="manual",
+        base_servings=2, is_persisted=True, created_by=test_user.id,
+    )
+    entry = MealPlanEntry(
+        id=uuid4(), date=date(2026, 11, 21), meal_type="dinner", recipe_id=recipe.id,
+        planned_servings=2, status="approved",
+    )
+    db_session.add_all([recipe, entry])
+    db_session.flush()
+    db_session.add(GroceryListItem(
+        id=uuid4(), item_name="Shrimp", quantity=10.0, unit="oz", source="meal_plan",
+        added_by=test_user.id, linked_recipe=recipe.id, linked_meal_plan_entry=entry.id,
+    ))
+    db_session.commit()
+
+    response = client.get("/grocery", headers=auth_headers)
+
+    assert response.status_code == 200
+    by_name = {item["item_name"]: item for item in response.json()}
+    assert by_name["Shrimp"]["recipe_name"] == "Gochujang Shrimp Fried Rice"
+    assert by_name["Shrimp"]["plan_date"] == "2026-11-21"
+    assert by_name["Shrimp"]["linked_meal_plan_entry"] == str(entry.id)
+    assert by_name["Milk"]["recipe_name"] is None
+    assert by_name["Milk"]["plan_date"] is None
+
+
+def test_i_have_this_takes_the_item_off_the_list(client, db_session, auth_headers, test_grocery_item):
+    response = client.post(f"/grocery/{test_grocery_item.id}/have", headers=auth_headers)
+
+    assert response.status_code == 204
+    assert db_session.query(GroceryListItem).count() == 0
+
+
+def test_i_have_this_works_on_an_item_someone_else_added(
+    client, db_session, auth_headers2, test_grocery_item
+):
+    """Like purchasing: whoever looks in the cupboard can say so."""
+    response = client.post(f"/grocery/{test_grocery_item.id}/have", headers=auth_headers2)
+
+    assert response.status_code == 204
+    assert db_session.query(GroceryListItem).count() == 0
+
+
+def test_i_have_this_unknown_item_returns_404(client, auth_headers):
+    response = client.post(f"/grocery/{uuid4()}/have", headers=auth_headers)
+
+    assert response.status_code == 404
+
+
+def test_i_have_this_requires_authentication(client, db_session, test_grocery_item):
+    response = client.post(f"/grocery/{test_grocery_item.id}/have")
+
+    assert response.status_code in (401, 403)
+    assert db_session.query(GroceryListItem).count() == 1

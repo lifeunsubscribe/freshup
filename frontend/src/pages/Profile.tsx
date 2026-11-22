@@ -7,6 +7,7 @@ import AllergiesSection from '../components/profile/AllergiesSection'
 import TastePreferencesSection from '../components/profile/TastePreferencesSection'
 import SubstitutionsSection from '../components/profile/SubstitutionsSection'
 import SourceHealthSection from '../components/profile/SourceHealthSection'
+import FeedbackSection from '../components/profile/FeedbackSection'
 import { useAuth } from '../contexts/AuthContext'
 
 /**
@@ -18,6 +19,7 @@ import { useAuth } from '../contexts/AuthContext'
  * - AllergiesSection: tag input for allergies
  * - TastePreferencesSection: segmented-control taste map (replaces DislikedIngredientsSection)
  * - SubstitutionsSection: CRUD for ingredient substitution preferences
+ * - FeedbackSection: notes sent from the account menu (coordinators only)
  * - UserSwitcher: switch between household members (coordinators only)
  */
 export default function Profile() {
@@ -59,6 +61,9 @@ export default function Profile() {
 
           {/* Recipe source health (only for coordinators) */}
           <SourceHealthSection />
+
+          {/* Notes sent with "Send feedback" (only for coordinators) */}
+          <FeedbackSection />
 
           {/* User Switcher (only for coordinators) */}
           <UserSwitcher />

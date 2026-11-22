@@ -12,7 +12,7 @@ import CollectionRow from '../components/recipe/CollectionRow'
 import MixedRow from '../components/recipe/MixedRow'
 import MoreCollectionsSheet from '../components/recipe/MoreCollectionsSheet'
 import Pill from '../components/ui/Pill'
-import { buildPageRows } from '../components/recipe/themeRows'
+import { buildPageRows, PINNED_ROW_ID, type RowSpec } from '../components/recipe/themeRows'
 import { useCollections } from '../api/hooks/useCatalog'
 import { useThemes } from '../api/hooks/useThemes'
 import { useRecommendations } from '../api/hooks/useRecipes'
@@ -108,6 +108,23 @@ export default function Recipes() {
     setViewMode('grid')
   }, [])
 
+  const renderRow = (row: RowSpec) =>
+    row.kind === 'library' ? (
+      <RecipeCarousel
+        key={row.id}
+        sectionId={row.id}
+        title={row.title}
+        filters={row.filters}
+        subtitle={row.subtitle}
+        showIf={row.showIf}
+        minCount={row.minCount}
+        hideIfWithin={row.hideIfWithin}
+        onSeeAll={() => handleSeeAll(row.filters)}
+      />
+    ) : (
+      <CollectionRow key={row.id} collection={row.collection} minCount={row.minCount} />
+    )
+
   // Handle back button - return to carousel view
   const handleBack = () => {
     setViewMode('carousel')
@@ -187,27 +204,14 @@ export default function Recipes() {
             {heading && <SectionHeader subtitle={heading.subtitle}>{heading.title}</SectionHeader>}
 
             <div className="space-y-6">
+              {/* Recently viewed stays anchored at the top, above "For you" */}
+              {rows.filter((row) => row.id === PINNED_ROW_ID).map(renderRow)}
+
               {onMainPage && (
                 <MixedRow title="For you" items={recommendations ?? []} />
               )}
 
-              {rows.map((row) =>
-                row.kind === 'library' ? (
-                  <RecipeCarousel
-                    key={row.id}
-                    sectionId={row.id}
-                    title={row.title}
-                    filters={row.filters}
-                    subtitle={row.subtitle}
-                    showIf={row.showIf}
-                    minCount={row.minCount}
-                    hideIfWithin={row.hideIfWithin}
-                    onSeeAll={() => handleSeeAll(row.filters)}
-                  />
-                ) : (
-                  <CollectionRow key={row.id} collection={row.collection} minCount={row.minCount} />
-                )
-              )}
+              {rows.filter((row) => row.id !== PINNED_ROW_ID).map(renderRow)}
 
               {collectionsLoading && (
                 <p className="text-sm text-text-secondary">Loading HelloFresh collections…</p>

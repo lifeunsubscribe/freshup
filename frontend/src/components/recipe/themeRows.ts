@@ -49,10 +49,22 @@ export type RowSpec = LibraryRowSpec | CollectionRowSpec
 
 const RECENTLY_VIEWED: RecipeListFilters = { limit: CAROUSEL_LIMIT, viewed: true }
 
-/** The user's own rows: always first on the main page. */
+/**
+ * Recently viewed is anchored: the first row on every Recipes page (main,
+ * a theme's page, a filtered page), whatever theme or filter is showing.
+ */
+export const PINNED_ROW_ID = 'recently-viewed'
+const PINNED_ROW: LibraryRowSpec = {
+  kind: 'library',
+  id: PINNED_ROW_ID,
+  title: 'Recently viewed',
+  filters: RECENTLY_VIEWED,
+}
+
+/** The user's own rows: always first on the main page, the anchored one leading. */
 export const YOUR_ROWS: LibraryRowSpec[] = [
+  PINNED_ROW,
   { kind: 'library', id: 'favorites', title: 'Your favorites', filters: { limit: CAROUSEL_LIMIT, liked: true } },
-  { kind: 'library', id: 'recently-viewed', title: 'Recently viewed', filters: RECENTLY_VIEWED },
   {
     kind: 'library',
     id: 'quick-meals',
@@ -186,14 +198,18 @@ export function buildPageRows(
     const theme = themes?.find((t) => t.key === themeKey)
     if (!theme) return { rows: [], heading: null }
     const rows = dedupe(theme.values.flatMap((v) => valueRows(theme.key, v)))
-    return { rows: applyFilters(rows, resolved), heading: { title: theme.label } }
+    return { rows: [PINNED_ROW, ...applyFilters(rows, resolved)], heading: { title: theme.label } }
   }
 
   if (resolved.length > 0) {
-    const candidates = dedupe([...YOUR_ROWS, ...resolved.flatMap((f) => valueRows(f.themeKey, f.value))])
+    const candidates = dedupe([
+      ...YOUR_ROWS.filter((row) => row.id !== PINNED_ROW_ID),
+      ...resolved.flatMap((f) => valueRows(f.themeKey, f.value)),
+    ])
     // No page heading: the theme bar already reads "Cuisine: Italian", and a
     // heading would sit right above the user's own "Italian" row.
-    return { rows: applyFilters(candidates, resolved), heading: null }
+    // The anchored row is not filtered: it is what you looked at, not a theme.
+    return { rows: [PINNED_ROW, ...applyFilters(candidates, resolved)], heading: null }
   }
 
   const sampler = (themes ?? [])

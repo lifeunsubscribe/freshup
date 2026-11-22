@@ -52,3 +52,14 @@ class GroceryListItem(Base):
     linked_meal_plan_entry_rel: Mapped[Optional["MealPlanEntry"]] = relationship(
         foreign_keys=[linked_meal_plan_entry]
     )
+
+    @property
+    def recipe_name(self) -> Optional[str]:
+        """Name of the recipe this item was added for, if any."""
+        return self.linked_recipe_rel.name if self.linked_recipe_rel is not None else None
+
+    @property
+    def plan_date(self):
+        """Day of the planned meal this item was added for, if any."""
+        entry = self.linked_meal_plan_entry_rel
+        return entry.date if entry is not None else None

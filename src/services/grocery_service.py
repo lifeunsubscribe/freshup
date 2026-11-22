@@ -53,6 +53,8 @@ def create_item(
     current_user: User,
     db: Session,
     target_store: Optional[UUID] = None,
+    linked_recipe: Optional[UUID] = None,
+    linked_meal_plan_entry: Optional[UUID] = None,
 ) -> GroceryListItem:
     """
     Create a new grocery list item.
@@ -68,6 +70,9 @@ def create_item(
         current_user: Authenticated user creating the item
         db: Database session
         target_store: Optional target store ID
+        linked_recipe: The recipe this item is for, when it comes from a planned meal
+        linked_meal_plan_entry: The planned meal it is for; removing that meal
+            takes the item off the list again while it is unpurchased
 
     Returns:
         GroceryListItem: Created grocery item
@@ -83,6 +88,8 @@ def create_item(
         source=source,
         added_by=current_user.id,
         target_store=target_store,
+        linked_recipe=linked_recipe,
+        linked_meal_plan_entry=linked_meal_plan_entry,
     )
 
     db.add(new_item)
@@ -133,8 +140,12 @@ def list_items(
     Returns:
         list[GroceryListItem]: List of grocery items matching filters
     """
-    # Start with base query - NO user filter (shared/global reads)
-    query = db.query(GroceryListItem)
+    # Start with base query - NO user filter (shared/global reads).
+    # The recipe and planned meal are read for every row (recipe_name, plan_date).
+    query = db.query(GroceryListItem).options(
+        selectinload(GroceryListItem.linked_recipe_rel),
+        selectinload(GroceryListItem.linked_meal_plan_entry_rel),
+    )
 
     # Apply purchased filter (default: unpurchased only)
     # This default behavior makes the grocery list focused on "what to buy"
@@ -299,6 +310,37 @@ def delete_item(
         f"Grocery item deleted: user_id={current_user.id}, "
         f"item_id={item_id}"
     )
+
+
+def mark_have(
+    item_id: UUID,
+    current_user: User,
+    db: Session,
+) -> None:
+    """
+    Take an item off the list because it is already in the house.
+
+    Unlike delete_item this is open to any authenticated user, as purchasing
+    is: whoever is looking in the cupboard can say "I have this".
+
+    Raises:
+        NotFoundError: If item doesn't exist
+        RuntimeError: If database error occurs
+    """
+    item = db.query(GroceryListItem).filter(GroceryListItem.id == item_id).first()
+    if not item:
+        raise NotFoundError("Grocery item not found")
+
+    try:
+        db.delete(item)
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error while taking grocery item {item_id} off the list")
+        logger.debug(f"Database error details: {e}")
+        raise RuntimeError("An error occurred while updating the grocery list") from e
+
+    logger.info(f"Grocery item marked as already in the house: user_id={current_user.id}, item_id={item_id}")
 
 
 def mark_purchased(
@@ -534,7 +576,11 @@ def get_items_by_store(
         }
     """
     # Build query with eager loading to prevent N+1 queries
-    query = db.query(GroceryListItem).options(selectinload(GroceryListItem.target_store_rel))
+    query = db.query(GroceryListItem).options(
+        selectinload(GroceryListItem.target_store_rel),
+        selectinload(GroceryListItem.linked_recipe_rel),
+        selectinload(GroceryListItem.linked_meal_plan_entry_rel),
+    )
 
     # Apply purchased filter
     if not include_purchased:

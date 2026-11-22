@@ -2101,3 +2101,132 @@ def test_remix_requires_a_sunday(client, auth_headers):
     )
 
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# The grocery list follows the plan
+# ---------------------------------------------------------------------------
+
+
+def _accepted_dinner(client, db_session, auth_headers, recipe, day=date(2025, 6, 2)):
+    """A draft entry for `recipe`, accepted through the API. Returns the entry id."""
+    entry = MealPlanEntry(
+        id=uuid4(),
+        date=day,
+        meal_type=MealType.dinner.value,
+        recipe_id=recipe.id,
+        planned_servings=4,
+        status=MealPlanStatus.draft.value,
+    )
+    db_session.add(entry)
+    db_session.commit()
+    response = client.put(f"/plan/entries/{entry.id}/confirm", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["grocery_items_added"] > 0
+    return entry.id
+
+
+def test_accepting_a_dinner_links_its_grocery_items_to_the_meal_and_recipe(
+    client, db_session, auth_headers, recipes_pool
+):
+    entry_id = _accepted_dinner(client, db_session, auth_headers, recipes_pool[0])
+
+    items = db_session.query(GroceryListItem).all()
+    assert items
+    for item in items:
+        assert item.linked_meal_plan_entry == entry_id
+        assert item.linked_recipe == recipes_pool[0].id
+        assert item.recipe_name == recipes_pool[0].name
+        assert item.plan_date == date(2025, 6, 2)
+
+
+def test_removing_an_accepted_dinner_takes_its_unpurchased_items_off_the_list(
+    client, db_session, auth_headers, recipes_pool, test_user
+):
+    db_session.add(RecipeIngredient(
+        id=uuid4(), recipe_id=recipes_pool[0].id, ingredient_name="Second Ingredient",
+        quantity=1.0, unit="cups", is_optional=False,
+    ))
+    db_session.commit()
+    entry_id = _accepted_dinner(client, db_session, auth_headers, recipes_pool[0])
+    items = db_session.query(GroceryListItem).order_by(GroceryListItem.item_name).all()
+    assert len(items) == 2
+    bought = items[0]
+    bought.purchased = True
+    other = GroceryListItem(
+        id=uuid4(), item_name="Dish soap", quantity=1.0, unit="unit",
+        source="manual", added_by=test_user.id,
+    )
+    db_session.add(other)
+    db_session.commit()
+    bought_id, other_id, unbought = bought.id, other.id, len(items) - 1
+
+    response = client.delete(f"/plan/entries/{entry_id}", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"grocery_items_removed": unbought}
+    db_session.expire_all()
+    left = {item.id: item for item in db_session.query(GroceryListItem).all()}
+    assert set(left) == {bought_id, other_id}
+    # What was already bought stays, no longer tied to the meal.
+    assert left[bought_id].linked_meal_plan_entry is None
+    assert db_session.query(MealPlanEntry).filter(MealPlanEntry.id == entry_id).count() == 0
+    week = client.get("/plan/week?week_start=2025-06-01", headers=auth_headers).json()
+    assert week["confirmed_entries"] == []
+
+
+def test_removing_a_suggestion_touches_no_grocery_items(
+    client, db_session, auth_headers, recipes_pool, test_user
+):
+    suggestion = MealPlanEntry(
+        id=uuid4(), date=date(2025, 6, 3), meal_type=MealType.dinner.value,
+        recipe_id=recipes_pool[1].id, planned_servings=4, status=MealPlanStatus.draft.value,
+    )
+    db_session.add(suggestion)
+    db_session.add(GroceryListItem(
+        id=uuid4(), item_name="Dish soap", quantity=1.0, unit="unit",
+        source="manual", added_by=test_user.id,
+    ))
+    db_session.commit()
+
+    response = client.delete(f"/plan/entries/{suggestion.id}", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"grocery_items_removed": 0}
+    assert db_session.query(GroceryListItem).count() == 1
+
+
+def test_removing_one_dinner_leaves_another_dinners_items(
+    client, db_session, auth_headers, recipes_pool
+):
+    """Two accepted dinners of the same recipe: each keeps its own items."""
+    first = _accepted_dinner(client, db_session, auth_headers, recipes_pool[0], date(2025, 6, 2))
+    second = _accepted_dinner(client, db_session, auth_headers, recipes_pool[0], date(2025, 6, 4))
+    per_dinner = db_session.query(GroceryListItem).count() // 2
+
+    client.delete(f"/plan/entries/{first}", headers=auth_headers)
+
+    db_session.expire_all()
+    left = db_session.query(GroceryListItem).all()
+    assert len(left) == per_dinner
+    assert {item.linked_meal_plan_entry for item in left} == {second}
+
+
+def test_removing_an_unknown_entry_returns_404(client, auth_headers):
+    response = client.delete(f"/plan/entries/{uuid4()}", headers=auth_headers)
+
+    assert response.status_code == 404
+
+
+def test_removing_an_entry_requires_authentication(client, db_session, recipes_pool):
+    entry = MealPlanEntry(
+        id=uuid4(), date=date(2025, 6, 3), meal_type=MealType.dinner.value,
+        recipe_id=recipes_pool[1].id, planned_servings=4, status=MealPlanStatus.draft.value,
+    )
+    db_session.add(entry)
+    db_session.commit()
+
+    response = client.delete(f"/plan/entries/{entry.id}")
+
+    assert response.status_code in (401, 403)
+    assert db_session.query(MealPlanEntry).count() == 1

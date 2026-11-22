@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../client'
+import { groceryKeys } from './useGrocery'
 import type {
   CreateEntryRequest,
   MealPlanEntry,
@@ -8,6 +9,7 @@ import type {
   ConfirmEntryResponse,
   SwapEntryResponse,
   RemixWeekResponse,
+  RemoveEntryResponse,
 } from '../types'
 
 export const planKeys = {
@@ -62,6 +64,26 @@ export function useConfirmEntry() {
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: planKeys.all })
+      // Accepting a dinner puts its ingredients on the grocery list.
+      queryClient.invalidateQueries({ queryKey: groceryKeys.all })
+    },
+  })
+}
+
+/**
+ * Take a dinner off the plan, suggested or accepted. Its unpurchased grocery
+ * items come off the list with it.
+ */
+export function useRemovePlanEntry() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (entryId: string) =>
+      apiClient<RemoveEntryResponse>(`/plan/entries/${encodeURIComponent(entryId)}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: planKeys.all })
+      queryClient.invalidateQueries({ queryKey: groceryKeys.all })
     },
   })
 }

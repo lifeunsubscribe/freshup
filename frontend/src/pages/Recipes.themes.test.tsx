@@ -306,7 +306,7 @@ describe('Recipes page — themes', () => {
   })
 
   describe('theme page ("See all")', () => {
-    it("shows every list in the theme and none of the user's own rows", async () => {
+    it("shows every list in the theme under Recently viewed, and none of the user's other rows", async () => {
       vi.mocked(useRecipeList).mockReturnValue({ data: [recipe('r1', ['italian'])], isLoading: false, isError: false, error: null } as never)
       const user = userEvent.setup()
       renderPage()
@@ -320,7 +320,9 @@ describe('Recipes page — themes', () => {
       expect(region('Thai Recipes')).toBeInTheDocument()
       expect(region('Korean Recipes')).toBeInTheDocument()
       expect(region('Chicken Recipes')).not.toBeInTheDocument()
-      expect(screen.queryByRole('heading', { name: 'Recently viewed.' })).not.toBeInTheDocument()
+      // Recently viewed is anchored to the top of every Recipes page.
+      expect(region('Recently viewed')).toBeInTheDocument()
+      expect(region('Your favorites')).not.toBeInTheDocument()
     })
 
     it("labels the user's list with its source", () => {
@@ -337,7 +339,8 @@ describe('Recipes page — themes', () => {
 
   describe('theme filter', () => {
     it('keeps whole lists that are Italian or contain an Italian recipe, hides the rest', async () => {
-      // Favorites contains an Italian recipe; Recently viewed and Quick meals do not
+      // Favorites contains an Italian recipe; Recently viewed and Quick meals do not.
+      // Recently viewed stays anyway: it is anchored, not a themed list.
       vi.mocked(useRecipeList).mockImplementation((filters) =>
         ({
           data: (filters as { liked?: boolean } | undefined)?.liked
@@ -359,7 +362,8 @@ describe('Recipes page — themes', () => {
       const favorites = region('Your favorites')!
       expect(within(favorites).getByText('Recipe fav-1')).toBeInTheDocument()
       expect(within(favorites).getByText('Recipe fav-2')).toBeInTheDocument()
-      expect(region('Recently viewed')).not.toBeInTheDocument()
+      expect(region('Recently viewed')).toBeInTheDocument()
+      expect(region('Quick meals')).not.toBeInTheDocument()
 
       // The user's own Italian list and HelloFresh's, each separate
       expect(region('Italian')).toBeInTheDocument()

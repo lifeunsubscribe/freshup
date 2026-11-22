@@ -20,6 +20,7 @@ vi.mock('../api', () => ({
   useOpenCard: vi.fn(),
   useCreatePlanEntry: vi.fn(),
   useRemixWeek: vi.fn(),
+  useRemovePlanEntry: vi.fn(),
 }))
 
 vi.mock('../api/hooks/useRecipes', () => ({
@@ -405,6 +406,39 @@ describe('Week editor', () => {
         expect.anything()
       )
       expect(screen.getByLabelText('Meals in this plan: dinner')).toBeInTheDocument()
+    })
+
+    it('removes a dinner and says what came off the grocery list', () => {
+      planMocks.weeks[THIS_WEEK] = {
+        confirmed_entries: [entry('2026-11-16', { status: 'approved', recipe_id: 'recipe-1' })],
+        draft_entries: [entry('2026-11-17')],
+      }
+      planMocks.removeMutate.mockImplementation((_id, options) =>
+        options.onSuccess({ grocery_items_removed: 5 })
+      )
+      setup()
+
+      renderWeek()
+      fireEvent.click(screen.getByRole('button', { name: 'Remove Monday dinner' }))
+
+      expect(planMocks.removeMutate).toHaveBeenCalledWith('entry-2026-11-16', expect.anything())
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Removed. Took 5 items off your grocery list.'
+      )
+      // A suggestion can be removed too.
+      expect(screen.getByRole('button', { name: 'Remove Tuesday dinner' })).toBeInTheDocument()
+    })
+
+    it('says only "Removed." when nothing was on the grocery list for it', () => {
+      planMocks.removeMutate.mockImplementation((_id, options) =>
+        options.onSuccess({ grocery_items_removed: 0 })
+      )
+      setup()
+
+      renderWeek()
+      fireEvent.click(screen.getByRole('button', { name: 'Remove Monday dinner' }))
+
+      expect(screen.getByRole('status')).toHaveTextContent(/^Removed\.$/)
     })
 
     it('swaps one', () => {
